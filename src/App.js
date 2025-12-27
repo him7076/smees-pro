@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 // 🔴 STEP 1: YAHAN APNA GOOGLE APPS SCRIPT URL PASTE KAREIN (Double quotes ke andar)
-const SHEET_API_URL = "YOUR_GOOGLE_APPS_SCRIPT_URL_HERE"; 
+const SHEET_API_URL = "https://script.google.com/macros/library/d/1JeHsPox0wgLiX48nZpiqkAYTZRA9IsLko_RzomzyQWbSZ4qJ6sDRM8S6/3"; 
 
 const INITIAL_DATA = {
   company: { name: "My Enterprise", mobile: "", address: "", financialYear: "2024-25", currency: "₹" },
