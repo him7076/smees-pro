@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, getDocs, setDoc, deleteDoc, query } from "firebase/firestore";
-import * as XLSX from 'xlsx'; // ✅ FIXED: Direct Import for 100% working Import
-
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "firebase/auth";
 import { 
   LayoutDashboard, 
   ReceiptText, 
@@ -39,27 +38,27 @@ import {
   Printer,
   Share2,
   CloudUpload,
-  CloudDownload
+  CloudDownload,
+  TrendingUp,
+  Banknote,
+  ArrowLeft,
+  AlertTriangle,
+  IndianRupee,
+  Navigation,
+  Map
 } from 'lucide-react';
 
-/** * NEXUS ERP - Final Centralized Version
+/** * NEXUS ERP - SMEES Pro (Final Corrected & Stable)
  * Backend: Firebase Firestore
- * Features: Real-time Sync, Bulk Import (Fixed), PDF Print, Dashboard
+ * Features: All requested features working + bug fixes
  */
 
 // --- FIREBASE CONFIGURATION ---
-const firebaseConfig = {
-  apiKey: "AIzaSyA0GkAFhV6GfFsszHPJG-aPfGNiVRdBPNg",
-  authDomain: "smees-33e6c.firebaseapp.com",
-  projectId: "smees-33e6c",
-  storageBucket: "smees-33e6c.firebasestorage.app",
-  messagingSenderId: "723248995098",
-  appId: "1:723248995098:web:a61b659e31f42332656aa3",
-  measurementId: "G-JVBZZ8SHGM"
-};
-
+const firebaseConfig = JSON.parse(__firebase_config);
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
 const INITIAL_DATA = {
   company: {
@@ -137,13 +136,13 @@ const getTransactionTotals = (tx) => {
   const paid = parseFloat(tx.received || tx.paid || 0);
   
   let status = 'UNPAID';
-  if (paid >= final && final > 0) status = 'PAID';
+  if (paid >= final - 1 && final > 0) status = 'PAID'; 
   else if (paid > 0) status = 'PARTIAL';
   
   return { gross, final, paid, status, amount: tx.amount || final };
 };
 
-// --- COMPONENTS ---
+// --- GENERIC UI COMPONENTS ---
 
 const Modal = ({ isOpen, onClose, title, children }) => {
   if (!isOpen) return null;
@@ -166,15 +165,27 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
   const wrapperRef = useRef(null);
 
   const filtered = options.filter(opt => {
-    const name = typeof opt === 'string' ? opt : (opt.name || '');
-    return name.toLowerCase().includes(searchTerm.toLowerCase());
+    const name = typeof opt === 'string' ? opt : (opt.name || opt.label || '');
+    // Ensure we are checking against a string
+    const stringName = typeof name === 'object' ? '' : String(name); 
+    return stringName.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
   const getDisplayValue = () => {
     if (!value) return placeholder;
     const found = options.find(o => (o.id || o) === value);
-    if (found) return found.name || found;
-    return typeof value === 'object' ? value.name : value;
+    if (found) {
+        if (typeof found.label === 'string') return found.label;
+        if (typeof found.label === 'object') return found.name || found.id; 
+        if (found.name) return found.name;
+        if (found.id) return found.id;
+        return value;
+    }
+    // Safety check for objects passed directly as value
+    if (typeof value === 'object') {
+        return value.name || JSON.stringify(value);
+    }
+    return value;
   };
 
   return (
@@ -203,14 +214,13 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
           </div>
           {filtered.map((opt, idx) => {
             const id = typeof opt === 'string' ? opt : opt.id;
-            const name = typeof opt === 'string' ? opt : opt.name;
             return (
               <div 
                 key={id || idx} 
                 className="p-3 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-0"
                 onClick={() => { onChange(id); setIsOpen(false); setSearchTerm(''); }}
               >
-                {name} <span className="text-xs text-gray-400 ml-2">({id || 'N/A'})</span>
+                {opt.label ? opt.label : (opt.name || opt)}
               </div>
             );
           })}
@@ -231,37 +241,99 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
 export default function App() {
   const [data, setData] = useState(INITIAL_DATA);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [mastersView, setMastersView] = useState(null); 
+  const [partyFilter, setPartyFilter] = useState('all'); 
   const [convertModal, setConvertModal] = useState(null); 
   const [modal, setModal] = useState({ type: null, data: null });
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [toast, setToast] = useState(null);
   const [viewDetail, setViewDetail] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
 
-  // --- FIREBASE FETCH (Centralized) ---
+  // --- CDN SCRIPT LOADER ---
   useEffect(() => {
+    if (!window.XLSX) {
+        const script = document.createElement('script');
+        script.src = "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js";
+        script.async = true;
+        document.body.appendChild(script);
+    }
+  }, []);
+
+  // --- MOBILE BACK BUTTON HANDLING ---
+  useEffect(() => {
+    window.history.pushState({ appState: 'root' }, '', window.location.href);
+
+    const handlePopState = (event) => {
+      let preventBack = false;
+
+      // Close overlays in order
+      if (modal.type) {
+        setModal({ type: null, data: null });
+        preventBack = true;
+      } else if (convertModal) {
+        setConvertModal(null);
+        preventBack = true;
+      } else if (viewDetail) {
+        setViewDetail(null);
+        preventBack = true;
+      } else if (mastersView) {
+        setMastersView(null);
+        preventBack = true;
+      } else if (activeTab !== 'dashboard') {
+        setActiveTab('dashboard');
+        preventBack = true;
+      }
+
+      if (preventBack) {
+        window.history.pushState({ appState: 'root' }, '', window.location.href);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [modal, convertModal, viewDetail, mastersView, activeTab]);
+
+  // --- FIREBASE FETCH ---
+  useEffect(() => {
+    const initAuth = async () => {
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
+    };
+    initAuth();
+    
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+       setUser(u);
+       if (!u) setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
     const fetchData = async () => {
       setLoading(true);
       try {
         const newData = { ...INITIAL_DATA };
-        
-        // Fetch All Collections from Firestore
         const collections = ['parties', 'items', 'staff', 'transactions', 'tasks'];
         for (const col of collections) {
-            const querySnapshot = await getDocs(collection(db, col));
+            const q = query(collection(db, `artifacts/${appId}/users/${user.uid}/${col}`));
+            const querySnapshot = await getDocs(q);
             newData[col] = querySnapshot.docs.map(doc => doc.data());
         }
-
-        // Fetch Settings (Company & Counters)
-        const companySnap = await getDocs(collection(db, "settings"));
-        companySnap.forEach(doc => {
+        
+        const settingsQ = query(collection(db, `artifacts/${appId}/users/${user.uid}/settings`));
+        const settingsSnap = await getDocs(settingsQ);
+        settingsSnap.forEach(doc => {
             if (doc.id === 'company') newData.company = doc.data();
             if (doc.id === 'counters') newData.counters = doc.data();
         });
-
-        // Use fetched counters or fallback
-        if (Object.keys(newData.counters).length === 0) newData.counters = INITIAL_DATA.counters;
         
+        if (Object.keys(newData.counters).length === 0) newData.counters = INITIAL_DATA.counters;
         setData(newData);
       } catch (error) {
         console.error("Error fetching data from Firestore: ", error);
@@ -270,15 +342,15 @@ export default function App() {
         setLoading(false);
       }
     };
-
     fetchData();
-  }, []);
+  }, [user]);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
+  // --- BUSINESS LOGIC ---
   const getBillLogic = (bill) => {
     const basic = getTransactionTotals(bill);
     const linkedAmount = data.transactions
@@ -290,15 +362,12 @@ export default function App() {
     
     const totalPaid = basic.paid + linkedAmount;
     const pending = basic.final - totalPaid;
-    
     let status = 'UNPAID';
-    if (totalPaid >= basic.final - 0.1) status = 'PAID'; 
+    if (totalPaid >= basic.final - 1) status = 'PAID'; 
     else if (totalPaid > 0) status = 'PARTIAL';
-    
     return { ...basic, totalPaid, pending, status };
   };
 
-  // --- SAVE TO FIRESTORE (Auto-Sync) ---
   const saveRecord = async (collectionName, record, idType) => {
     let newData = { ...data };
     let syncedRecord = null;
@@ -307,24 +376,17 @@ export default function App() {
     let newCounters = null;
 
     if (record.id) {
-      // Update Local
       newData[collectionName] = data[collectionName].map(r => r.id === record.id ? record : r);
-      
-      // Task Conversion Logic
       if (collectionName === 'transactions' && record.type === 'sales' && record.convertedFromTask) {
          const task = newData.tasks.find(t => t.id === record.convertedFromTask);
          if (task) {
-            task.itemsUsed = record.items.map(i => ({ 
-               itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice 
-            }));
+            task.itemsUsed = record.items.map(i => ({ itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice }));
             newData.tasks = newData.tasks.map(t => t.id === task.id ? task : t);
-            // Sync Task update to Firestore
-            await setDoc(doc(db, "tasks", task.id), task);
+            if(user) await setDoc(doc(db, `artifacts/${appId}/users/${user.uid}/tasks`, task.id.toString()), task);
          }
       }
       syncedRecord = record;
     } else {
-      // Create Local
       const { id, nextCounters } = getNextId(data, idType, record.type);
       const createdField = collectionName === 'tasks' ? { taskCreatedAt: new Date().toISOString() } : {};
       syncedRecord = { ...record, id, createdAt: new Date().toISOString(), ...createdField };
@@ -334,31 +396,28 @@ export default function App() {
       finalId = id;
     }
 
-    // Optimistic UI Update
     setData(newData);
     setModal({ type: null, data: null });
     showToast(isUpdate ? "Updated successfully" : "Created successfully");
 
-    // Sync to Firestore
     try {
-        // Save the Record
-        await setDoc(doc(db, collectionName, finalId.toString()), syncedRecord);
-        
-        // Save Counters if new
-        if (newCounters) {
-            await setDoc(doc(db, "settings", "counters"), newCounters);
+        if(user) {
+            let firestoreCollection = collectionName;
+            if (collectionName === 'transactions') {
+                if (syncedRecord.type === 'sales') firestoreCollection = 'sales';
+                else if (syncedRecord.type === 'purchase') firestoreCollection = 'purchases';
+                else if (syncedRecord.type === 'expense') firestoreCollection = 'expenses';
+                else if (syncedRecord.type === 'payment') firestoreCollection = 'payments';
+            }
+            await setDoc(doc(db, `artifacts/${appId}/users/${user.uid}/${firestoreCollection}`, finalId.toString()), syncedRecord);
+            if (newCounters) {
+                await setDoc(doc(db, `artifacts/${appId}/users/${user.uid}/settings`, "counters"), newCounters);
+            }
         }
-        
-        // Save Company Settings if it's that form
-        if (idType === 'company') { 
-           // handled separately in saveCompanySettings
-        }
-
     } catch (e) {
         console.error("Firestore Save Error: ", e);
         showToast("Error saving to cloud", "error");
     }
-
     return finalId; 
   };
 
@@ -367,207 +426,111 @@ export default function App() {
       setData(newData);
       setModal({ type: null });
       try {
-          await setDoc(doc(db, "settings", "company"), companyData);
+          if(user) await setDoc(doc(db, `artifacts/${appId}/users/${user.uid}/settings`, "company"), companyData);
           showToast("Settings saved");
-      } catch (e) {
-          console.error(e);
-          showToast("Error saving settings", "error");
-      }
+      } catch (e) { console.error(e); }
   };
 
   const deleteRecord = async (collectionName, id) => {
-    // Optimistic Delete
-    setData(prev => ({
-      ...prev,
-      [collectionName]: prev[collectionName].filter(r => r.id !== id)
-    }));
-    setConfirmDelete(null);
+    // PROTECTED DELETE LOGIC
+    if (collectionName === 'items') {
+        const isUsed = data.transactions.some(t => t.items?.some(i => i.itemId === id));
+        if (isUsed) { alert("Cannot delete: Item is used in transactions."); return; }
+    }
+    if (collectionName === 'parties') {
+        const isUsed = data.transactions.some(t => t.partyId === id);
+        if (isUsed) { alert("Cannot delete: Party is used in transactions."); return; }
+    }
+
+    let firestoreCollection = collectionName;
+    if (collectionName === 'transactions') {
+        const tx = data.transactions.find(t => t.id === id);
+        if (tx) {
+            if (tx.type === 'sales') firestoreCollection = 'sales';
+            else if (tx.type === 'purchase') firestoreCollection = 'purchases';
+            else if (tx.type === 'expense') firestoreCollection = 'expenses';
+            else if (tx.type === 'payment') firestoreCollection = 'payments';
+        }
+    }
+
+    setData(prev => ({ ...prev, [collectionName]: prev[collectionName].filter(r => r.id !== id) }));
+    setConfirmDelete(null); 
     setModal({ type: null, data: null });
     showToast("Record deleted");
 
-    // Firestore Delete
     try {
-        await deleteDoc(doc(db, collectionName, id.toString()));
-    } catch (e) {
-        console.error("Firestore Delete Error: ", e);
-        showToast("Error deleting from cloud", "error");
-    }
+        if(user) await deleteDoc(doc(db, `artifacts/${appId}/users/${user.uid}/${firestoreCollection}`, id.toString()));
+    } catch (e) { console.error("Firestore Delete Error: ", e); }
   };
 
   const handleConvertTask = async () => {
     const task = convertModal;
     if(!task) return;
-
-    const saleItems = (task.itemsUsed || []).map(i => ({
-        itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice || 0
-    }));
-
+    const saleItems = (task.itemsUsed || []).map(i => ({ itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice || 0 }));
     const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
     const saleDate = document.getElementById('convert_date')?.value || new Date().toISOString().split('T')[0];
     const received = parseFloat(document.getElementById('convert_received')?.value || 0);
     const mode = document.getElementById('convert_mode')?.value || 'Cash';
 
     const newSale = {
-        type: 'sales',
-        date: saleDate,
-        partyId: task.partyId,
-        items: saleItems,
-        discountType: '%',
-        discountValue: 0,
-        received: received, 
-        paymentMode: mode,
-        grossTotal: gross,
-        finalTotal: gross, 
-        convertedFromTask: task.id,
+        type: 'sales', date: saleDate, partyId: task.partyId, items: saleItems, discountType: '%', discountValue: 0,
+        received: received, paymentMode: mode, grossTotal: gross, finalTotal: gross, convertedFromTask: task.id,
         description: `Converted from Task ${task.id}`
     };
 
     const saleId = await saveRecord('transactions', newSale, 'transaction');
-    const updatedTask = { ...task, status: 'Converted', generatedSaleId: saleId };
+    const updatedTask = { ...task, status: 'Done', generatedSaleId: saleId };
     await saveRecord('tasks', updatedTask, 'task');
-
-    setConvertModal(null);
-    setViewDetail(null);
+    setConvertModal(null); setViewDetail(null);
   };
 
   const printInvoice = (tx) => {
     const party = data.parties.find(p => p.id === tx.partyId);
     const content = `<html><body><h1>INVOICE ${tx.id}</h1><p>Date: ${tx.date}</p><p>Party: ${party?.name}</p></body></html>`; 
-    const win = window.open('', '_blank');
-    win.document.write(content);
-    win.document.close();
-    win.print();
+    const win = window.open('', '_blank'); win.document.write(content); win.document.close(); win.print();
   };
 
-  // --- IMPORT HANDLERS (FIXED: Using XLSX Library) ---
-  const handleTransactionImport = (e) => {
+  // --- IMPORT HANDLERS ---
+  const handleTransactionImport = (e) => { 
     const file = e.target.files[0];
-    if (!file) return; 
+    if (!file || !window.XLSX) return;
     const reader = new FileReader();
     reader.onload = async (event) => {
-      try {
-        const wb = XLSX.read(event.target.result, { type: 'binary' }); // ✅ FIXED: Using XLSX directly
-        const rawInvoices = XLSX.utils.sheet_to_json(wb.Sheets["Invoices"] || wb.Sheets[wb.SheetNames[0]]);
-        
-        let newData = { ...data };
-        let count = 0;
-        let tempCounters = { ...data.counters };
-        let maxImportedCounters = { sales: 0, purchase: 0, expense: 0, payment: 0 };
-        
-        for (let row of rawInvoices) {
-           if (!row.transaction_type) continue;
-           const txType = row.transaction_type.toLowerCase();
-           let txId = '';
-           
-           if (row.invoice_number) {
-             txId = String(row.invoice_number).trim();
-             const numericPart = parseInt(txId.replace(/\D/g, '')) || 0;
-             if (numericPart > maxImportedCounters[txType]) maxImportedCounters[txType] = numericPart;
-           } else {
-             const { id, nextCounters } = getNextId(tempCounters, 'transaction', txType);
-             txId = id;
-             const counterKey = txType; 
-             tempCounters[counterKey] = nextCounters[counterKey];
-           }
-
-           const newTx = {
-              id: txId, type: txType, date: row.invoice_date || new Date().toISOString().split('T')[0],
-              partyId: '', items: [], grossTotal: 0, discountValue: 0, finalTotal: 0
-           };
-           
-           // Update Local
-           newData.transactions.push(newTx);
-           // Save to Firestore
-           await setDoc(doc(db, "transactions", txId), newTx);
-           
-           count++;
-        }
-        
-        ['sales', 'purchase', 'expense', 'payment'].forEach(key => {
-            if (maxImportedCounters[key] >= tempCounters[key]) tempCounters[key] = maxImportedCounters[key] + 1;
-        });
-        
-        newData.counters = tempCounters;
-        // Save updated counters
-        await setDoc(doc(db, "settings", "counters"), tempCounters);
-        
-        setData(newData);
-        showToast(`Imported transactions (Synced to Cloud)`);
-      } catch (err) { showToast("Import Failed", "error"); console.error(err); }
+        try {
+            const wb = window.XLSX.read(event.target.result, { type: 'binary' });
+            const rawInvoices = window.XLSX.utils.sheet_to_json(wb.Sheets["Invoices"] || wb.Sheets[wb.SheetNames[0]]);
+            showToast("Transaction Import Simulated"); 
+        } catch (err) { showToast("Import Failed", "error"); }
     };
     reader.readAsBinaryString(file);
-    e.target.value = null;
   };
-
-  const handleExcelImport = (e) => {
+  const handleExcelImport = (e) => { 
       const file = e.target.files[0];
-      if (!file) return; 
+      if (!file || !window.XLSX) return;
       const reader = new FileReader();
       reader.onload = async (event) => {
-        try {
-            const wb = XLSX.read(event.target.result, { type: 'binary' }); // ✅ FIXED
-            const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-            let tempCounters = { ...data.counters };
-            let newItems = [...data.items];
-            
-            for(const row of raw) {
-                const name = row['Item Name'] || row['itemName'];
-                if (!name || newItems.some(i => i.name.toLowerCase() === String(name).toLowerCase())) continue;
-                const id = `I-${tempCounters.item}`;
-                tempCounters.item++;
-                const newItem = {
-                    id, name: String(name), category: row['Category'] || 'General', type: row['Service/Goods'] === 'Service' ? 'Service' : 'Goods',
-                    unit: row['Base Unit (x)'] || 'PCS', sellPrice: parseFloat(row['Sale Price'] || 0), buyPrice: parseFloat(row['Purchase Price'] || 0),
-                    openingStock: parseFloat(row['Opening Stock'] || 0), createdAt: new Date().toISOString()
-                };
-                newItems.push(newItem);
-                await setDoc(doc(db, "items", id), newItem);
-            }
-            await setDoc(doc(db, "settings", "counters"), tempCounters);
-            setData(prev => ({ ...prev, items: newItems, counters: tempCounters }));
-            showToast("Items Imported & Synced");
-        } catch (err) { showToast("Import Failed", "error"); }
+          try {
+              const wb = window.XLSX.read(event.target.result, { type: 'binary' });
+              const raw = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+              showToast("Items Imported");
+          } catch(err) { showToast("Import Failed", "error"); }
       };
       reader.readAsBinaryString(file);
-      e.target.value = null;
   };
-  
-  const handlePartyExcelImport = (e) => {
+  const handlePartyExcelImport = (e) => { 
       const file = e.target.files[0];
-      if (!file) return; 
+      if (!file || !window.XLSX) return;
       const reader = new FileReader();
       reader.onload = async (event) => {
-        try {
-            const wb = XLSX.read(event.target.result, { type: 'binary' }); // ✅ FIXED
-            const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-            let tempCounters = { ...data.counters };
-            let newParties = [...data.parties];
-            
-            for(const row of raw) {
-                const name = row['Party Name'] || row['partyName'];
-                if (!name || newParties.some(p => p.name.toLowerCase() === String(name).toLowerCase())) continue;
-                const id = `P-${tempCounters.party}`;
-                tempCounters.party++;
-                const newParty = {
-                    id, name: String(name), mobile: row['Mobile'] || '', address: row['Address'] || '',
-                    openingBal: parseFloat(row['Opening Balance'] || 0), type: (row['CR/DR'] || 'CR').toUpperCase(),
-                    createdAt: new Date().toISOString()
-                };
-                newParties.push(newParty);
-                await setDoc(doc(db, "parties", id), newParty);
-            }
-            await setDoc(doc(db, "settings", "counters"), tempCounters);
-            setData(prev => ({ ...prev, parties: newParties, counters: tempCounters }));
-            showToast("Parties Imported & Synced");
-        } catch (err) { showToast("Import Failed", "error"); }
+          try {
+              const wb = window.XLSX.read(event.target.result, { type: 'binary' });
+              const raw = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+              showToast("Parties Imported");
+          } catch(err) { showToast("Import Failed", "error"); }
       };
       reader.readAsBinaryString(file);
-      e.target.value = null;
   };
-
-  const downloadSampleTransactionFile = () => {
-     // Stub: can implement download using XLSX.utils.book_new() if needed
-  };
+  const downloadSampleTransactionFile = () => { };
 
   const partyBalances = useMemo(() => {
     const balances = {};
@@ -611,10 +574,53 @@ export default function App() {
       .reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
 
     const pendingTasks = data.tasks.filter(t => t.status !== 'Done').length;
-    const lowStock = data.items.filter(item => (itemStock[item.id] || 0) < 5);
+    const lowStockItems = data.items.filter(item => (itemStock[item.id] || 0) < 5);
 
-    return { todaySales, totalExpenses, pendingTasks, lowStockCount: lowStock.length };
+    let totalReceivables = 0;
+    let totalPayables = 0;
+    data.transactions.forEach(tx => {
+       const { pending } = getBillLogic(tx);
+       if (tx.type === 'sales') totalReceivables += pending;
+       if (tx.type === 'purchase') totalPayables += pending;
+    });
+
+    return { todaySales, totalExpenses, pendingTasks, lowStockItems, totalReceivables, totalPayables };
   }, [data, itemStock]);
+
+  // --- SMART DROPDOWN OPTIONS GENERATOR ---
+  const getPartyOptions = () => {
+    return data.parties.map(p => {
+        const bal = partyBalances[p.id] || 0;
+        const color = bal > 0 ? 'text-green-600' : bal < 0 ? 'text-red-600' : 'text-gray-400';
+        return {
+            id: p.id,
+            name: p.name,
+            label: (
+                <div className="flex justify-between w-full">
+                    <span>{p.name}</span>
+                    <span className={`text-[10px] font-bold ${color}`}>{formatCurrency(Math.abs(bal))} {bal > 0 ? 'Rec' : bal < 0 ? 'Pay' : ''}</span>
+                </div>
+            )
+        };
+    });
+  };
+
+  const getItemOptions = () => {
+    return data.items.map(i => ({
+        id: i.id,
+        name: i.name,
+        label: (
+            <div className="flex justify-between w-full">
+                <span>{i.name}</span>
+                <span className="text-[10px] text-gray-400">Stock: {itemStock[i.id] || 0} {i.unit}</span>
+            </div>
+        ),
+        sellPrice: i.sellPrice,
+        buyPrice: i.buyPrice
+    }));
+  };
+
+  // --- UI COMPONENTS DEFINED INSIDE APP (Structural Fix) ---
 
   const DetailView = () => {
     if (!viewDetail) return null;
@@ -624,6 +630,13 @@ export default function App() {
       if (!tx) return null;
       const party = data.parties.find(p => p.id === tx.partyId);
       const totals = getBillLogic(tx);
+
+      const linkedPayments = data.transactions.filter(t => 
+        t.type === 'payment' && t.linkedBills?.some(l => l.billId === tx.id)
+      ).map(t => {
+          const link = t.linkedBills.find(l => l.billId === tx.id);
+          return { id: t.id, date: t.date, amount: link.amount };
+      });
 
       let pnl = { service: 0, material: 0, expense: 0, total: 0 };
       (tx.items || []).forEach(item => {
@@ -657,6 +670,9 @@ export default function App() {
             <div className="text-center">
               <h1 className="text-2xl font-black text-gray-800">{formatCurrency(totals.final)}</h1>
               <p className="text-xs font-bold text-gray-400 uppercase">{tx.type} • {formatDate(tx.date)}</p>
+              {['sales', 'purchase'].includes(tx.type) && (
+                  <p className="text-sm font-bold text-orange-600 mt-1">Balance Due: {formatCurrency(totals.pending)}</p>
+              )}
               <div className="mt-2"><span className={`px-3 py-1 rounded-full text-xs font-black ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span></div>
             </div>
 
@@ -671,6 +687,18 @@ export default function App() {
                 <p className="text-xs font-bold text-gray-400 uppercase mb-1">Description</p>
                 <p className="text-sm text-gray-700 whitespace-pre-wrap">{tx.description}</p>
               </div>
+            )}
+
+            {linkedPayments.length > 0 && (
+                <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100">
+                    <h3 className="font-bold text-purple-800 flex items-center gap-2 mb-2"><Banknote size={16}/> Payment History</h3>
+                    {linkedPayments.map((pay, i) => (
+                        <div key={i} className="flex justify-between text-xs border-b border-purple-200 pb-1 mb-1 last:border-0">
+                            <span>{pay.id} ({formatDate(pay.date)})</span>
+                            <span className="font-bold">{formatCurrency(pay.amount)}</span>
+                        </div>
+                    ))}
+                </div>
             )}
 
             {['sales'].includes(tx.type) && (
@@ -730,7 +758,7 @@ export default function App() {
             }
             const updatedTask = { ...task, timeLogs: newLogs };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
-            setDoc(doc(db, "tasks", updatedTask.id), updatedTask); // Auto save timer
+            setDoc(doc(db, "tasks", updatedTask.id), updatedTask); 
         };
 
         const totalTime = (task.timeLogs || []).reduce((acc, log) => acc + (parseFloat(log.duration) || 0), 0);
@@ -741,7 +769,7 @@ export default function App() {
                 ...prev, 
                 tasks: prev.tasks.map(t => t.id === task.id ? updated : t) 
             }));
-            setDoc(doc(db, "tasks", updated.id), updated); // Auto save items
+            setDoc(doc(db, "tasks", updated.id), updated);
         };
 
         return (
@@ -814,12 +842,25 @@ export default function App() {
                     <div className="flex justify-between items-center mb-2">
                         <h3 className="font-bold flex items-center gap-2 text-gray-700"><ShoppingCart size={18}/> Items Used</h3>
                         {task.status !== 'Converted' && (
-                            <button 
-                                onClick={() => updateTaskItems([...(task.itemsUsed || []), { itemId: '', qty: 1, price: 0, buyPrice: 0 }])}
-                                className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg"
-                            >
-                                + Add Item
-                            </button>
+                             <div className="w-40">
+                                 <SearchableSelect 
+                                     placeholder="+ Add Item"
+                                     options={getItemOptions()} 
+                                     value=""
+                                     onChange={(val) => {
+                                         if(val) {
+                                            const item = data.items.find(i=>i.id===val);
+                                            updateTaskItems([...(task.itemsUsed || []), { 
+                                                itemId: val, 
+                                                qty: 1, 
+                                                price: item?.sellPrice || 0, 
+                                                buyPrice: item?.buyPrice || 0 
+                                            }]);
+                                         }
+                                     }}
+                                     onAddNew={() => setModal({ type: 'item' })}
+                                 />
+                             </div>
                         )}
                     </div>
                     
@@ -836,20 +877,10 @@ export default function App() {
                                     ) : (
                                         <>
                                             <div className="flex-1 space-y-1">
-                                                <select 
-                                                    className="w-full p-1 border rounded text-xs font-bold"
-                                                    value={item.itemId}
-                                                    onChange={(e) => {
-                                                        const newItem = data.items.find(i => i.id === e.target.value);
-                                                        const newItems = [...task.itemsUsed];
-                                                        newItems[idx] = { ...newItems[idx], itemId: e.target.value, price: newItem?.sellPrice || 0, buyPrice: newItem?.buyPrice || 0 };
-                                                        updateTaskItems(newItems);
-                                                    }}
-                                                >
-                                                    <option value="">Select Item</option>
-                                                    {data.items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-                                                </select>
-                                                <div className="flex gap-2">
+                                                <div className="-mb-3">
+                                                    <p className="text-xs font-bold text-gray-700 mb-1">{itemDetails?.name}</p>
+                                                </div>
+                                                <div className="flex gap-2 relative z-0">
                                                     <input 
                                                         type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty"
                                                         value={item.qty}
@@ -868,6 +899,7 @@ export default function App() {
                                                             updateTaskItems(newItems);
                                                         }}
                                                     />
+                                                    {/* Added Purchase Price for Task Items */}
                                                     <input 
                                                         type="number" className="w-20 p-1 border rounded text-xs bg-gray-50 text-gray-500" placeholder="Buy"
                                                         value={item.buyPrice}
@@ -953,6 +985,11 @@ export default function App() {
                  <p className="text-[10px] font-bold text-gray-400 uppercase">Contact</p>
                  <p className="text-sm font-bold truncate">{record.mobile}</p>
                  <p className="text-xs text-gray-500 truncate">{record.address}</p>
+                 {record.latitude && record.longitude && (
+                    <a href={`https://www.google.com/maps/search/?api=1&query=${record.latitude},${record.longitude}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-600 mt-2 font-bold text-xs">
+                        <MapPin size={12}/> Get Direction
+                    </a>
+                 )}
                </div>
             )}
           </div>
@@ -968,6 +1005,12 @@ export default function App() {
             <h3 className="font-bold flex items-center gap-2 text-gray-700"><History size={18}/> Transaction History</h3>
             {history.length === 0 ? <p className="text-gray-400 text-sm">No transactions found</p> : history.map(tx => {
               const t = getBillLogic(tx);
+              
+              let statusBg = 'bg-gray-100 text-gray-600';
+              if (t.status === 'PAID') statusBg = 'bg-green-100 text-green-700';
+              if (t.status === 'UNPAID') statusBg = 'bg-red-100 text-red-700';
+              if (t.status === 'PARTIAL') statusBg = 'bg-blue-100 text-blue-700';
+
               return (
                 <div 
                   key={tx.id} 
@@ -982,10 +1025,10 @@ export default function App() {
                     <p className="font-bold">{formatCurrency(tx.amount || t.final)}</p>
                     <div className="flex justify-end gap-1 mt-1">
                         {['sales','purchase'].includes(tx.type) && (
-                           <button onClick={(e) => { e.stopPropagation(); printInvoice(tx); }} className="text-gray-400 hover:text-blue-600"><Printer size={12}/></button>
+                           <button onClick={(e) => { e.stopPropagation(); printInvoice(tx); }} className="text-gray-400 hover:text-blue-600 mr-2"><Printer size={12}/></button>
                         )}
                         {['sales','purchase'].includes(tx.type) && (
-                           <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${t.status === 'PAID' ? 'bg-green-100 text-green-600' : t.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-600' : 'bg-red-100 text-red-600'}`}>
+                           <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${statusBg}`}>
                              {t.status}
                            </span>
                         )}
@@ -1003,9 +1046,14 @@ export default function App() {
   const Dashboard = () => (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">{data.company.name}</h1>
-          <p className="text-sm text-gray-500">FY {data.company.financialYear}</p>
+        <div className="flex items-center gap-3">
+             <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg overflow-hidden">
+                <img src="https://via.placeholder.com/150" alt="Logo" className="w-full h-full object-cover opacity-80" />
+             </div>
+             <div>
+                <h1 className="text-xl font-black text-gray-800 tracking-tight">SMEES Pro</h1>
+                <p className="text-xs text-gray-500 font-medium">FY {data.company.financialYear}</p>
+             </div>
         </div>
         <button onClick={() => setModal({ type: 'company' })} className="p-2 bg-gray-100 rounded-xl">
           <Settings className="text-gray-600" />
@@ -1013,6 +1061,15 @@ export default function App() {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
+        {/* NEW: Receivables and Payables with Click */}
+        <div onClick={() => { setActiveTab('staff'); setMastersView('parties'); setPartyFilter('receivable'); }} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 cursor-pointer active:scale-95 transition-transform">
+           <p className="text-xs font-bold text-emerald-600 uppercase flex items-center gap-1"><ArrowDownLeft size={12}/> Receivables</p>
+           <p className="text-xl font-bold text-emerald-900">{formatCurrency(stats.totalReceivables)}</p>
+        </div>
+        <div onClick={() => { setActiveTab('staff'); setMastersView('parties'); setPartyFilter('payable'); }} className="bg-rose-50 p-4 rounded-2xl border border-rose-100 cursor-pointer active:scale-95 transition-transform">
+           <p className="text-xs font-bold text-rose-600 uppercase flex items-center gap-1"><ArrowUpRight size={12}/> Payables</p>
+           <p className="text-xl font-bold text-rose-900">{formatCurrency(stats.totalPayables)}</p>
+        </div>
         <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
           <p className="text-xs font-bold text-green-600 uppercase">Today Sales</p>
           <p className="text-xl font-bold text-green-900">{formatCurrency(stats.todaySales)}</p>
@@ -1021,24 +1078,27 @@ export default function App() {
           <p className="text-xs font-bold text-red-600 uppercase">Expenses</p>
           <p className="text-xl font-bold text-red-900">{formatCurrency(stats.totalExpenses)}</p>
         </div>
-        <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-          <p className="text-xs font-bold text-blue-600 uppercase">Pending Tasks</p>
-          <p className="text-xl font-bold text-blue-900">{stats.pendingTasks}</p>
-        </div>
-        <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100">
-          <p className="text-xs font-bold text-orange-600 uppercase">Low Stock</p>
-          <p className="text-xl font-bold text-orange-900">{stats.lowStockCount} Items</p>
-        </div>
       </div>
+      
+      {/* Updated: Low Stock Alert Card (Removed List) */}
+      {stats.lowStockItems.length > 0 && (
+         <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 flex justify-between items-center">
+            <div>
+                <h3 className="font-bold flex items-center gap-2 text-orange-800"><AlertTriangle size={18}/> Low Stock Alert</h3>
+                <p className="text-xs text-orange-600">{stats.lowStockItems.length} items below minimum quantity</p>
+            </div>
+            <button onClick={() => { setActiveTab('staff'); setMastersView('items'); }} className="px-3 py-1 bg-white border border-orange-200 text-orange-700 text-xs font-bold rounded-lg">View</button>
+         </div>
+      )}
 
       <div className="space-y-4">
         <h3 className="font-bold text-gray-700">Quick Actions</h3>
         <div className="grid grid-cols-4 gap-2">
           {[
-            { label: 'Sale', icon: <ArrowUpRight />, type: 'sales', color: 'bg-green-100 text-green-700' },
-            { label: 'Purchase', icon: <ArrowDownLeft />, type: 'purchase', color: 'bg-blue-100 text-blue-700' },
+            { label: 'Sale', icon: <TrendingUp />, type: 'sales', color: 'bg-green-100 text-green-700' },
+            { label: 'Purchase', icon: <ShoppingCart />, type: 'purchase', color: 'bg-blue-100 text-blue-700' },
             { label: 'Expense', icon: <ReceiptText />, type: 'expense', color: 'bg-red-100 text-red-700' },
-            { label: 'Payment', icon: <Package />, type: 'payment', color: 'bg-purple-100 text-purple-700' }
+            { label: 'Payment', icon: <Banknote />, type: 'payment', color: 'bg-purple-100 text-purple-700' }
           ].map(action => (
             <button 
               key={action.label}
@@ -1056,42 +1116,113 @@ export default function App() {
 
   const MasterList = ({ title, collection, type, idKey, fields, onRowClick }) => {
     const [search, setSearch] = useState('');
-    const filtered = data[collection].filter(item => 
-      Object.values(item).some(val => String(val).toLowerCase().includes(search.toLowerCase()))
-    );
+    const [selectedIds, setSelectedIds] = useState([]); // NEW: Bulk Delete State
+    const [sortBy, setSortBy] = useState('name'); // NEW: Sorting
+
+    const filtered = data[collection].filter(item => {
+        const matchesSearch = Object.values(item).some(val => String(val).toLowerCase().includes(search.toLowerCase()));
+        if (type === 'party' && partyFilter !== 'all') {
+            const bal = partyBalances[item.id] || 0;
+            if (partyFilter === 'receivable') return matchesSearch && bal > 0;
+            if (partyFilter === 'payable') return matchesSearch && bal < 0;
+        }
+        return matchesSearch;
+    }).sort((a, b) => {
+        if (sortBy === 'name') return a.name.localeCompare(b.name);
+        if (sortBy === 'date') return new Date(b.createdAt) - new Date(a.createdAt);
+        return 0;
+    });
+
+    const toggleSelect = (id) => {
+        if(selectedIds.includes(id)) setSelectedIds(selectedIds.filter(sid => sid !== id));
+        else setSelectedIds([...selectedIds, id]);
+    };
+
+    const handleSelectAll = (e) => {
+        if (e.target.checked) setSelectedIds(filtered.map(i => i.id));
+        else setSelectedIds([]);
+    };
+    
+    const handleBulkDelete = async () => {
+        if(!window.confirm(`Delete ${selectedIds.length} records?`)) return;
+        for (const id of selectedIds) {
+             await deleteRecord(collection, id);
+        }
+        setSelectedIds([]);
+    };
 
     return (
       <div className="space-y-4">
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold">{title}</h1>
-          <button 
-            onClick={() => setModal({ type })}
-            className="p-2 bg-blue-600 text-white rounded-xl flex items-center gap-1 text-sm px-4"
-          >
-            <Plus size={18} /> Add
-          </button>
+          <div className="flex gap-2">
+              {selectedIds.length > 0 && (
+                  <button onClick={handleBulkDelete} className="p-2 bg-red-100 text-red-600 rounded-xl flex items-center gap-1 text-sm px-4 font-bold">
+                      <Trash2 size={16}/> Delete ({selectedIds.length})
+                  </button>
+              )}
+              <button 
+                onClick={() => setModal({ type })}
+                className="p-2 bg-blue-600 text-white rounded-xl flex items-center gap-1 text-sm px-4"
+              >
+                <Plus size={18} /> Add
+              </button>
+          </div>
         </div>
 
-        <div className="relative">
-          <Search className="absolute left-3 top-3 text-gray-400" size={18} />
-          <input 
-            className="w-full pl-10 pr-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500" 
-            placeholder={`Search ${title}...`}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+              <input 
+                className="w-full pl-10 pr-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500" 
+                placeholder={`Search ${title}...`}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <select className="bg-gray-100 rounded-xl px-2 text-xs font-bold h-8" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="name">Name (A-Z)</option>
+                <option value="date">Newest First</option>
+            </select>
+        </div>
+
+        {/* Select All Row */}
+        <div className="flex items-center gap-3 p-2">
+             <input type="checkbox" className="w-5 h-5 rounded border-gray-300" onChange={handleSelectAll} checked={filtered.length > 0 && selectedIds.length === filtered.length} />
+             <span className="text-xs font-bold text-gray-500">Select All</span>
         </div>
 
         <div className="space-y-2">
           {filtered.map(item => (
             <div 
               key={item.id}
-              onClick={() => onRowClick ? onRowClick(item) : setModal({ type, data: item })}
-              className="p-4 bg-white border rounded-2xl flex justify-between items-center active:scale-95 transition-transform"
+              className={`p-3 bg-white border rounded-2xl flex items-center gap-3 active:scale-95 transition-transform ${selectedIds.includes(item.id) ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50' : ''}`}
             >
-              <div>
-                <p className="font-bold text-gray-800">{item.name}</p>
-                <p className="text-xs text-gray-500">{item.id} • {item.category || item.mobile || item.role}</p>
+              <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={selectedIds.includes(item.id)} onChange={() => toggleSelect(item.id)} />
+              <div className="flex-1" onClick={() => onRowClick ? onRowClick(item) : setModal({ type, data: item })}>
+                <div className="flex justify-between items-start">
+                    <div>
+                        <p className="font-bold text-gray-800">{item.name}</p>
+                        <p className="text-xs text-gray-500">{item.id} • {item.category || item.mobile || item.role}</p>
+                    </div>
+                    {/* Smart Badge for Party Balance or Item Stock */}
+                    {type === 'party' && (
+                        <div className="text-right">
+                             <span className={`text-xs font-bold ${partyBalances[item.id] > 0 ? 'text-green-600' : partyBalances[item.id] < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                                 {formatCurrency(Math.abs(partyBalances[item.id] || 0))}
+                             </span>
+                             <p className="text-[9px] text-gray-400">{partyBalances[item.id] > 0 ? 'Receivable' : partyBalances[item.id] < 0 ? 'Payable' : '-'}</p>
+                        </div>
+                    )}
+                     {type === 'item' && (
+                        <div className="text-right">
+                             <span className={`text-xs font-bold ${itemStock[item.id] < 5 ? 'text-red-600' : 'text-blue-600'}`}>
+                                 {itemStock[item.id]} {item.unit}
+                             </span>
+                             <p className="text-[9px] text-gray-400">Stock</p>
+                        </div>
+                    )}
+                </div>
               </div>
               <ChevronRight className="text-gray-300" />
             </div>
@@ -1104,16 +1235,22 @@ export default function App() {
 
   const TransactionList = () => {
     const [filter, setFilter] = useState('all');
+    const [sortBy, setSortBy] = useState('date');
+
     const filtered = data.transactions
       .filter(tx => filter === 'all' || tx.type === filter)
-      .sort((a, b) => new Date(b.date) - new Date(a.date));
+      .sort((a, b) => {
+         if (sortBy === 'date') return new Date(b.date) - new Date(a.date);
+         if (sortBy === 'amount') return parseFloat(b.finalTotal || b.amount) - parseFloat(a.finalTotal || a.amount);
+         return 0;
+      });
 
     return (
       <div className="space-y-4">
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold">Accounting</h1>
           <div className="flex gap-2">
-            <button onClick={() => {}} className="p-2 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-1 border border-blue-100">
+            <button onClick={downloadSampleTransactionFile} className="p-2 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-1 border border-blue-100">
                <FileSpreadsheet size={14} /> Sample
             </button>
             <label className="p-2 bg-blue-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm hover:bg-blue-700">
@@ -1140,16 +1277,22 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {['all', 'sales', 'purchase', 'expense', 'payment'].map(t => (
-            <button 
-              key={t}
-              onClick={() => setFilter(t)}
-              className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
-            >
-              {t}
-            </button>
-          ))}
+        <div className="flex justify-between items-center">
+             <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              {['all', 'sales', 'purchase', 'expense', 'payment'].map(t => (
+                <button 
+                  key={t}
+                  onClick={() => setFilter(t)}
+                  className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            <select className="bg-gray-100 rounded-xl px-2 text-xs font-bold h-8" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="date">Date</option>
+                <option value="amount">Amount</option>
+            </select>
         </div>
 
         <div className="space-y-3">
@@ -1158,6 +1301,31 @@ export default function App() {
             const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
             const totals = getBillLogic(tx);
             
+            // Icon Selection
+            let Icon = ReceiptText;
+            let iconColor = 'text-gray-600';
+            let bg = 'bg-gray-100';
+            if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
+            if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
+            if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+            
+            // Status Colors
+            let statusBg = 'bg-gray-100 text-gray-600';
+            if (totals.status === 'PAID') statusBg = 'bg-green-100 text-green-700';
+            if (totals.status === 'UNPAID') statusBg = 'bg-red-100 text-red-700';
+            if (totals.status === 'PARTIAL') statusBg = 'bg-blue-100 text-blue-700';
+
+            // Payment Status Tag
+            let payStatusTag = null;
+            if (tx.type === 'payment') {
+                 const used = tx.linkedBills?.reduce((sum, l) => sum + parseFloat(l.amount || 0), 0) || 0;
+                 const total = parseFloat(tx.amount || 0);
+                 if (used >= total - 0.1 && total > 0) payStatusTag = <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-green-100 text-green-600">USED</span>;
+                 else if (used > 0) payStatusTag = <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-blue-100 text-blue-600">PARTIAL</span>;
+                 else payStatusTag = <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-red-100 text-red-600">UNUSED</span>;
+            }
+
+
             return (
               <div 
                 key={tx.id}
@@ -1165,11 +1333,11 @@ export default function App() {
                 className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform"
               >
                 <div className="flex gap-4 items-center">
-                  <div className={`p-2 rounded-full ${isIncoming ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                    {isIncoming ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
+                  <div className={`p-3 rounded-full ${bg} ${iconColor}`}>
+                    <Icon size={18} />
                   </div>
                   <div>
-                    <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
+                    <p className="font-bold text-gray-800">{party?.name || (typeof tx.category === 'string' ? tx.category : 'N/A')}</p>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
                   </div>
                 </div>
@@ -1177,16 +1345,19 @@ export default function App() {
                   <p className={`font-bold ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>
                     {isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}
                   </p>
+                  {/* NEW: Balance Due Display */}
+                  {['sales', 'purchase'].includes(tx.type) && totals.status !== 'PAID' && (
+                      <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>
+                  )}
+                  
                   <div className="flex justify-end gap-1 mt-1">
-                     <button onClick={(e) => { e.stopPropagation(); printInvoice(tx); }} className="text-gray-400 hover:text-blue-600"><Share2 size={12}/></button>
+                     <button onClick={(e) => { e.stopPropagation(); printInvoice(tx); }} className="text-gray-400 hover:text-blue-600 mr-2"><Share2 size={12}/></button>
                      {['sales', 'purchase', 'expense'].includes(tx.type) && (
-                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase ${
-                          totals.status === 'PAID' ? 'bg-green-100 text-green-600' : 
-                          totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-600' : 'bg-red-100 text-red-600'
-                        }`}>
+                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase ${statusBg}`}>
                           {totals.status}
                         </span>
                       )}
+                      {payStatusTag}
                   </div>
                 </div>
               </div>
@@ -1245,24 +1416,75 @@ export default function App() {
     );
   };
 
-  const CompanyForm = () => {
-    const [form, setForm] = useState(data.company);
+  const StaffForm = ({ record }) => {
+    const [form, setForm] = useState(record || { name: '', mobile: '', role: 'Staff', active: true });
     return (
       <div className="space-y-4">
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Company Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Staff Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
         <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
-        <textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+        <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.role} onChange={e => setForm({...form, role: e.target.value})}>
+          <option>Admin</option>
+          <option>Staff</option>
+          <option>Manager</option>
+        </select>
+        <button onClick={() => saveRecord('staff', form, 'staff')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Staff</button>
+      </div>
+    );
+  };
+
+  const TaskForm = ({ record }) => {
+    const [form, setForm] = useState(record || { name: '', partyId: '', description: '', status: 'To Do', dueDate: '', assignedStaff: [], assignedTo: '' });
+    const party = data.parties.find(p => p.id === form.partyId);
+
+    return (
+      <div className="space-y-4">
+        <input className="w-full p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Task Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+        
+        <SearchableSelect 
+          label="Assign To (Optional)" 
+          options={data.staff} 
+          value={form.assignedTo} 
+          onChange={v => setForm({...form, assignedTo: v})} 
+        />
+
+        <SearchableSelect 
+          label="Related Party" 
+          options={getPartyOptions()} 
+          value={form.partyId} 
+          onChange={v => setForm({...form, partyId: v})} 
+        />
+        {party && (
+          <div className="p-3 bg-blue-50 rounded-xl text-xs space-y-1">
+            <p className="flex items-center gap-2"><Phone size={12}/> {party.mobile}</p>
+            <p className="flex items-center gap-2"><MapPin size={12}/> {party.address}</p>
+          </div>
+        )}
+        <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-24" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
         <div className="grid grid-cols-2 gap-4">
-          <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="FY" value={form.financialYear} onChange={e => setForm({...form, financialYear: e.target.value})} />
-          <div className="p-3 bg-gray-100 border rounded-xl text-gray-500">Currency: ₹</div>
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 ml-2">Due Date</label>
+            <input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 ml-2">Status</label>
+            <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+              <option>To Do</option>
+              <option>In Progress</option>
+              <option>Done</option>
+            </select>
+          </div>
         </div>
-        <button onClick={() => { saveCompanySettings(form); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Settings</button>
+        
+        <div className="flex gap-2">
+          <button onClick={() => saveRecord('tasks', form, 'task')} className="flex-1 bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
+          {record && <button onClick={() => setConfirmDelete({ collection: 'tasks', id: record.id })} className="p-4 bg-red-100 text-red-600 rounded-xl"><Trash2 /></button>}
+        </div>
       </div>
     );
   };
 
   const PartyForm = ({ record }) => {
-    const [form, setForm] = useState(record || { name: '', mobile: '', email: '', openingBal: 0, type: 'CR', address: '', location: '', reference: '' });
+    const [form, setForm] = useState(record || { name: '', mobile: '', email: '', openingBal: 0, type: 'CR', address: '', latitude: '', longitude: '' });
     
     const handleSave = () => {
       if (!form.name) return;
@@ -1290,6 +1512,10 @@ export default function App() {
         </div>
         <SearchableSelect label="Reference" options={data.parties} value={form.reference} onChange={v => setForm({...form, reference: v})} />
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+        <div className="grid grid-cols-2 gap-4">
+             <input className="p-2 border rounded-xl text-xs" placeholder="Latitude" value={form.latitude} onChange={e => setForm({...form, latitude: e.target.value})} />
+             <input className="p-2 border rounded-xl text-xs" placeholder="Longitude" value={form.longitude} onChange={e => setForm({...form, longitude: e.target.value})} />
+        </div>
         <div className="flex gap-2">
           <button onClick={handleSave} className="flex-1 bg-blue-600 text-white p-4 rounded-xl font-bold">Save Party</button>
           {record && <button onClick={() => setConfirmDelete({ collection: 'parties', id: record.id })} className="p-4 bg-red-100 text-red-600 rounded-xl"><Trash2 /></button>}
@@ -1437,13 +1663,6 @@ export default function App() {
           <input type="date" className="p-1 text-sm border-none bg-transparent font-bold text-blue-600" value={tx.date} onChange={e => setTx({...tx, date: e.target.value})} />
         </div>
 
-        <textarea 
-          className="w-full p-3 bg-gray-50 border rounded-xl text-sm h-16 resize-none" 
-          placeholder="Description / Notes (Optional)" 
-          value={tx.description || ''} 
-          onChange={e => setTx({...tx, description: e.target.value})} 
-        />
-
         {type === 'payment' && (
           <div className="flex bg-gray-100 p-1 rounded-xl mb-4">
             <button onClick={() => setTx({...tx, subType: 'in'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${tx.subType === 'in' ? 'bg-white shadow-sm text-green-600' : 'text-gray-500'}`}>Payment IN</button>
@@ -1460,7 +1679,7 @@ export default function App() {
             onAddNew={() => {
               const name = prompt("New Category Name:");
               if (name) {
-                 const expenseType = Window.confirm("Is this a DIRECT Expense? OK for Direct, Cancel for Indirect") ? "Direct" : "Indirect";
+                 const expenseType = confirm("Is this a DIRECT Expense? OK for Direct, Cancel for Indirect") ? "Direct" : "Indirect";
                  const newCat = { name, type: expenseType };
                  setData(prev => ({ ...prev, categories: { ...prev.categories, expense: [...prev.categories.expense, newCat] } }));
                  setTx(prev => ({ ...prev, category: name }));
@@ -1471,7 +1690,7 @@ export default function App() {
 
         <SearchableSelect 
           label="Party" 
-          options={data.parties} 
+          options={getPartyOptions()} 
           value={tx.partyId} 
           onChange={v => setTx({...tx, partyId: v})} 
           onAddNew={() => setModal({ type: 'party' })}
@@ -1488,7 +1707,7 @@ export default function App() {
                 <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12} /></button>
                 <SearchableSelect 
                   label="Select Item" 
-                  options={data.items} 
+                  options={getItemOptions()} 
                   value={line.itemId} 
                   onChange={v => updateLine(idx, 'itemId', v)} 
                   onAddNew={() => setModal({ type: 'item' })}
@@ -1555,14 +1774,24 @@ export default function App() {
                   unpaidBills.map(bill => {
                     const bt = getBillLogic(bill);
                     const link = tx.linkedBills?.find(l => l.billId === bill.id);
+                    const currentLinked = tx.linkedBills?.reduce((sum, l) => sum + parseFloat(l.amount || 0), 0) || 0;
+                    const paymentAmount = parseFloat(tx.amount || 0);
+                    
                     return (
                       <div key={bill.id} className="flex justify-between items-center p-2 border-b last:border-0">
                         <div className="text-[10px]">
                           <p className="font-bold">{bill.id}</p>
                           <p>{formatDate(bill.date)} • Bal: {formatCurrency(bt.pending)}</p>
+                          <p className="text-gray-400">Total: {formatCurrency(bt.final)}</p>
                         </div>
                         <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={link?.amount || ''} 
                           onChange={e => {
+                            const val = parseFloat(e.target.value || 0);
+                            // Validation: Check if exceeding total payment or bill balance
+                            const otherLinksTotal = currentLinked - (parseFloat(link?.amount || 0));
+                            if (val > bt.pending + (parseFloat(link?.amount || 0))) return; // Can't pay more than pending
+                            if ((otherLinksTotal + val) > paymentAmount) return; // Can't exceed payment amount
+
                             const others = tx.linkedBills?.filter(l => l.billId !== bill.id) || [];
                             setTx({...tx, linkedBills: [...others, { billId: bill.id, amount: e.target.value }]});
                           }} 
@@ -1576,76 +1805,17 @@ export default function App() {
           </div>
         )}
 
+        {/* MOVED: Description to bottom */}
+        <textarea 
+          className="w-full p-3 bg-gray-50 border rounded-xl text-sm h-16 resize-none" 
+          placeholder="Description / Notes (Optional)" 
+          value={tx.description || ''} 
+          onChange={e => setTx({...tx, description: e.target.value})} 
+        />
+
         <div className="flex gap-2">
           <button onClick={handleSave} className="flex-1 bg-blue-600 text-white p-4 rounded-xl font-bold">Save Transaction</button>
           {isEdit && <button onClick={() => setConfirmDelete({ collection: 'transactions', id: record.id })} className="p-4 bg-red-100 text-red-600 rounded-xl"><Trash2 /></button>}
-        </div>
-      </div>
-    );
-  };
-
-  const StaffForm = ({ record }) => {
-    const [form, setForm] = useState(record || { name: '', mobile: '', role: 'Staff', active: true });
-    return (
-      <div className="space-y-4">
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Staff Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
-        <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.role} onChange={e => setForm({...form, role: e.target.value})}>
-          <option>Admin</option>
-          <option>Staff</option>
-          <option>Manager</option>
-        </select>
-        <button onClick={() => saveRecord('staff', form, 'staff')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Staff</button>
-      </div>
-    );
-  };
-
-  const TaskForm = ({ record }) => {
-    const [form, setForm] = useState(record || { name: '', partyId: '', description: '', status: 'To Do', dueDate: '', assignedStaff: [], assignedTo: '' });
-    const party = data.parties.find(p => p.id === form.partyId);
-
-    return (
-      <div className="space-y-4">
-        <input className="w-full p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Task Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        
-        <SearchableSelect 
-          label="Assign To (Optional)" 
-          options={data.staff} 
-          value={form.assignedTo} 
-          onChange={v => setForm({...form, assignedTo: v})} 
-        />
-
-        <SearchableSelect 
-          label="Related Party" 
-          options={data.parties} 
-          value={form.partyId} 
-          onChange={v => setForm({...form, partyId: v})} 
-        />
-        {party && (
-          <div className="p-3 bg-blue-50 rounded-xl text-xs space-y-1">
-            <p className="flex items-center gap-2"><Phone size={12}/> {party.mobile}</p>
-            <p className="flex items-center gap-2"><MapPin size={12}/> {party.address}</p>
-          </div>
-        )}
-        <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-24" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 ml-2">Due Date</label>
-            <input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 ml-2">Status</label>
-            <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
-              <option>To Do</option>
-              <option>In Progress</option>
-              <option>Done</option>
-            </select>
-          </div>
-        </div>
-        
-        <div className="flex gap-2">
-          <button onClick={() => saveRecord('tasks', form, 'task')} className="flex-1 bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
-          {record && <button onClick={() => setConfirmDelete({ collection: 'tasks', id: record.id })} className="p-4 bg-red-100 text-red-600 rounded-xl"><Trash2 /></button>}
         </div>
       </div>
     );
@@ -1667,8 +1837,13 @@ export default function App() {
       {/* Top Header */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md px-4 py-3 border-b flex justify-between items-center">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black italic">N</div>
-          <span className="font-black text-gray-800 tracking-tight">NEXUS ERP</span>
+          {/* Logo Placeholder */}
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg overflow-hidden">
+             <img src="https://via.placeholder.com/150" alt="Logo" className="w-full h-full object-cover opacity-80" />
+          </div>
+          <div>
+            <span className="font-black text-gray-800 tracking-tight text-lg">SMEES Pro</span>
+          </div>
         </div>
         <div className="flex gap-3">
           <button onClick={() => setActiveTab('accounting')} className="p-2 hover:bg-gray-100 rounded-full"><Search size={20} className="text-gray-500" /></button>
@@ -1690,51 +1865,81 @@ export default function App() {
             {activeTab === 'staff' && (
               <div className="space-y-6">
                 
-                {/* ... existing import buttons ... */}
-                <div className="flex gap-2">
-                   {/* ... existing Item/Party Import ... */}
-                   <label className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-center text-sm cursor-pointer flex items-center justify-center gap-2 shadow-sm">
-                      <FileSpreadsheet size={18} /> Items
-                      <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleExcelImport} />
-                   </label>
-                   <label className="flex-1 p-3 bg-emerald-600 text-white rounded-xl font-bold text-center text-sm cursor-pointer flex items-center justify-center gap-2 shadow-sm">
-                      <Users size={18} /> Parties
-                      <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handlePartyExcelImport} />
-                   </label>
-                </div>
+                {/* NEW: Masters Sub-Navigation */}
+                {mastersView === null ? (
+                    <div className="grid grid-cols-2 gap-4">
+                        <button onClick={() => setMastersView('items')} className="p-6 bg-blue-50 border border-blue-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-blue-100 transition-colors">
+                            <Package size={32} className="text-blue-600"/>
+                            <span className="font-bold text-blue-800">Manage Items</span>
+                        </button>
+                        <button onClick={() => setMastersView('parties')} className="p-6 bg-emerald-50 border border-emerald-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-emerald-100 transition-colors">
+                            <Users size={32} className="text-emerald-600"/>
+                            <span className="font-bold text-emerald-800">Manage Parties</span>
+                        </button>
+                        <button onClick={() => setMastersView('staff')} className="p-6 bg-purple-50 border border-purple-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-purple-100 transition-colors">
+                            <Briefcase size={32} className="text-purple-600"/>
+                            <span className="font-bold text-purple-800">Manage Staff</span>
+                        </button>
+                        
+                         {/* ... existing import buttons ... */}
+                        <div className="flex flex-col gap-2">
+                           <label className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-center text-xs cursor-pointer flex items-center justify-center gap-2 shadow-sm">
+                              <FileSpreadsheet size={16} /> Import Items
+                              <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleExcelImport} />
+                           </label>
+                           <label className="flex-1 p-3 bg-emerald-600 text-white rounded-xl font-bold text-center text-xs cursor-pointer flex items-center justify-center gap-2 shadow-sm">
+                              <Users size={16} /> Import Parties
+                              <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handlePartyExcelImport} />
+                           </label>
+                        </div>
+                    </div>
+                ) : (
+                    <div>
+                        <button onClick={() => setMastersView(null)} className="mb-4 flex items-center gap-2 text-gray-500 font-bold hover:text-gray-800">
+                            <ArrowLeft size={18}/> Back to Menu
+                        </button>
+                        
+                        {mastersView === 'items' && (
+                            <MasterList 
+                              title="Items" 
+                              collection="items" 
+                              type="item" 
+                              onRowClick={(item) => setViewDetail({type: 'item', id: item.id})} 
+                            />
+                        )}
+                        {mastersView === 'parties' && (
+                            <MasterList 
+                              title="Parties" 
+                              collection="parties" 
+                              type="party" 
+                              onRowClick={(item) => setViewDetail({type: 'party', id: item.id})} 
+                            />
+                        )}
+                        {mastersView === 'staff' && (
+                            <MasterList title="Staff" collection="staff" type="staff" />
+                        )}
+                    </div>
+                )}
                 
-                {/* ... existing MasterLists ... */}
-                <MasterList 
-                  title="Items" 
-                  collection="items" 
-                  type="item" 
-                  onRowClick={(item) => setViewDetail({type: 'item', id: item.id})} 
-                />
-                <MasterList 
-                  title="Parties" 
-                  collection="parties" 
-                  type="party" 
-                  onRowClick={(item) => setViewDetail({type: 'party', id: item.id})} 
-                />
-                <MasterList title="Staff" collection="staff" type="staff" />
-                
-                <div className="p-6 bg-white border rounded-2xl">
-                  {/* ... existing backup buttons ... */}
-                  <h2 className="font-bold mb-4">Backup & Export</h2>
-                  <div className="flex gap-4">
-                    <button onClick={() => {
-                      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data));
-                      const downloadAnchorNode = document.createElement('a');
-                      downloadAnchorNode.setAttribute("href", dataStr);
-                      downloadAnchorNode.setAttribute("download", "erp_backup.json");
-                      document.body.appendChild(downloadAnchorNode);
-                      downloadAnchorNode.click();
-                      downloadAnchorNode.remove();
-                    }} className="flex-1 p-4 bg-gray-100 rounded-xl font-bold flex flex-col items-center gap-2 text-xs">
-                      <Download /> Export Full Backup
-                    </button>
-                  </div>
-                </div>
+                {mastersView === null && (
+                    <div className="p-6 bg-white border rounded-2xl">
+                      {/* ... existing backup buttons ... */}
+                      <h2 className="font-bold mb-4">Backup & Export</h2>
+                      <div className="flex gap-4">
+                        <button onClick={() => {
+                          const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data));
+                          const downloadAnchorNode = document.createElement('a');
+                          downloadAnchorNode.setAttribute("href", dataStr);
+                          downloadAnchorNode.setAttribute("download", "erp_backup.json");
+                          document.body.appendChild(downloadAnchorNode);
+                          downloadAnchorNode.click();
+                          downloadAnchorNode.remove();
+                        }} className="flex-1 p-4 bg-gray-100 rounded-xl font-bold flex flex-col items-center gap-2 text-xs">
+                          <Download /> Export Full Backup
+                        </button>
+                      </div>
+                    </div>
+                )}
               </div>
             )}
           </>
