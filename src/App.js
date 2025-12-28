@@ -1460,7 +1460,7 @@ export default function App() {
             onAddNew={() => {
               const name = prompt("New Category Name:");
               if (name) {
-                 const expenseType = confirm("Is this a DIRECT Expense? OK for Direct, Cancel for Indirect") ? "Direct" : "Indirect";
+                 const expenseType = Window.confirm("Is this a DIRECT Expense? OK for Direct, Cancel for Indirect") ? "Direct" : "Indirect";
                  const newCat = { name, type: expenseType };
                  setData(prev => ({ ...prev, categories: { ...prev.categories, expense: [...prev.categories.expense, newCat] } }));
                  setTx(prev => ({ ...prev, category: name }));
