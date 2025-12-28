@@ -39,8 +39,8 @@ import {
   CloudDownload
 } from 'lucide-react';
 
-/** * NEXUS ERP - Production Version
- * Features: Google Sheet Sync (Primary Source), Excel Imports, Detailed Views, Advanced Accounting, Status Logic, Bill Linking, Task Conversion, Time Tracking, P&L
+/** * NEXUS ERP - LocalStorage Version (Previous Stable)
+ * Features: Excel Imports, Manual Cloud Sync, Detailed Views, Advanced Accounting, Status Logic, Task Conversion, Time Tracking, P&L
  */
 
 const STORAGE_KEY = 'NEXUS_ERP_DATA_V1';
@@ -126,67 +126,6 @@ const getTransactionTotals = (tx) => {
   else if (paid > 0) status = 'PARTIAL';
   
   return { gross, final, paid, status, amount: tx.amount || final };
-};
-
-// --- GOOGLE SHEET SYNC UTILITY ---
-const googleSheetSync = async (collection, record, isUpdate) => {
-  const mappings = {
-    parties: 'Parties',
-    items: 'Items',
-    staff: 'Staff',
-    tasks: 'Tasks',
-  };
-  
-  let sheetName = mappings[collection];
-  
-  if (collection === 'transactions') {
-    if (record.type === 'sales') sheetName = 'Sales';
-    else if (record.type === 'purchase') sheetName = 'Purchases';
-    else if (record.type === 'expense') sheetName = 'Expenses';
-    else if (record.type === 'payment') sheetName = 'Payments';
-  }
-
-  if (!sheetName) return Promise.resolve();
-
-  const payload = {
-    action: isUpdate ? "UPDATE" : "ADD",
-    sheet: sheetName,
-    data: record,
-    idKey: "id"
-  };
-
-  try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      mode: "no-cors",
-      body: JSON.stringify(payload),
-      headers: { "Content-Type": "text/plain" }
-    });
-    
-    // Sub-item Sync (Only on ADD)
-    if (!isUpdate && collection === 'transactions' && record.items && record.items.length > 0) {
-       let itemSheet = '';
-       if (record.type === 'sales') itemSheet = 'Sales_Items';
-       if (record.type === 'purchase') itemSheet = 'Purchase_Items';
-       
-       if (itemSheet) {
-         const promises = record.items.map(item => {
-           const itemData = { ...item, invoice_number: record.id };
-           return fetch(APPS_SCRIPT_URL, {
-              method: "POST",
-              mode: "no-cors",
-              body: JSON.stringify({ action: "ADD", sheet: itemSheet, data: itemData }),
-              headers: { "Content-Type": "text/plain" }
-           });
-         });
-         await Promise.all(promises);
-       }
-    }
-    return true;
-  } catch (err) {
-    console.error("Sync Error", err);
-    throw err;
-  }
 };
 
 // --- COMPONENTS ---
@@ -275,7 +214,6 @@ export default function App() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [toast, setToast] = useState(null);
   const [viewDetail, setViewDetail] = useState(null);
-  const [loading, setLoading] = useState(false); // New Loading State
 
   const getBillLogic = (bill) => {
     const basic = getTransactionTotals(bill);
@@ -303,87 +241,9 @@ export default function App() {
     document.body.appendChild(script);
   }, []);
 
-  // --- STARTUP LOGIC: FETCH FROM CLOUD ---
   useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        // 1. Try Cloud Fetch
-        const response = await fetch(APPS_SCRIPT_URL);
-        const cloudData = await response.json();
-        
-        if (cloudData && typeof cloudData === 'object') {
-           // 2. Map Cloud Data to App Structure
-           let newTransactions = [];
-           const mapItems = (itemsSheet, txId) => {
-             if(!itemsSheet || !Array.isArray(itemsSheet)) return [];
-             return itemsSheet.filter(i => i.invoice_number === txId).map(i => ({
-               itemId: i.itemId || i.item_name, // fallback for simplicity
-               qty: i.qty || i.quantity,
-               price: i.price || i.sale_price,
-               buyPrice: i.buyPrice || i.purchase_price
-             }));
-           };
-
-           // Consolidate Transactions
-           if(cloudData.Sales) newTransactions.push(...cloudData.Sales.map(t => ({...t, type: 'sales', items: mapItems(cloudData.Sales_Items, t.id)})));
-           if(cloudData.Purchases) newTransactions.push(...cloudData.Purchases.map(t => ({...t, type: 'purchase', items: mapItems(cloudData.Purchase_Items, t.id)})));
-           if(cloudData.Expenses) newTransactions.push(...cloudData.Expenses.map(t => ({...t, type: 'expense'})));
-           if(cloudData.Payments) newTransactions.push(...cloudData.Payments.map(t => ({...t, type: 'payment'})));
-
-           // Reconstruct Data Object
-           const structuredData = {
-              ...INITIAL_DATA,
-              parties: cloudData.Parties || [],
-              items: cloudData.Items || [],
-              staff: cloudData.Staff || [],
-              tasks: cloudData.Tasks || [],
-              transactions: newTransactions,
-           };
-
-           // Recalculate Counters based on Max IDs
-           const newCounters = { ...INITIAL_DATA.counters };
-           const updateMax = (arr, key) => {
-              if(!arr) return;
-              arr.forEach(item => {
-                 const match = item.id ? item.id.match(/\d+/) : null;
-                 if(match) {
-                    const num = parseInt(match[0]);
-                    if(num >= newCounters[key]) newCounters[key] = num + 1;
-                 }
-              });
-           };
-           updateMax(structuredData.parties, 'party');
-           updateMax(structuredData.items, 'item');
-           updateMax(structuredData.staff, 'staff');
-           updateMax(structuredData.tasks, 'task');
-           // Transaction specific counters
-           newTransactions.forEach(t => {
-               const match = t.id ? t.id.match(/\d+/) : null;
-               if(match) {
-                  const num = parseInt(match[0]);
-                  let key = t.type; // sales, purchase, expense, payment
-                  if(num >= newCounters[key]) newCounters[key] = num + 1;
-               }
-           });
-           structuredData.counters = newCounters;
-
-           setData(structuredData);
-           localStorage.setItem(STORAGE_KEY, JSON.stringify(structuredData));
-           setLoading(false);
-           return; 
-        }
-      } catch (error) {
-        console.warn("Cloud Fetch Failed, using local cache", error);
-      }
-
-      // 3. Fallback to Local Cache
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setData(JSON.parse(saved));
-      setLoading(false);
-    };
-
-    loadData();
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) setData(JSON.parse(saved));
   }, []);
 
   useEffect(() => {
@@ -395,58 +255,71 @@ export default function App() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const saveRecord = async (collection, record, idType) => {
-    // Optimistic Update Data Generation
-    let newData = { ...data };
-    let syncedRecord = null;
-    let isUpdate = !!record.id;
-    let finalId = record.id;
-
-    if (record.id) {
-      // Update logic
-      syncedRecord = record;
-    } else {
-      // Create logic
-      const { id, nextCounters } = getNextId(data, idType, record.type);
-      const createdField = collection === 'tasks' ? { taskCreatedAt: new Date().toISOString() } : {};
-      syncedRecord = { ...record, id, createdAt: new Date().toISOString(), ...createdField };
-      newData.counters = nextCounters; // Update counters optimistically
-      finalId = id;
-    }
-
-    // 1. Try Cloud Sync First
-    let syncSuccess = false;
-    try {
-       await googleSheetSync(collection, syncedRecord, isUpdate);
-       syncSuccess = true;
-    } catch (e) {
-       console.warn("Cloud save failed, saving locally only.");
-       showToast("Offline Mode: Saved locally", "warning");
-    }
-
-    // 2. Update Local State (Always happens, acts as cache/UI update)
-    if (isUpdate) {
-        newData[collection] = data[collection].map(r => r.id === record.id ? syncedRecord : r);
-        // Special logic for Task Conversion
-        if (collection === 'transactions' && record.type === 'sales' && record.convertedFromTask) {
-             const task = newData.tasks.find(t => t.id === record.convertedFromTask);
-             if (task) {
-                task.itemsUsed = record.items.map(i => ({ 
-                   itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice 
-                }));
-                newData.tasks = newData.tasks.map(t => t.id === task.id ? task : t);
-                if(syncSuccess) googleSheetSync('tasks', task, true).catch(console.error); // Background sync for related update
-             }
+  const handleCloudSync = async (action) => {
+    if (action === 'upload') {
+        const confirmUpload = window.confirm("Current data Google Sheet pe upload karna chahte hain? (Purana sheet data replace ho jayega)");
+        if (!confirmUpload) return;
+        showToast("Uploading to Google Sheet...", "info");
+        try {
+            await fetch(APPS_SCRIPT_URL, {
+                method: "POST",
+                mode: "no-cors", 
+                body: JSON.stringify(data),
+                headers: { "Content-Type": "text/plain" }
+            });
+            showToast("Upload Request Sent! (Check Sheet)");
+        } catch (error) {
+            console.error("Upload Error:", error);
+            showToast("Upload Failed", "error");
         }
-    } else {
-        newData[collection] = [...data[collection], syncedRecord];
+    } else if (action === 'download') {
+        const confirmDownload = window.confirm("Google Sheet se data download karein? (Current app data replace ho jayega)");
+        if (!confirmDownload) return;
+        showToast("Downloading from Google Sheet...", "info");
+        try {
+            const response = await fetch(APPS_SCRIPT_URL);
+            const cloudData = await response.json();
+            if (cloudData && typeof cloudData === 'object') {
+                setData(cloudData);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
+                showToast("Data Synced from Cloud!");
+            } else {
+                showToast("Invalid Data received", "error");
+            }
+        } catch (error) {
+            console.error("Download Error:", error);
+            showToast("Download Failed", "error");
+        }
     }
-    
+  };
+
+  const saveRecord = (collection, record, idType) => {
+    let newData = { ...data };
+    let id = record.id;
+    if (record.id) {
+      newData[collection] = data[collection].map(r => r.id === record.id ? record : r);
+      if (collection === 'transactions' && record.type === 'sales' && record.convertedFromTask) {
+         const task = newData.tasks.find(t => t.id === record.convertedFromTask);
+         if (task) {
+            task.itemsUsed = record.items.map(i => ({ 
+               itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice 
+            }));
+            newData.tasks = newData.tasks.map(t => t.id === task.id ? task : t);
+         }
+      }
+      showToast("Updated successfully");
+    } else {
+      const { id: newId, nextCounters } = getNextId(data, idType, record.type);
+      id = newId;
+      const createdField = collection === 'tasks' ? { taskCreatedAt: new Date().toISOString() } : {};
+      const newRecord = { ...record, id: newId, createdAt: new Date().toISOString(), ...createdField };
+      newData[collection] = [...data[collection], newRecord];
+      newData.counters = nextCounters;
+      showToast("Created successfully");
+    }
     setData(newData);
     setModal({ type: null, data: null });
-    if (syncSuccess) showToast(isUpdate ? "Updated successfully" : "Created successfully");
-    
-    return finalId; 
+    return id;
   };
 
   const deleteRecord = (collection, id) => {
@@ -456,10 +329,10 @@ export default function App() {
     }));
     setConfirmDelete(null);
     setModal({ type: null, data: null });
-    showToast("Record deleted locally", "error");
+    showToast("Record deleted", "error");
   };
 
-  const handleConvertTask = async () => {
+  const handleConvertTask = () => {
     const task = convertModal;
     if(!task) return;
 
@@ -471,13 +344,9 @@ export default function App() {
     }));
 
     const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
-    const saleDateInput = document.getElementById('convert_date');
-    const receivedInput = document.getElementById('convert_received');
-    const modeInput = document.getElementById('convert_mode');
-
-    const saleDate = saleDateInput ? saleDateInput.value : new Date().toISOString().split('T')[0];
-    const received = receivedInput ? parseFloat(receivedInput.value || 0) : 0;
-    const mode = modeInput ? modeInput.value : 'Cash';
+    const saleDate = document.getElementById('convert_date')?.value || new Date().toISOString().split('T')[0];
+    const received = parseFloat(document.getElementById('convert_received')?.value || 0);
+    const mode = document.getElementById('convert_mode')?.value || 'Cash';
 
     const newSale = {
         type: 'sales',
@@ -494,8 +363,8 @@ export default function App() {
         description: `Converted from Task ${task.id}`
     };
 
-    // We reuse saveRecord which handles ID generation and syncing
-    const saleId = await saveRecord('transactions', newSale, 'transaction');
+    const { id: saleId, nextCounters } = getNextId(data, 'transaction', 'sales');
+    const saleWithId = { ...newSale, id: saleId, createdAt: new Date().toISOString() };
     
     const updatedTask = { 
         ...task, 
@@ -503,11 +372,17 @@ export default function App() {
         generatedSaleId: saleId 
     };
 
-    // Explicitly update task status
-    await saveRecord('tasks', updatedTask, 'task');
+    const newData = {
+        ...data,
+        transactions: [...data.transactions, saleWithId],
+        tasks: data.tasks.map(t => t.id === task.id ? updatedTask : t),
+        counters: nextCounters
+    };
 
+    setData(newData);
     setConvertModal(null);
     setViewDetail(null);
+    showToast("Task converted to Sale successfully!");
   };
 
   const printInvoice = (tx) => {
@@ -547,94 +422,34 @@ export default function App() {
 
   const downloadSampleTransactionFile = () => {
     if (!window.XLSX) return;
-    
-    // Sheet 1: Invoices
-    const invoices = [
-      {
-        transaction_type: "sales",
-        invoice_number: "INV-DEMO-01",
-        invoice_date: new Date().toISOString().split('T')[0],
-        party_name: "Demo Customer",
-        description: "Initial consultation",
-        total_amount: 1100,
-        discount_percent: 0,
-        discount_amount: 0,
-        received_paid_amount: 500,
-        payment_type: "UPI",
-        expense_category: ""
-      },
-      {
-        transaction_type: "expense",
-        invoice_number: "",
-        invoice_date: new Date().toISOString().split('T')[0],
-        party_name: "Office Supplies Co",
-        description: "Monthly stationary",
-        total_amount: 250,
-        discount_percent: 0,
-        discount_amount: 0,
-        received_paid_amount: 250,
-        payment_type: "Cash",
-        expense_category: "Office Supplies"
-      }
-    ];
-
-    // Sheet 2: InvoiceItems
-    const items = [
-      {
-        invoice_number: "INV-DEMO-01",
-        item_name: "Consulting Service",
-        item_type: "Service",
-        quantity: 2,
-        unit: "Hr",
-        sale_price: 550,
-        purchase_price: 0,
-        description: "Expert advice"
-      },
-      {
-        invoice_number: "INV-DEMO-01",
-        item_name: "Registration Fee",
-        item_type: "Service",
-        quantity: 1,
-        unit: "Pcs",
-        sale_price: 0,
-        purchase_price: 0,
-        description: "Waived"
-      }
-    ];
-
+    const invoices = [{
+        transaction_type: "sales", invoice_number: "INV-001", invoice_date: "2024-01-01",
+        party_name: "Demo", description: "Test", total_amount: 1000, discount_amount: 0,
+        received_paid_amount: 500, payment_type: "Cash", expense_category: ""
+    }];
+    const items = [{
+        invoice_number: "INV-001", item_name: "Service", item_type: "Service",
+        quantity: 1, unit: "Hr", sale_price: 1000, purchase_price: 0
+    }];
     const wb = window.XLSX.utils.book_new();
-    const ws1 = window.XLSX.utils.json_to_sheet(invoices);
-    const ws2 = window.XLSX.utils.json_to_sheet(items);
-
-    window.XLSX.utils.book_append_sheet(wb, ws1, "Invoices");
-    window.XLSX.utils.book_append_sheet(wb, ws2, "InvoiceItems");
-
-    window.XLSX.writeFile(wb, "Nexus_Transaction_Sample.xlsx");
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(invoices), "Invoices");
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(items), "InvoiceItems");
+    window.XLSX.writeFile(wb, "Sample.xlsx");
   };
 
   const handleTransactionImport = (e) => {
     const file = e.target.files[0];
     if (!file || !window.XLSX) return;
-
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
         const wb = window.XLSX.read(event.target.result, { type: 'binary' });
+        const rawInvoices = window.XLSX.utils.sheet_to_json(wb.Sheets["Invoices"] || wb.Sheets[wb.SheetNames[0]]);
+        const rawItems = window.XLSX.utils.sheet_to_json(wb.Sheets["InvoiceItems"] || wb.Sheets[wb.SheetNames[1]]);
         
-        if (!wb.Sheets["Invoices"] || !wb.Sheets["InvoiceItems"]) {
-          alert("Invalid File! Must contain 'Invoices' and 'InvoiceItems' sheets.");
-          return;
-        }
-
-        const rawInvoices = window.XLSX.utils.sheet_to_json(wb.Sheets["Invoices"]);
-        const rawItems = window.XLSX.utils.sheet_to_json(wb.Sheets["InvoiceItems"]);
-
         let newData = { ...data };
-        let importedCount = 0;
+        let count = 0;
         let tempCounters = { ...data.counters };
-        let maxImportedCounters = { sales: 0, purchase: 0, expense: 0, payment: 0 };
-        let batchParties = {}; 
-        let batchItems = {};
         
         for (let row of rawInvoices) {
            if (!row.transaction_type) continue;
@@ -643,8 +458,6 @@ export default function App() {
            
            if (row.invoice_number) {
              txId = String(row.invoice_number).trim();
-             const numericPart = parseInt(txId.replace(/\D/g, '')) || 0;
-             if (numericPart > maxImportedCounters[txType]) maxImportedCounters[txType] = numericPart;
            } else {
              const { id, nextCounters } = getNextId(tempCounters, 'transaction', txType);
              txId = id;
@@ -654,22 +467,14 @@ export default function App() {
 
            let partyId = '';
            if (row.party_name) {
-             let existingParty = newData.parties.find(p => p.name.toLowerCase() === row.party_name.toLowerCase()) || batchParties[row.party_name.toLowerCase()];
+             let existingParty = newData.parties.find(p => p.name.toLowerCase() === row.party_name.toLowerCase());
              if (!existingParty) {
                 const { id, nextCounters } = getNextId(tempCounters, 'party');
                 tempCounters.party = nextCounters.party;
                 existingParty = { id, name: row.party_name, mobile: '', type: txType === 'sales' ? 'DR' : 'CR', openingBal: 0 };
                 newData.parties.push(existingParty);
-                batchParties[row.party_name.toLowerCase()] = existingParty;
-                await googleSheetSync('parties', existingParty, false);
              }
              partyId = existingParty.id;
-           }
-
-           if (txType === 'expense' && row.expense_category) {
-              const catName = row.expense_category;
-              const exists = newData.categories.expense.some(c => (c.name || c) === catName);
-              if (!exists) newData.categories.expense.push({ name: catName, type: 'Indirect' });
            }
 
            const linkedItems = rawItems.filter(i => i.invoice_number == row.invoice_number);
@@ -678,14 +483,12 @@ export default function App() {
            for (let lItem of linkedItems) {
               if (!lItem.item_name) continue;
               let itemId = '';
-              let existingItem = newData.items.find(i => i.name.toLowerCase() === lItem.item_name.toLowerCase()) || batchItems[lItem.item_name.toLowerCase()];
+              let existingItem = newData.items.find(i => i.name.toLowerCase() === lItem.item_name.toLowerCase());
               if (!existingItem) {
                  const { id, nextCounters } = getNextId(tempCounters, 'item');
                  tempCounters.item = nextCounters.item;
                  existingItem = { id, name: lItem.item_name, type: lItem.item_type || 'Goods', unit: lItem.unit || 'PCS', sellPrice: parseFloat(lItem.sale_price || 0), buyPrice: parseFloat(lItem.purchase_price || 0), category: 'General', openingStock: 0 };
                  newData.items.push(existingItem);
-                 batchItems[lItem.item_name.toLowerCase()] = existingItem;
-                 await googleSheetSync('items', existingItem, false);
               }
               itemId = existingItem.id;
               txItems.push({ itemId, qty: parseFloat(lItem.quantity || 1), price: txType === 'sales' ? parseFloat(lItem.sale_price || existingItem.sellPrice) : parseFloat(lItem.purchase_price || existingItem.buyPrice), buyPrice: parseFloat(lItem.purchase_price || existingItem.buyPrice) });
@@ -705,22 +508,12 @@ export default function App() {
            };
 
            newData.transactions.push(newTx);
-           await googleSheetSync('transactions', newTx, false);
-           importedCount++;
+           count++;
         }
-
-        ['sales', 'purchase', 'expense', 'payment'].forEach(key => {
-            if (maxImportedCounters[key] >= tempCounters[key]) tempCounters[key] = maxImportedCounters[key] + 1;
-        });
-
         newData.counters = tempCounters;
         setData(newData);
-        showToast(`Successfully imported ${importedCount} transactions`);
-
-      } catch (err) {
-        console.error(err);
-        showToast("Error parsing Excel. Check format.", "error");
-      }
+        showToast(`Imported ${count} transactions`);
+      } catch (err) { showToast("Import Failed", "error"); }
     };
     reader.readAsBinaryString(file);
     e.target.value = null;
@@ -748,7 +541,6 @@ export default function App() {
             openingStock: parseFloat(row['Opening Stock'] || 0), createdAt: new Date().toISOString()
           };
           newItems.push(newItem);
-          await googleSheetSync('items', newItem, false);
           count++;
         }
         setData(prev => ({ ...prev, items: newItems, counters: tempCounters }));
@@ -781,7 +573,6 @@ export default function App() {
             createdAt: new Date().toISOString()
           };
           newParties.push(newParty);
-          await googleSheetSync('parties', newParty, false);
           count++;
         }
         setData(prev => ({ ...prev, parties: newParties, counters: tempCounters }));
@@ -937,7 +728,7 @@ export default function App() {
         const party = data.parties.find(p => p.id === task.partyId);
         const assignedStaff = data.staff.find(s => s.id === task.assignedTo);
 
-        const toggleTimer = async (staffId) => {
+        const toggleTimer = (staffId) => {
             const now = new Date().toISOString();
             let newLogs = [...(task.timeLogs || [])];
             const activeLogIndex = newLogs.findIndex(l => l.staffId === staffId && !l.end);
@@ -953,18 +744,16 @@ export default function App() {
             }
             const updatedTask = { ...task, timeLogs: newLogs };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
-            await googleSheetSync('tasks', updatedTask, true);
         };
 
         const totalTime = (task.timeLogs || []).reduce((acc, log) => acc + (parseFloat(log.duration) || 0), 0);
 
-        const updateTaskItems = async (newItems) => {
+        const updateTaskItems = (newItems) => {
             const updated = { ...task, itemsUsed: newItems };
             setData(prev => ({ 
                 ...prev, 
                 tasks: prev.tasks.map(t => t.id === task.id ? updated : t) 
             }));
-            await googleSheetSync('tasks', updated, true);
         };
 
         return (
@@ -1684,7 +1473,7 @@ export default function App() {
             onAddNew={() => {
               const name = prompt("New Category Name:");
               if (name) {
-                 const expenseType = window.confirm("Is this a DIRECT Expense? OK for Direct, Cancel for Indirect") ? "Direct" : "Indirect";
+                 const expenseType = confirm("Is this a DIRECT Expense? OK for Direct, Cancel for Indirect") ? "Direct" : "Indirect";
                  const newCat = { name, type: expenseType };
                  setData(prev => ({ ...prev, categories: { ...prev.categories, expense: [...prev.categories.expense, newCat] } }));
                  setTx(prev => ({ ...prev, category: name }));
@@ -1901,70 +1690,85 @@ export default function App() {
       </div>
 
       <main className="max-w-xl mx-auto p-4">
-        {loading ? (
-            <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-                <p className="text-sm font-bold">Syncing Data...</p>
+        {activeTab === 'dashboard' && <Dashboard />}
+        {activeTab === 'accounting' && <TransactionList />}
+        {activeTab === 'tasks' && <TaskModule />}
+        {activeTab === 'staff' && (
+          <div className="space-y-6">
+            
+            {/* ... existing import buttons ... */}
+            <div className="flex gap-2">
+               {/* ... existing Item/Party Import ... */}
+               <label className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-center text-sm cursor-pointer flex items-center justify-center gap-2 shadow-sm">
+                  <FileSpreadsheet size={18} /> Items
+                  <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleExcelImport} />
+               </label>
+               <label className="flex-1 p-3 bg-emerald-600 text-white rounded-xl font-bold text-center text-sm cursor-pointer flex items-center justify-center gap-2 shadow-sm">
+                  <Users size={18} /> Parties
+                  <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handlePartyExcelImport} />
+               </label>
             </div>
-        ) : (
-          <>
-            {activeTab === 'dashboard' && <Dashboard />}
-            {activeTab === 'accounting' && <TransactionList />}
-            {activeTab === 'tasks' && <TaskModule />}
-            {activeTab === 'staff' && (
-              <div className="space-y-6">
-                
-                {/* ... existing import buttons ... */}
-                <div className="flex gap-2">
-                   {/* ... existing Item/Party Import ... */}
-                   <label className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-center text-sm cursor-pointer flex items-center justify-center gap-2 shadow-sm">
-                      <FileSpreadsheet size={18} /> Items
-                      <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleExcelImport} />
-                   </label>
-                   <label className="flex-1 p-3 bg-emerald-600 text-white rounded-xl font-bold text-center text-sm cursor-pointer flex items-center justify-center gap-2 shadow-sm">
-                      <Users size={18} /> Parties
-                      <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handlePartyExcelImport} />
-                   </label>
-                </div>
-                
-                {/* ... existing MasterLists ... */}
-                <MasterList 
-                  title="Items" 
-                  collection="items" 
-                  type="item" 
-                  onRowClick={(item) => setViewDetail({type: 'item', id: item.id})} 
-                />
-                <MasterList 
-                  title="Parties" 
-                  collection="parties" 
-                  type="party" 
-                  onRowClick={(item) => setViewDetail({type: 'party', id: item.id})} 
-                />
-                <MasterList title="Staff" collection="staff" type="staff" />
-                
-                <div className="p-6 bg-white border rounded-2xl">
-                  {/* ... existing backup buttons ... */}
-                  <h2 className="font-bold mb-4">Backup & Export</h2>
-                  <div className="flex gap-4">
-                    <button onClick={() => {
-                      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data));
-                      const downloadAnchorNode = document.createElement('a');
-                      downloadAnchorNode.setAttribute("href", dataStr);
-                      downloadAnchorNode.setAttribute("download", "erp_backup.json");
-                      document.body.appendChild(downloadAnchorNode);
-                      downloadAnchorNode.click();
-                      downloadAnchorNode.remove();
-                    }} className="flex-1 p-4 bg-gray-100 rounded-xl font-bold flex flex-col items-center gap-2 text-xs">
-                      <Download /> Export Full Backup
-                    </button>
-                  </div>
-                </div>
+            
+            {/* ... existing MasterLists ... */}
+            <MasterList 
+              title="Items" 
+              collection="items" 
+              type="item" 
+              onRowClick={(item) => setViewDetail({type: 'item', id: item.id})} 
+            />
+            <MasterList 
+              title="Parties" 
+              collection="parties" 
+              type="party" 
+              onRowClick={(item) => setViewDetail({type: 'party', id: item.id})} 
+            />
+            <MasterList title="Staff" collection="staff" type="staff" />
+            
+            {/* START ADD: Google Sheet Sync Section */}
+            <div className="p-6 bg-white border rounded-2xl shadow-sm">
+              <h2 className="font-bold mb-4 flex items-center gap-2 text-indigo-700">
+                 <FileSpreadsheet size={20}/> Google Sheet Database
+              </h2>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => handleCloudSync('upload')} 
+                  className="flex-1 p-4 bg-indigo-50 border border-indigo-100 rounded-xl font-bold flex flex-col items-center gap-2 text-xs text-indigo-700 hover:bg-indigo-100 active:scale-95 transition-transform"
+                >
+                  <CloudUpload size={24} /> Upload Data
+                </button>
+                <button 
+                  onClick={() => handleCloudSync('download')} 
+                  className="flex-1 p-4 bg-indigo-50 border border-indigo-100 rounded-xl font-bold flex flex-col items-center gap-2 text-xs text-indigo-700 hover:bg-indigo-100 active:scale-95 transition-transform"
+                >
+                  <CloudDownload size={24} /> Download Data
+                </button>
               </div>
-            )}
-          </>
+              <p className="text-[10px] text-gray-400 text-center mt-3">Link: ...v9oaQ/exec</p>
+            </div>
+            {/* END ADD */}
+
+            <div className="p-6 bg-white border rounded-2xl">
+              {/* ... existing backup buttons ... */}
+              <h2 className="font-bold mb-4">Backup & Export</h2>
+              <div className="flex gap-4">
+                <button onClick={() => {
+                  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data));
+                  const downloadAnchorNode = document.createElement('a');
+                  downloadAnchorNode.setAttribute("href", dataStr);
+                  downloadAnchorNode.setAttribute("download", "erp_backup.json");
+                  document.body.appendChild(downloadAnchorNode);
+                  downloadAnchorNode.click();
+                  downloadAnchorNode.remove();
+                }} className="flex-1 p-4 bg-gray-100 rounded-xl font-bold flex flex-col items-center gap-2 text-xs">
+                  <Download /> Export Full Backup
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </main>
 
+      {/* ... existing navigation & modals ... */}
       {/* Bottom Tabs */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t px-6 py-2 flex justify-between items-center z-50 safe-area-bottom shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
         {[
