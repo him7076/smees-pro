@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, getDocs, setDoc, deleteDoc, query } from "firebase/firestore";
+import * as XLSX from 'xlsx'; // ✅ FIXED: Direct Import for Bulk Upload
 import { 
   LayoutDashboard, 
   ReceiptText, 
@@ -40,8 +41,9 @@ import {
   CloudDownload
 } from 'lucide-react';
 
-/** * NEXUS ERP - Firebase Firestore Version
- * Centralized Cloud Database
+/** * NEXUS ERP - Final Centralized Version
+ * Backend: Firebase Firestore
+ * Features: Real-time Sync, Bulk Import (Fixed), PDF Print, Dashboard
  */
 
 // --- FIREBASE CONFIGURATION ---
@@ -235,14 +237,14 @@ export default function App() {
   const [viewDetail, setViewDetail] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // --- FIREBASE FETCH ---
+  // --- FIREBASE FETCH (Centralized) ---
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
         const newData = { ...INITIAL_DATA };
         
-        // Fetch All Collections
+        // Fetch All Collections from Firestore
         const collections = ['parties', 'items', 'staff', 'transactions', 'tasks'];
         for (const col of collections) {
             const querySnapshot = await getDocs(collection(db, col));
@@ -295,7 +297,7 @@ export default function App() {
     return { ...basic, totalPaid, pending, status };
   };
 
-  // --- SAVE TO FIRESTORE ---
+  // --- SAVE TO FIRESTORE (Auto-Sync) ---
   const saveRecord = async (collectionName, record, idType) => {
     let newData = { ...data };
     let syncedRecord = null;
@@ -347,8 +349,8 @@ export default function App() {
         }
         
         // Save Company Settings if it's that form
-        if (idType === 'company') { // Actually company form saves directly to data.company, but let's handle generic saves
-             // Handled separately in CompanyForm
+        if (idType === 'company') { 
+           // handled separately in saveCompanySettings
         }
 
     } catch (e) {
@@ -436,15 +438,15 @@ export default function App() {
     win.print();
   };
 
-  // --- IMPORT HANDLERS (UPDATED FOR FIREBASE) ---
+  // --- IMPORT HANDLERS (FIXED: Using XLSX Library) ---
   const handleTransactionImport = (e) => {
     const file = e.target.files[0];
-    if (!file || !window.XLSX) return;
+    if (!file) return; // ✅ FIXED: Removed window.XLSX check
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        const wb = window.XLSX.read(event.target.result, { type: 'binary' });
-        const rawInvoices = window.XLSX.utils.sheet_to_json(wb.Sheets["Invoices"] || wb.Sheets[wb.SheetNames[0]]);
+        const wb = XLSX.read(event.target.result, { type: 'binary' }); // ✅ FIXED: Using XLSX directly
+        const rawInvoices = XLSX.utils.sheet_to_json(wb.Sheets["Invoices"] || wb.Sheets[wb.SheetNames[0]]);
         
         let newData = { ...data };
         let count = 0;
@@ -498,12 +500,12 @@ export default function App() {
 
   const handleExcelImport = (e) => {
       const file = e.target.files[0];
-      if (!file || !window.XLSX) return;
+      if (!file) return; // ✅ FIXED
       const reader = new FileReader();
       reader.onload = async (event) => {
         try {
-            const wb = window.XLSX.read(event.target.result, { type: 'binary' });
-            const raw = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+            const wb = XLSX.read(event.target.result, { type: 'binary' }); // ✅ FIXED
+            const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
             let tempCounters = { ...data.counters };
             let newItems = [...data.items];
             
@@ -531,12 +533,12 @@ export default function App() {
   
   const handlePartyExcelImport = (e) => {
       const file = e.target.files[0];
-      if (!file || !window.XLSX) return;
+      if (!file) return; // ✅ FIXED
       const reader = new FileReader();
       reader.onload = async (event) => {
         try {
-            const wb = window.XLSX.read(event.target.result, { type: 'binary' });
-            const raw = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+            const wb = XLSX.read(event.target.result, { type: 'binary' }); // ✅ FIXED
+            const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
             let tempCounters = { ...data.counters };
             let newParties = [...data.parties];
             
@@ -1113,7 +1115,7 @@ export default function App() {
             </button>
             <label className="p-2 bg-blue-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm hover:bg-blue-700">
                <Upload size={14} /> Import
-               <input type="file" className="hidden" accept=".xlsx, .xls" onChange={() => {}} />
+               <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleTransactionImport} />
             </label>
             <button onClick={() => window.print()} className="p-2 bg-gray-100 rounded-lg text-xs font-bold flex items-center gap-1 text-gray-600">
                <Share2 size={14} /> PDF
@@ -1455,7 +1457,7 @@ export default function App() {
             onAddNew={() => {
               const name = prompt("New Category Name:");
               if (name) {
-                 const expenseType = window.confirm("Is this a DIRECT Expense? OK for Direct, Cancel for Indirect") ? "Direct" : "Indirect";
+                 const expenseType = confirm("Is this a DIRECT Expense? OK for Direct, Cancel for Indirect") ? "Direct" : "Indirect";
                  const newCat = { name, type: expenseType };
                  setData(prev => ({ ...prev, categories: { ...prev.categories, expense: [...prev.categories.expense, newCat] } }));
                  setTx(prev => ({ ...prev, category: name }));
@@ -1690,11 +1692,11 @@ export default function App() {
                    {/* ... existing Item/Party Import ... */}
                    <label className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-center text-sm cursor-pointer flex items-center justify-center gap-2 shadow-sm">
                       <FileSpreadsheet size={18} /> Items
-                      <input type="file" className="hidden" accept=".xlsx, .xls" onChange={() => showToast("Bulk import via file temporarily disabled for Firestore migration", "info")} />
+                      <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleExcelImport} />
                    </label>
                    <label className="flex-1 p-3 bg-emerald-600 text-white rounded-xl font-bold text-center text-sm cursor-pointer flex items-center justify-center gap-2 shadow-sm">
                       <Users size={18} /> Parties
-                      <input type="file" className="hidden" accept=".xlsx, .xls" onChange={() => showToast("Bulk import via file temporarily disabled for Firestore migration", "info")} />
+                      <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handlePartyExcelImport} />
                    </label>
                 </div>
                 
@@ -1713,6 +1715,23 @@ export default function App() {
                 />
                 <MasterList title="Staff" collection="staff" type="staff" />
                 
+                <div className="p-6 bg-white border rounded-2xl">
+                  {/* ... existing backup buttons ... */}
+                  <h2 className="font-bold mb-4">Backup & Export</h2>
+                  <div className="flex gap-4">
+                    <button onClick={() => {
+                      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data));
+                      const downloadAnchorNode = document.createElement('a');
+                      downloadAnchorNode.setAttribute("href", dataStr);
+                      downloadAnchorNode.setAttribute("download", "erp_backup.json");
+                      document.body.appendChild(downloadAnchorNode);
+                      downloadAnchorNode.click();
+                      downloadAnchorNode.remove();
+                    }} className="flex-1 p-4 bg-gray-100 rounded-xl font-bold flex flex-col items-center gap-2 text-xs">
+                      <Download /> Export Full Backup
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </>
@@ -1799,4 +1818,4 @@ export default function App() {
       )}
     </div>
   );
-}
+}"
