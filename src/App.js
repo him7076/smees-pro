@@ -1,3 +1,4 @@
+import { db } from "./firebase";
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   LayoutDashboard, 
