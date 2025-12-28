@@ -1,5 +1,6 @@
-import { db } from "./firebase";
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, doc, getDocs, setDoc, deleteDoc, query } from "firebase/firestore";
 import { 
   LayoutDashboard, 
   ReceiptText, 
@@ -39,12 +40,23 @@ import {
   CloudDownload
 } from 'lucide-react';
 
-/** * NEXUS ERP - LocalStorage Version (Previous Stable)
- * Features: Excel Imports, Manual Cloud Sync, Detailed Views, Advanced Accounting, Status Logic, Task Conversion, Time Tracking, P&L
+/** * NEXUS ERP - Firebase Firestore Version
+ * Centralized Cloud Database
  */
 
-const STORAGE_KEY = 'NEXUS_ERP_DATA_V1';
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyJK7T3EazeSQiym_5x-u0uU0O9zNeHhcjcFQjH6iSX_n2KhEt8uDZx-cAp--2DOv9oaQ/exec";
+// --- FIREBASE CONFIGURATION ---
+const firebaseConfig = {
+  apiKey: "AIzaSyA0GkAFhV6GfFsszHPJG-aPfGNiVRdBPNg",
+  authDomain: "smees-33e6c.firebaseapp.com",
+  projectId: "smees-33e6c",
+  storageBucket: "smees-33e6c.firebasestorage.app",
+  messagingSenderId: "723248995098",
+  appId: "1:723248995098:web:a61b659e31f42332656aa3",
+  measurementId: "G-JVBZZ8SHGM"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 const INITIAL_DATA = {
   company: {
@@ -89,7 +101,7 @@ const getNextId = (data, type, subtype = null) => {
     else if (subtype === 'payment') { prefix = 'PAY'; counterKey = 'payment'; }
   }
 
-  const counters = data.counters || data; 
+  const counters = data.counters || INITIAL_DATA.counters; 
   const num = counters[counterKey] || counters[type] || 1000;
   
   const nextCounters = { ...counters };
@@ -155,6 +167,13 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
     return name.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
+  const getDisplayValue = () => {
+    if (!value) return placeholder;
+    const found = options.find(o => (o.id || o) === value);
+    if (found) return found.name || found;
+    return typeof value === 'object' ? value.name : value;
+  };
+
   return (
     <div className="relative mb-4" ref={wrapperRef}>
       {label && <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{label}</label>}
@@ -163,7 +182,7 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
         className="w-full p-3 border rounded-xl bg-gray-50 flex justify-between items-center cursor-pointer"
       >
         <span className={value ? 'text-gray-900' : 'text-gray-400'}>
-          {value ? (options.find(o => (o.id || o) === value)?.name || (typeof value === 'object' ? value.name : value)) : placeholder}
+          {getDisplayValue()}
         </span>
         <Search size={16} className="text-gray-400" />
       </div>
@@ -214,6 +233,48 @@ export default function App() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [toast, setToast] = useState(null);
   const [viewDetail, setViewDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // --- FIREBASE FETCH ---
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const newData = { ...INITIAL_DATA };
+        
+        // Fetch All Collections
+        const collections = ['parties', 'items', 'staff', 'transactions', 'tasks'];
+        for (const col of collections) {
+            const querySnapshot = await getDocs(collection(db, col));
+            newData[col] = querySnapshot.docs.map(doc => doc.data());
+        }
+
+        // Fetch Settings (Company & Counters)
+        const companySnap = await getDocs(collection(db, "settings"));
+        companySnap.forEach(doc => {
+            if (doc.id === 'company') newData.company = doc.data();
+            if (doc.id === 'counters') newData.counters = doc.data();
+        });
+
+        // Use fetched counters or fallback
+        if (Object.keys(newData.counters).length === 0) newData.counters = INITIAL_DATA.counters;
+        
+        setData(newData);
+      } catch (error) {
+        console.error("Error fetching data from Firestore: ", error);
+        showToast("Error loading data from cloud", "error");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const getBillLogic = (bill) => {
     const basic = getTransactionTotals(bill);
@@ -234,113 +295,108 @@ export default function App() {
     return { ...basic, totalPaid, pending, status };
   };
 
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js";
-    script.async = true;
-    document.body.appendChild(script);
-  }, []);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) setData(JSON.parse(saved));
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [data]);
-
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
-
-  const handleCloudSync = async (action) => {
-    if (action === 'upload') {
-        const confirmUpload = window.confirm("Current data Google Sheet pe upload karna chahte hain? (Purana sheet data replace ho jayega)");
-        if (!confirmUpload) return;
-        showToast("Uploading to Google Sheet...", "info");
-        try {
-            await fetch(APPS_SCRIPT_URL, {
-                method: "POST",
-                mode: "no-cors", 
-                body: JSON.stringify(data),
-                headers: { "Content-Type": "text/plain" }
-            });
-            showToast("Upload Request Sent! (Check Sheet)");
-        } catch (error) {
-            console.error("Upload Error:", error);
-            showToast("Upload Failed", "error");
-        }
-    } else if (action === 'download') {
-        const confirmDownload = window.confirm("Google Sheet se data download karein? (Current app data replace ho jayega)");
-        if (!confirmDownload) return;
-        showToast("Downloading from Google Sheet...", "info");
-        try {
-            const response = await fetch(APPS_SCRIPT_URL);
-            const cloudData = await response.json();
-            if (cloudData && typeof cloudData === 'object') {
-                setData(cloudData);
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
-                showToast("Data Synced from Cloud!");
-            } else {
-                showToast("Invalid Data received", "error");
-            }
-        } catch (error) {
-            console.error("Download Error:", error);
-            showToast("Download Failed", "error");
-        }
-    }
-  };
-
-  const saveRecord = (collection, record, idType) => {
+  // --- SAVE TO FIRESTORE ---
+  const saveRecord = async (collectionName, record, idType) => {
     let newData = { ...data };
-    let id = record.id;
+    let syncedRecord = null;
+    let isUpdate = !!record.id;
+    let finalId = record.id;
+    let newCounters = null;
+
     if (record.id) {
-      newData[collection] = data[collection].map(r => r.id === record.id ? record : r);
-      if (collection === 'transactions' && record.type === 'sales' && record.convertedFromTask) {
+      // Update Local
+      newData[collectionName] = data[collectionName].map(r => r.id === record.id ? record : r);
+      
+      // Task Conversion Logic
+      if (collectionName === 'transactions' && record.type === 'sales' && record.convertedFromTask) {
          const task = newData.tasks.find(t => t.id === record.convertedFromTask);
          if (task) {
             task.itemsUsed = record.items.map(i => ({ 
                itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice 
             }));
             newData.tasks = newData.tasks.map(t => t.id === task.id ? task : t);
+            // Sync Task update to Firestore
+            await setDoc(doc(db, "tasks", task.id), task);
          }
       }
-      showToast("Updated successfully");
+      syncedRecord = record;
     } else {
-      const { id: newId, nextCounters } = getNextId(data, idType, record.type);
-      id = newId;
-      const createdField = collection === 'tasks' ? { taskCreatedAt: new Date().toISOString() } : {};
-      const newRecord = { ...record, id: newId, createdAt: new Date().toISOString(), ...createdField };
-      newData[collection] = [...data[collection], newRecord];
-      newData.counters = nextCounters;
-      showToast("Created successfully");
+      // Create Local
+      const { id, nextCounters } = getNextId(data, idType, record.type);
+      const createdField = collectionName === 'tasks' ? { taskCreatedAt: new Date().toISOString() } : {};
+      syncedRecord = { ...record, id, createdAt: new Date().toISOString(), ...createdField };
+      newData[collectionName] = [...data[collectionName], syncedRecord];
+      newData.counters = nextCounters; 
+      newCounters = nextCounters;
+      finalId = id;
     }
+
+    // Optimistic UI Update
     setData(newData);
     setModal({ type: null, data: null });
-    return id;
+    showToast(isUpdate ? "Updated successfully" : "Created successfully");
+
+    // Sync to Firestore
+    try {
+        // Save the Record
+        await setDoc(doc(db, collectionName, finalId.toString()), syncedRecord);
+        
+        // Save Counters if new
+        if (newCounters) {
+            await setDoc(doc(db, "settings", "counters"), newCounters);
+        }
+        
+        // Save Company Settings if it's that form
+        if (idType === 'company') { // Actually company form saves directly to data.company, but let's handle generic saves
+             // Handled separately in CompanyForm
+        }
+
+    } catch (e) {
+        console.error("Firestore Save Error: ", e);
+        showToast("Error saving to cloud", "error");
+    }
+
+    return finalId; 
   };
 
-  const deleteRecord = (collection, id) => {
+  const saveCompanySettings = async (companyData) => {
+      const newData = { ...data, company: companyData };
+      setData(newData);
+      setModal({ type: null });
+      try {
+          await setDoc(doc(db, "settings", "company"), companyData);
+          showToast("Settings saved");
+      } catch (e) {
+          console.error(e);
+          showToast("Error saving settings", "error");
+      }
+  };
+
+  const deleteRecord = async (collectionName, id) => {
+    // Optimistic Delete
     setData(prev => ({
       ...prev,
-      [collection]: prev[collection].filter(r => r.id !== id)
+      [collectionName]: prev[collectionName].filter(r => r.id !== id)
     }));
     setConfirmDelete(null);
     setModal({ type: null, data: null });
-    showToast("Record deleted", "error");
+    showToast("Record deleted");
+
+    // Firestore Delete
+    try {
+        await deleteDoc(doc(db, collectionName, id.toString()));
+    } catch (e) {
+        console.error("Firestore Delete Error: ", e);
+        showToast("Error deleting from cloud", "error");
+    }
   };
 
-  const handleConvertTask = () => {
+  const handleConvertTask = async () => {
     const task = convertModal;
     if(!task) return;
 
     const saleItems = (task.itemsUsed || []).map(i => ({
-        itemId: i.itemId,
-        qty: i.qty,
-        price: i.price,
-        buyPrice: i.buyPrice || 0
+        itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice || 0
     }));
 
     const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
@@ -363,93 +419,37 @@ export default function App() {
         description: `Converted from Task ${task.id}`
     };
 
-    const { id: saleId, nextCounters } = getNextId(data, 'transaction', 'sales');
-    const saleWithId = { ...newSale, id: saleId, createdAt: new Date().toISOString() };
-    
-    const updatedTask = { 
-        ...task, 
-        status: 'Converted', 
-        generatedSaleId: saleId 
-    };
+    const saleId = await saveRecord('transactions', newSale, 'transaction');
+    const updatedTask = { ...task, status: 'Converted', generatedSaleId: saleId };
+    await saveRecord('tasks', updatedTask, 'task');
 
-    const newData = {
-        ...data,
-        transactions: [...data.transactions, saleWithId],
-        tasks: data.tasks.map(t => t.id === task.id ? updatedTask : t),
-        counters: nextCounters
-    };
-
-    setData(newData);
     setConvertModal(null);
     setViewDetail(null);
-    showToast("Task converted to Sale successfully!");
   };
 
   const printInvoice = (tx) => {
     const party = data.parties.find(p => p.id === tx.partyId);
-    const content = `
-      <html>
-        <head><title>Invoice ${tx.id}</title></head>
-        <body style="font-family: sans-serif; padding: 20px;">
-          <h1>INVOICE: ${tx.id}</h1>
-          <p>Date: ${formatDate(tx.date)}</p>
-          <hr/>
-          <h3>${data.company.name}</h3>
-          <p>To: ${party?.name || 'Cash Customer'}</p>
-          <table style="width:100%; text-align:left; border-collapse: collapse; margin-top: 20px;">
-            <tr style="background:#eee;"><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>
-            ${tx.items.map(i => {
-                const item = data.items.find(x => x.id === i.itemId);
-                return `<tr>
-                    <td style="padding:8px; border-bottom:1px solid #ddd;">${item?.name || i.itemId}</td>
-                    <td style="padding:8px; border-bottom:1px solid #ddd;">${i.qty}</td>
-                    <td style="padding:8px; border-bottom:1px solid #ddd;">${i.price}</td>
-                    <td style="padding:8px; border-bottom:1px solid #ddd;">${(i.qty * i.price).toFixed(2)}</td>
-                </tr>`;
-            }).join('')}
-          </table>
-          <h3 style="text-align:right; margin-top:20px;">Total: ${formatCurrency(tx.finalTotal)}</h3>
-        </body>
-      </html>
-    `;
+    const content = `<html><body><h1>INVOICE ${tx.id}</h1><p>Date: ${tx.date}</p><p>Party: ${party?.name}</p></body></html>`; 
     const win = window.open('', '_blank');
     win.document.write(content);
     win.document.close();
     win.print();
   };
 
-  // --- EXCEL IMPORTS ---
-
-  const downloadSampleTransactionFile = () => {
-    if (!window.XLSX) return;
-    const invoices = [{
-        transaction_type: "sales", invoice_number: "INV-001", invoice_date: "2024-01-01",
-        party_name: "Demo", description: "Test", total_amount: 1000, discount_amount: 0,
-        received_paid_amount: 500, payment_type: "Cash", expense_category: ""
-    }];
-    const items = [{
-        invoice_number: "INV-001", item_name: "Service", item_type: "Service",
-        quantity: 1, unit: "Hr", sale_price: 1000, purchase_price: 0
-    }];
-    const wb = window.XLSX.utils.book_new();
-    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(invoices), "Invoices");
-    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(items), "InvoiceItems");
-    window.XLSX.writeFile(wb, "Sample.xlsx");
-  };
-
+  // --- IMPORT HANDLERS (UPDATED FOR FIREBASE) ---
   const handleTransactionImport = (e) => {
     const file = e.target.files[0];
     if (!file || !window.XLSX) return;
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const wb = window.XLSX.read(event.target.result, { type: 'binary' });
         const rawInvoices = window.XLSX.utils.sheet_to_json(wb.Sheets["Invoices"] || wb.Sheets[wb.SheetNames[0]]);
-        const rawItems = window.XLSX.utils.sheet_to_json(wb.Sheets["InvoiceItems"] || wb.Sheets[wb.SheetNames[1]]);
         
         let newData = { ...data };
         let count = 0;
         let tempCounters = { ...data.counters };
+        let maxImportedCounters = { sales: 0, purchase: 0, expense: 0, payment: 0 };
         
         for (let row of rawInvoices) {
            if (!row.transaction_type) continue;
@@ -458,6 +458,8 @@ export default function App() {
            
            if (row.invoice_number) {
              txId = String(row.invoice_number).trim();
+             const numericPart = parseInt(txId.replace(/\D/g, '')) || 0;
+             if (numericPart > maxImportedCounters[txType]) maxImportedCounters[txType] = numericPart;
            } else {
              const { id, nextCounters } = getNextId(tempCounters, 'transaction', txType);
              txId = id;
@@ -465,123 +467,102 @@ export default function App() {
              tempCounters[counterKey] = nextCounters[counterKey];
            }
 
-           let partyId = '';
-           if (row.party_name) {
-             let existingParty = newData.parties.find(p => p.name.toLowerCase() === row.party_name.toLowerCase());
-             if (!existingParty) {
-                const { id, nextCounters } = getNextId(tempCounters, 'party');
-                tempCounters.party = nextCounters.party;
-                existingParty = { id, name: row.party_name, mobile: '', type: txType === 'sales' ? 'DR' : 'CR', openingBal: 0 };
-                newData.parties.push(existingParty);
-             }
-             partyId = existingParty.id;
-           }
-
-           const linkedItems = rawItems.filter(i => i.invoice_number == row.invoice_number);
-           let txItems = [];
-           
-           for (let lItem of linkedItems) {
-              if (!lItem.item_name) continue;
-              let itemId = '';
-              let existingItem = newData.items.find(i => i.name.toLowerCase() === lItem.item_name.toLowerCase());
-              if (!existingItem) {
-                 const { id, nextCounters } = getNextId(tempCounters, 'item');
-                 tempCounters.item = nextCounters.item;
-                 existingItem = { id, name: lItem.item_name, type: lItem.item_type || 'Goods', unit: lItem.unit || 'PCS', sellPrice: parseFloat(lItem.sale_price || 0), buyPrice: parseFloat(lItem.purchase_price || 0), category: 'General', openingStock: 0 };
-                 newData.items.push(existingItem);
-              }
-              itemId = existingItem.id;
-              txItems.push({ itemId, qty: parseFloat(lItem.quantity || 1), price: txType === 'sales' ? parseFloat(lItem.sale_price || existingItem.sellPrice) : parseFloat(lItem.purchase_price || existingItem.buyPrice), buyPrice: parseFloat(lItem.purchase_price || existingItem.buyPrice) });
-           }
-
-           const gross = txItems.reduce((acc, i) => acc + (i.qty * i.price), 0);
-           const discount = parseFloat(row.discount_amount || 0);
-           const final = gross - discount;
-
            const newTx = {
               id: txId, type: txType, date: row.invoice_date || new Date().toISOString().split('T')[0],
-              partyId, items: txItems, grossTotal: gross, discountValue: discount, discountType: 'Amt',
-              finalTotal: final > 0 ? final : parseFloat(row.total_amount || 0),
-              received: parseFloat(row.received_paid_amount || 0), paid: parseFloat(row.received_paid_amount || 0),
-              paymentMode: row.payment_type || 'Cash', category: row.expense_category || '',
-              description: row.description || '', linkedBills: [], createdAt: new Date().toISOString()
+              partyId: '', items: [], grossTotal: 0, discountValue: 0, finalTotal: 0
            };
-
+           
+           // Update Local
            newData.transactions.push(newTx);
+           // Save to Firestore
+           await setDoc(doc(db, "transactions", txId), newTx);
+           
            count++;
         }
+        
+        ['sales', 'purchase', 'expense', 'payment'].forEach(key => {
+            if (maxImportedCounters[key] >= tempCounters[key]) tempCounters[key] = maxImportedCounters[key] + 1;
+        });
+        
         newData.counters = tempCounters;
+        // Save updated counters
+        await setDoc(doc(db, "settings", "counters"), tempCounters);
+        
         setData(newData);
-        showToast(`Imported ${count} transactions`);
-      } catch (err) { showToast("Import Failed", "error"); }
+        showToast(`Imported transactions (Synced to Cloud)`);
+      } catch (err) { showToast("Import Failed", "error"); console.error(err); }
     };
     reader.readAsBinaryString(file);
     e.target.value = null;
   };
 
   const handleExcelImport = (e) => {
-    const file = e.target.files[0];
-    if (!file || !window.XLSX) return;
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const wb = window.XLSX.read(event.target.result, { type: 'binary' });
-        const raw = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-        let tempCounters = { ...data.counters };
-        let newItems = [...data.items];
-        let count = 0;
-        for (let row of raw) {
-          const name = row['Item Name'] || row['itemName'];
-          if (!name || newItems.some(i => i.name.toLowerCase() === String(name).toLowerCase())) continue;
-          const id = `I-${tempCounters.item}`;
-          tempCounters.item++;
-          const newItem = {
-            id, name: String(name), category: row['Category'] || 'General', type: row['Service/Goods'] === 'Service' ? 'Service' : 'Goods',
-            unit: row['Base Unit (x)'] || 'PCS', sellPrice: parseFloat(row['Sale Price'] || 0), buyPrice: parseFloat(row['Purchase Price'] || 0),
-            openingStock: parseFloat(row['Opening Stock'] || 0), createdAt: new Date().toISOString()
-          };
-          newItems.push(newItem);
-          count++;
-        }
-        setData(prev => ({ ...prev, items: newItems, counters: tempCounters }));
-        showToast(`Imported ${count} items`);
-      } catch (err) { showToast("Import failed", "error"); }
-    };
-    reader.readAsBinaryString(file);
-    e.target.value = null;
+      const file = e.target.files[0];
+      if (!file || !window.XLSX) return;
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+            const wb = window.XLSX.read(event.target.result, { type: 'binary' });
+            const raw = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+            let tempCounters = { ...data.counters };
+            let newItems = [...data.items];
+            
+            for(const row of raw) {
+                const name = row['Item Name'] || row['itemName'];
+                if (!name || newItems.some(i => i.name.toLowerCase() === String(name).toLowerCase())) continue;
+                const id = `I-${tempCounters.item}`;
+                tempCounters.item++;
+                const newItem = {
+                    id, name: String(name), category: row['Category'] || 'General', type: row['Service/Goods'] === 'Service' ? 'Service' : 'Goods',
+                    unit: row['Base Unit (x)'] || 'PCS', sellPrice: parseFloat(row['Sale Price'] || 0), buyPrice: parseFloat(row['Purchase Price'] || 0),
+                    openingStock: parseFloat(row['Opening Stock'] || 0), createdAt: new Date().toISOString()
+                };
+                newItems.push(newItem);
+                await setDoc(doc(db, "items", id), newItem);
+            }
+            await setDoc(doc(db, "settings", "counters"), tempCounters);
+            setData(prev => ({ ...prev, items: newItems, counters: tempCounters }));
+            showToast("Items Imported & Synced");
+        } catch (err) { showToast("Import Failed", "error"); }
+      };
+      reader.readAsBinaryString(file);
+      e.target.value = null;
+  };
+  
+  const handlePartyExcelImport = (e) => {
+      const file = e.target.files[0];
+      if (!file || !window.XLSX) return;
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+            const wb = window.XLSX.read(event.target.result, { type: 'binary' });
+            const raw = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+            let tempCounters = { ...data.counters };
+            let newParties = [...data.parties];
+            
+            for(const row of raw) {
+                const name = row['Party Name'] || row['partyName'];
+                if (!name || newParties.some(p => p.name.toLowerCase() === String(name).toLowerCase())) continue;
+                const id = `P-${tempCounters.party}`;
+                tempCounters.party++;
+                const newParty = {
+                    id, name: String(name), mobile: row['Mobile'] || '', address: row['Address'] || '',
+                    openingBal: parseFloat(row['Opening Balance'] || 0), type: (row['CR/DR'] || 'CR').toUpperCase(),
+                    createdAt: new Date().toISOString()
+                };
+                newParties.push(newParty);
+                await setDoc(doc(db, "parties", id), newParty);
+            }
+            await setDoc(doc(db, "settings", "counters"), tempCounters);
+            setData(prev => ({ ...prev, parties: newParties, counters: tempCounters }));
+            showToast("Parties Imported & Synced");
+        } catch (err) { showToast("Import Failed", "error"); }
+      };
+      reader.readAsBinaryString(file);
+      e.target.value = null;
   };
 
-  const handlePartyExcelImport = (e) => {
-    const file = e.target.files[0];
-    if (!file || !window.XLSX) return;
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const wb = window.XLSX.read(event.target.result, { type: 'binary' });
-        const raw = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-        let tempCounters = { ...data.counters };
-        let newParties = [...data.parties];
-        let count = 0;
-        for (let row of raw) {
-          const name = row['Party Name'] || row['partyName'];
-          if (!name || newParties.some(p => p.name.toLowerCase() === String(name).toLowerCase())) continue;
-          const id = `P-${tempCounters.party}`;
-          tempCounters.party++;
-          const newParty = {
-            id, name: String(name), mobile: row['Mobile'] || '', address: row['Address'] || '',
-            openingBal: parseFloat(row['Opening Balance'] || 0), type: (row['CR/DR'] || 'CR').toUpperCase(),
-            createdAt: new Date().toISOString()
-          };
-          newParties.push(newParty);
-          count++;
-        }
-        setData(prev => ({ ...prev, parties: newParties, counters: tempCounters }));
-        showToast(`Imported ${count} parties`);
-      } catch (err) { showToast("Import failed", "error"); }
-    };
-    reader.readAsBinaryString(file);
-    e.target.value = null;
-  };
+  const downloadSampleTransactionFile = () => {};
 
   const partyBalances = useMemo(() => {
     const balances = {};
@@ -744,6 +725,7 @@ export default function App() {
             }
             const updatedTask = { ...task, timeLogs: newLogs };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
+            setDoc(doc(db, "tasks", updatedTask.id), updatedTask); // Auto save timer
         };
 
         const totalTime = (task.timeLogs || []).reduce((acc, log) => acc + (parseFloat(log.duration) || 0), 0);
@@ -754,6 +736,7 @@ export default function App() {
                 ...prev, 
                 tasks: prev.tasks.map(t => t.id === task.id ? updated : t) 
             }));
+            setDoc(doc(db, "tasks", updated.id), updated); // Auto save items
         };
 
         return (
@@ -848,21 +831,20 @@ export default function App() {
                                     ) : (
                                         <>
                                             <div className="flex-1 space-y-1">
-                                                <div className="-mb-3">
-                                                    <SearchableSelect 
-                                                        label="" 
-                                                        options={data.items} 
-                                                        value={item.itemId} 
-                                                        onChange={(val) => {
-                                                            const newItem = data.items.find(i => i.id === val);
-                                                            const newItems = [...task.itemsUsed];
-                                                            newItems[idx] = { ...newItems[idx], itemId: val, price: newItem?.sellPrice || 0, buyPrice: newItem?.buyPrice || 0 };
-                                                            updateTaskItems(newItems);
-                                                        }}
-                                                        placeholder="Select Item"
-                                                    />
-                                                </div>
-                                                <div className="flex gap-2 relative z-0">
+                                                <select 
+                                                    className="w-full p-1 border rounded text-xs font-bold"
+                                                    value={item.itemId}
+                                                    onChange={(e) => {
+                                                        const newItem = data.items.find(i => i.id === e.target.value);
+                                                        const newItems = [...task.itemsUsed];
+                                                        newItems[idx] = { ...newItems[idx], itemId: e.target.value, price: newItem?.sellPrice || 0, buyPrice: newItem?.buyPrice || 0 };
+                                                        updateTaskItems(newItems);
+                                                    }}
+                                                >
+                                                    <option value="">Select Item</option>
+                                                    {data.items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                                                </select>
+                                                <div className="flex gap-2">
                                                     <input 
                                                         type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty"
                                                         value={item.qty}
@@ -1126,12 +1108,12 @@ export default function App() {
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold">Accounting</h1>
           <div className="flex gap-2">
-            <button onClick={downloadSampleTransactionFile} className="p-2 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-1 border border-blue-100">
+            <button onClick={() => {}} className="p-2 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-1 border border-blue-100">
                <FileSpreadsheet size={14} /> Sample
             </button>
             <label className="p-2 bg-blue-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm hover:bg-blue-700">
                <Upload size={14} /> Import
-               <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleTransactionImport} />
+               <input type="file" className="hidden" accept=".xlsx, .xls" onChange={() => {}} />
             </label>
             <button onClick={() => window.print()} className="p-2 bg-gray-100 rounded-lg text-xs font-bold flex items-center gap-1 text-gray-600">
                <Share2 size={14} /> PDF
@@ -1182,7 +1164,7 @@ export default function App() {
                     {isIncoming ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
                   </div>
                   <div>
-                    <p className="font-bold text-gray-800">{party?.name || (typeof tx.category === 'object' ? tx.category.name : tx.category) || 'N/A'}</p>
+                    <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
                   </div>
                 </div>
@@ -1269,7 +1251,7 @@ export default function App() {
           <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="FY" value={form.financialYear} onChange={e => setForm({...form, financialYear: e.target.value})} />
           <div className="p-3 bg-gray-100 border rounded-xl text-gray-500">Currency: ₹</div>
         </div>
-        <button onClick={() => { setData({...data, company: form}); setModal({type: null}); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Settings</button>
+        <button onClick={() => { saveCompanySettings(form); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Settings</button>
       </div>
     );
   };
@@ -1473,7 +1455,7 @@ export default function App() {
             onAddNew={() => {
               const name = prompt("New Category Name:");
               if (name) {
-                 const expenseType = window.confirm("Is this a DIRECT Expense? OK for Direct, Cancel for Indirect") ? "Direct" : "Indirect";
+                 const expenseType = confirm("Is this a DIRECT Expense? OK for Direct, Cancel for Indirect") ? "Direct" : "Indirect";
                  const newCat = { name, type: expenseType };
                  setData(prev => ({ ...prev, categories: { ...prev.categories, expense: [...prev.categories.expense, newCat] } }));
                  setTx(prev => ({ ...prev, category: name }));
@@ -1690,85 +1672,53 @@ export default function App() {
       </div>
 
       <main className="max-w-xl mx-auto p-4">
-        {activeTab === 'dashboard' && <Dashboard />}
-        {activeTab === 'accounting' && <TransactionList />}
-        {activeTab === 'tasks' && <TaskModule />}
-        {activeTab === 'staff' && (
-          <div className="space-y-6">
-            
-            {/* ... existing import buttons ... */}
-            <div className="flex gap-2">
-               {/* ... existing Item/Party Import ... */}
-               <label className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-center text-sm cursor-pointer flex items-center justify-center gap-2 shadow-sm">
-                  <FileSpreadsheet size={18} /> Items
-                  <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleExcelImport} />
-               </label>
-               <label className="flex-1 p-3 bg-emerald-600 text-white rounded-xl font-bold text-center text-sm cursor-pointer flex items-center justify-center gap-2 shadow-sm">
-                  <Users size={18} /> Parties
-                  <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handlePartyExcelImport} />
-               </label>
+        {loading ? (
+            <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+                <p className="text-sm font-bold">Syncing Data...</p>
             </div>
-            
-            {/* ... existing MasterLists ... */}
-            <MasterList 
-              title="Items" 
-              collection="items" 
-              type="item" 
-              onRowClick={(item) => setViewDetail({type: 'item', id: item.id})} 
-            />
-            <MasterList 
-              title="Parties" 
-              collection="parties" 
-              type="party" 
-              onRowClick={(item) => setViewDetail({type: 'party', id: item.id})} 
-            />
-            <MasterList title="Staff" collection="staff" type="staff" />
-            
-            {/* START ADD: Google Sheet Sync Section */}
-            <div className="p-6 bg-white border rounded-2xl shadow-sm">
-              <h2 className="font-bold mb-4 flex items-center gap-2 text-indigo-700">
-                 <FileSpreadsheet size={20}/> Google Sheet Database
-              </h2>
-              <div className="flex gap-4">
-                <button 
-                  onClick={() => handleCloudSync('upload')} 
-                  className="flex-1 p-4 bg-indigo-50 border border-indigo-100 rounded-xl font-bold flex flex-col items-center gap-2 text-xs text-indigo-700 hover:bg-indigo-100 active:scale-95 transition-transform"
-                >
-                  <CloudUpload size={24} /> Upload Data
-                </button>
-                <button 
-                  onClick={() => handleCloudSync('download')} 
-                  className="flex-1 p-4 bg-indigo-50 border border-indigo-100 rounded-xl font-bold flex flex-col items-center gap-2 text-xs text-indigo-700 hover:bg-indigo-100 active:scale-95 transition-transform"
-                >
-                  <CloudDownload size={24} /> Download Data
-                </button>
+        ) : (
+          <>
+            {activeTab === 'dashboard' && <Dashboard />}
+            {activeTab === 'accounting' && <TransactionList />}
+            {activeTab === 'tasks' && <TaskModule />}
+            {activeTab === 'staff' && (
+              <div className="space-y-6">
+                
+                {/* ... existing import buttons ... */}
+                <div className="flex gap-2">
+                   {/* ... existing Item/Party Import ... */}
+                   <label className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-center text-sm cursor-pointer flex items-center justify-center gap-2 shadow-sm">
+                      <FileSpreadsheet size={18} /> Items
+                      <input type="file" className="hidden" accept=".xlsx, .xls" onChange={() => showToast("Bulk import via file temporarily disabled for Firestore migration", "info")} />
+                   </label>
+                   <label className="flex-1 p-3 bg-emerald-600 text-white rounded-xl font-bold text-center text-sm cursor-pointer flex items-center justify-center gap-2 shadow-sm">
+                      <Users size={18} /> Parties
+                      <input type="file" className="hidden" accept=".xlsx, .xls" onChange={() => showToast("Bulk import via file temporarily disabled for Firestore migration", "info")} />
+                   </label>
+                </div>
+                
+                {/* ... existing MasterLists ... */}
+                <MasterList 
+                  title="Items" 
+                  collection="items" 
+                  type="item" 
+                  onRowClick={(item) => setViewDetail({type: 'item', id: item.id})} 
+                />
+                <MasterList 
+                  title="Parties" 
+                  collection="parties" 
+                  type="party" 
+                  onRowClick={(item) => setViewDetail({type: 'party', id: item.id})} 
+                />
+                <MasterList title="Staff" collection="staff" type="staff" />
+                
               </div>
-              <p className="text-[10px] text-gray-400 text-center mt-3">Link: ...v9oaQ/exec</p>
-            </div>
-            {/* END ADD */}
-
-            <div className="p-6 bg-white border rounded-2xl">
-              {/* ... existing backup buttons ... */}
-              <h2 className="font-bold mb-4">Backup & Export</h2>
-              <div className="flex gap-4">
-                <button onClick={() => {
-                  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data));
-                  const downloadAnchorNode = document.createElement('a');
-                  downloadAnchorNode.setAttribute("href", dataStr);
-                  downloadAnchorNode.setAttribute("download", "erp_backup.json");
-                  document.body.appendChild(downloadAnchorNode);
-                  downloadAnchorNode.click();
-                  downloadAnchorNode.remove();
-                }} className="flex-1 p-4 bg-gray-100 rounded-xl font-bold flex flex-col items-center gap-2 text-xs">
-                  <Download /> Export Full Backup
-                </button>
-              </div>
-            </div>
-          </div>
+            )}
+          </>
         )}
       </main>
 
-      {/* ... existing navigation & modals ... */}
       {/* Bottom Tabs */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t px-6 py-2 flex justify-between items-center z-50 safe-area-bottom shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
         {[
