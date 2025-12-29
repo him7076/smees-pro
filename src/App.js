@@ -8,8 +8,8 @@ import {
   setDoc, 
   deleteDoc, 
   doc, 
-  query,
-  where,
+  query, 
+  where, 
   initializeFirestore, 
   persistentLocalCache, 
   persistentMultipleTabManager 
@@ -53,15 +53,20 @@ import {
   BarChart3,
   PieChart,
   LogOut,
-  Map
+  Map,
+  Upload,
+  UserCheck,
+  Coffee,
+  LogIn,
+  Save,
+  MessageCircle
 } from 'lucide-react';
 
-/** * SMEES Pro - Final Production Version 
- * Ready for Vercel Deployment
- * Fixed Scope, Hooks, and User State issues.
+/** * SMEES Pro - Final Production Version
+ * Merged UI (Code A) + Logic (Code B) + 12 Critical Fixes
  */
 
-// --- FIREBASE CONFIGURATION (Production) ---
+// --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
   apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
   authDomain: "smeestest.firebaseapp.com",
@@ -74,95 +79,56 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-
-// Enable Offline Persistence
 const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
 });
 
 const INITIAL_DATA = {
-  company: {
-    name: "My Enterprise",
-    mobile: "",
-    address: "",
-    financialYear: "2024-25",
-    currency: "₹"
-  },
+  company: { name: "My Enterprise", mobile: "", address: "", financialYear: "2024-25", currency: "₹" },
   parties: [],
   items: [],
   staff: [],
+  attendance: [],
   transactions: [],
   tasks: [],
   categories: {
     expense: ["Rent", "Electricity", "Marketing", "Salary"],
     item: ["Electronics", "Grocery", "General", "Furniture", "Pharmacy"]
   },
-  counters: {
-    party: 100,
-    item: 100,
-    staff: 100,
-    transaction: 1000,
-    task: 500,
-    sales: 100,
-    purchase: 100,
-    expense: 100,
-    payment: 100,
-    estimate: 100
-  }
+  counters: { party: 100, item: 100, staff: 100, transaction: 1000, task: 500 }
 };
 
-// --- HELPER FUNCTIONS (Pure Logic) ---
-
-const getNextId = (data, type, subtype = null) => {
+// --- HELPER FUNCTIONS ---
+const getNextId = (data, type) => {
   let prefix = type.charAt(0).toUpperCase();
   let counterKey = type;
-
-  if (type === 'transaction' || type === 'estimate') {
-    if (subtype === 'sales') { prefix = 'S'; counterKey = 'sales'; }
-    else if (subtype === 'purchase') { prefix = 'P'; counterKey = 'purchase'; }
-    else if (subtype === 'expense') { prefix = 'E'; counterKey = 'expense'; }
-    else if (subtype === 'payment') { prefix = 'PAY'; counterKey = 'payment'; }
-    else if (subtype === 'estimate') { prefix = 'EST'; counterKey = 'estimate'; }
-  }
+  if (type === 'transaction' || type === 'estimate') { prefix = 'TX'; counterKey = 'transaction'; }
+  if (type === 'sales') { prefix = 'S'; counterKey = 'transaction'; }
+  if (type === 'purchase') { prefix = 'P'; counterKey = 'transaction'; }
+  if (type === 'expense') { prefix = 'E'; counterKey = 'transaction'; }
+  if (type === 'payment') { prefix = 'PAY'; counterKey = 'transaction'; }
 
   const counters = data.counters || INITIAL_DATA.counters; 
-  const num = counters[counterKey] || counters[type] || 1000;
-  
+  const num = counters[counterKey] || 1000;
   const nextCounters = { ...counters };
-  if (counters[counterKey] !== undefined) {
-    nextCounters[counterKey] = num + 1;
-  } else {
-    nextCounters[type] = num + 1;
-  }
-
+  nextCounters[counterKey] = num + 1;
   return { id: `${prefix}-${num}`, nextCounters };
 };
 
-const formatCurrency = (amount) => {
-  const val = parseFloat(amount || 0);
-  return `₹${val.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-};
-
-const formatDate = (dateStr) => {
-  if (!dateStr) return '';
-  return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
-};
+const formatCurrency = (amount) => `₹${parseFloat(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '';
+const formatTime = (isoString) => isoString ? new Date(isoString).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--:--';
 
 const getTransactionTotals = (tx) => {
   const gross = tx.items?.reduce((acc, i) => acc + (parseFloat(i.qty || 0) * parseFloat(i.price || 0)), 0) || 0;
-  
   let discVal = parseFloat(tx.discountValue || 0);
   if (tx.discountType === '%') discVal = (gross * discVal) / 100;
-  
   const final = gross - discVal;
   const paid = parseFloat(tx.received || tx.paid || 0);
-  
   let status = 'UNPAID';
-  if (paid >= final && final > 0) status = 'PAID';
+  if (paid >= final - 0.1 && final > 0) status = 'PAID';
   else if (paid > 0) status = 'PARTIAL';
-  
-  const amount = parseFloat(tx.amount || 0);
-  return { gross, final, paid, status, amount: amount || final };
+  return { gross, final, paid, status, amount: parseFloat(tx.amount || 0) || final };
 };
 
 const sortData = (data, criterion) => {
@@ -179,12 +145,25 @@ const sortData = (data, criterion) => {
     }
 };
 
-// --- GENERIC UI COMPONENTS (Stateless) ---
+const checkPermission = (user, permission) => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    return !!user.permissions?.[permission];
+};
 
+const cleanData = (obj) => {
+    const newObj = { ...obj };
+    Object.keys(newObj).forEach(key => {
+        if (newObj[key] === undefined) newObj[key] = "";
+    });
+    return newObj;
+};
+
+// --- COMPONENTS ---
 const Modal = ({ isOpen, onClose, title, children }) => {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
+    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
       <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300">
         <div className="p-4 border-b flex justify-between items-center sticky top-0 bg-white z-10">
           <h2 className="text-lg font-bold text-gray-800">{title}</h2>
@@ -199,71 +178,35 @@ const Modal = ({ isOpen, onClose, title, children }) => {
 const SearchableSelect = ({ label, options, value, onChange, onAddNew, placeholder = "Select..." }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const wrapperRef = useRef(null);
-
-  const filtered = options.filter(opt => {
-    const name = typeof opt === 'string' ? opt : (opt.name || '');
-    return name.toLowerCase().includes(searchTerm.toLowerCase());
-  });
-
+  const filtered = options.filter(opt => (typeof opt === 'string' ? opt : (opt.name || '')).toLowerCase().includes(searchTerm.toLowerCase()));
   const getDisplayValue = () => {
     if (!value) return placeholder;
     const found = options.find(o => (o.id || o) === value);
-    if (found) return found.name || found;
-    return typeof value === 'object' ? value.name : value;
+    return found ? (found.name || found) : (typeof value === 'object' ? value.name : value);
   };
 
   return (
-    <div className="relative mb-4" ref={wrapperRef}>
+    <div className="relative mb-4">
       {label && <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{label}</label>}
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full p-3 border rounded-xl bg-gray-50 flex justify-between items-center cursor-pointer"
-      >
-        <span className={`truncate ${value ? 'text-gray-900' : 'text-gray-400'}`}>
-          {getDisplayValue()}
-        </span>
+      <div onClick={() => setIsOpen(!isOpen)} className="w-full p-3 border rounded-xl bg-gray-50 flex justify-between items-center cursor-pointer">
+        <span className={`truncate ${value ? 'text-gray-900' : 'text-gray-400'}`}>{getDisplayValue()}</span>
         <Search size={16} className="text-gray-400" />
       </div>
-
       {isOpen && (
         <div className="absolute z-[60] mt-1 w-full bg-white border rounded-xl shadow-xl max-h-60 overflow-y-auto">
-          <div className="sticky top-0 p-2 bg-white border-b">
-            <input 
-              autoFocus
-              className="w-full p-2 text-sm border-none focus:ring-0" 
-              placeholder="Search..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+          <div className="sticky top-0 p-2 bg-white border-b"><input autoFocus className="w-full p-2 text-sm border-none focus:ring-0" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
           {filtered.map((opt, idx) => {
             const id = typeof opt === 'string' ? opt : opt.id;
             const name = typeof opt === 'string' ? opt : opt.name;
             return (
-              <div 
-                key={id || idx} 
-                className="p-3 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-0 flex justify-between items-center"
-                onClick={() => { onChange(id); setIsOpen(false); setSearchTerm(''); }}
-              >
+              <div key={id || idx} className="p-3 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-0 flex justify-between items-center" onClick={() => { onChange(id); setIsOpen(false); setSearchTerm(''); }}>
                 <span>{name}</span>
-                {opt.subText && (
-                    <span className={`text-[10px] font-bold ${opt.subColor}`}>
-                        {opt.subText}
-                    </span>
-                )}
+                {opt.subText && <span className={`text-[10px] font-bold ${opt.subColor}`}>{opt.subText}</span>}
                 {!opt.subText && <span className="text-xs text-gray-400 ml-2">({id || 'N/A'})</span>}
               </div>
             );
           })}
-          {onAddNew && (
-            <div 
-              className="p-3 text-blue-600 font-medium text-sm flex items-center gap-2 cursor-pointer hover:bg-blue-50"
-              onClick={() => { onAddNew(); setIsOpen(false); }}
-            >
-              <Plus size={16} /> Add New
-            </div>
-          )}
+          {onAddNew && <div className="p-3 text-blue-600 font-medium text-sm flex items-center gap-2 cursor-pointer hover:bg-blue-50" onClick={() => { onAddNew(); setIsOpen(false); }}><Plus size={16} /> Add New</div>}
         </div>
       )}
     </div>
@@ -271,11 +214,11 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
 };
 
 export default function App() {
-  const [user, setUser] = useState(null); // Renamed from currentUser
+  const [user, setUser] = useState(null);
   const [data, setData] = useState(INITIAL_DATA);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [mastersView, setMastersView] = useState(null); 
-  const [convertModal, setConvertModal] = useState(null); 
+  const [mastersView, setMastersView] = useState(null);
+  const [convertModal, setConvertModal] = useState(null);
   const [modal, setModal] = useState({ type: null, data: null });
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [toast, setToast] = useState(null);
@@ -284,85 +227,74 @@ export default function App() {
   const [reportView, setReportView] = useState(null);
   const [statementModal, setStatementModal] = useState(null);
   
-  // Logic Update States
-  const [listFilter, setListFilter] = useState('all'); 
-  const [listPaymentMode, setListPaymentMode] = useState(null); // Filter by Cash/Bank
-  const [pnlFilter, setPnlFilter] = useState('All'); 
+  // Logic & Filter States
+  const [listFilter, setListFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState(null);
+  const [partyFilter, setPartyFilter] = useState(null);
+  const [listPaymentMode, setListPaymentMode] = useState(null);
+  const [pnlFilter, setPnlFilter] = useState('All');
   const [pnlCustomDates, setPnlCustomDates] = useState({ start: '', end: '' });
   const [showPnlReport, setShowPnlReport] = useState(false);
   const [timerConflict, setTimerConflict] = useState(null);
   const [editingTimeLog, setEditingTimeLog] = useState(null);
+  const [manualAttModal, setManualAttModal] = useState(null); // stores staffId for manual entry or obj for edit
 
-  // --- AUTH & DATA SYNC ---
   useEffect(() => {
-    // We maintain anonymous auth in background for Firestore security rules
-    const initFirebaseConnection = async () => {
-      await signInAnonymously(auth);
-    };
-    initFirebaseConnection();
+    const script = document.createElement("script");
+    script.src = "https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js";
+    script.async = true;
+    document.body.appendChild(script);
+    signInAnonymously(auth);
   }, []);
 
-  // Sync Data ONLY when logged in
   useEffect(() => {
     if (!user) return;
-    
     const fetchData = async () => {
       setLoading(true);
       try {
         const newData = { ...INITIAL_DATA };
-        const collections = ['parties', 'items', 'staff', 'transactions', 'tasks'];
-        
+        const collections = ['parties', 'items', 'staff', 'transactions', 'tasks', 'attendance'];
         for (const col of collections) {
             const querySnapshot = await getDocs(collection(db, col));
             newData[col] = querySnapshot.docs.map(doc => doc.data());
         }
-        
         const companySnap = await getDocs(collection(db, "settings"));
         companySnap.forEach(doc => {
             if (doc.id === 'company') newData.company = doc.data();
             if (doc.id === 'counters') newData.counters = doc.data();
         });
-        
         if (!newData.counters || Object.keys(newData.counters).length === 0) newData.counters = INITIAL_DATA.counters;
         setData(newData);
-      } catch (error) {
-        console.error("Error fetching data from Firestore: ", error);
-        showToast("Error loading data. Check internet.", "error");
-      } finally {
-        setLoading(false);
-      }
+      } catch (error) { console.error(error); showToast("Error loading data", "error"); } finally { setLoading(false); }
     };
     fetchData();
   }, [user]);
 
-  // --- HISTORY HANDLING ---
   useEffect(() => {
-      const handlePopState = (event) => {
+      const handlePopState = () => {
           if (modal.type) setModal({ type: null, data: null });
           else if (statementModal) setStatementModal(null);
           else if (viewDetail) setViewDetail(null);
-          else if (mastersView) setMastersView(null);
+          else if (mastersView) { setMastersView(null); setPartyFilter(null); }
           else if (reportView) setReportView(null);
           else if (convertModal) setConvertModal(null);
           else if (showPnlReport) setShowPnlReport(false);
           else if (timerConflict) setTimerConflict(null);
           else if (editingTimeLog) setEditingTimeLog(null);
+          else if (manualAttModal) setManualAttModal(null);
       };
       window.addEventListener('popstate', handlePopState);
       return () => window.removeEventListener('popstate', handlePopState);
-  }, [modal, viewDetail, mastersView, reportView, convertModal, showPnlReport, timerConflict, editingTimeLog, statementModal]);
+  }, [modal, viewDetail, mastersView, reportView, convertModal, showPnlReport, timerConflict, editingTimeLog, statementModal, manualAttModal]);
 
   const pushHistory = () => window.history.pushState({ modal: true }, '');
   const handleCloseUI = () => window.history.back();
 
-  // --- HELPER CALCULATIONS ---
+  // --- LOGIC CALCULATIONS ---
   const getBillLogic = (bill) => {
     if (bill.type === 'estimate') return { ...getTransactionTotals(bill), status: 'ESTIMATE', pending: 0, paid: 0 };
-
     const basic = getTransactionTotals(bill);
-    const linkedAmount = data.transactions
-      .filter(t => t.type === 'payment' && t.linkedBills)
-      .reduce((sum, p) => {
+    const linkedAmount = data.transactions.filter(t => t.type === 'payment' && t.linkedBills).reduce((sum, p) => {
          const link = p.linkedBills.find(l => l.billId === bill.id);
          return sum + (link ? parseFloat(link.amount || 0) : 0);
       }, 0);
@@ -376,37 +308,24 @@ export default function App() {
          else status = 'UNUSED';
          return { ...basic, used, status };
     }
-
     const totalPaid = basic.paid + linkedAmount;
-    const pending = basic.final - totalPaid;
-    
-    if (totalPaid >= basic.final - 0.1) status = 'PAID'; 
-    else if (totalPaid > 0) status = 'PARTIAL';
-    
-    return { ...basic, totalPaid, pending, status };
+    if (totalPaid >= basic.final - 0.1) status = 'PAID'; else if (totalPaid > 0) status = 'PARTIAL';
+    return { ...basic, totalPaid, pending: basic.final - totalPaid, status };
   };
 
   const partyBalances = useMemo(() => {
     const balances = {};
-    data.parties.forEach(p => {
-      balances[p.id] = p.type === 'DR' ? parseFloat(p.openingBal || 0) : -parseFloat(p.openingBal || 0);
-    });
+    data.parties.forEach(p => balances[p.id] = p.type === 'DR' ? parseFloat(p.openingBal || 0) : -parseFloat(p.openingBal || 0));
     data.transactions.forEach(tx => {
       if (tx.type === 'estimate') return; 
-
       const { final, paid } = getTransactionTotals(tx);
       const unpaid = final - paid;
-      
       if (tx.type === 'sales') balances[tx.partyId] = (balances[tx.partyId] || 0) + unpaid;
       if (tx.type === 'purchase') balances[tx.partyId] = (balances[tx.partyId] || 0) - unpaid;
-      
       if (tx.type === 'payment') {
-        const amt = parseFloat(tx.amount || 0);
-        const disc = parseFloat(tx.discountValue || 0);
-        const totalEffect = amt + disc;
-
-        if (tx.subType === 'in') balances[tx.partyId] = (balances[tx.partyId] || 0) - totalEffect;
-        else balances[tx.partyId] = (balances[tx.partyId] || 0) + totalEffect;
+        const amt = parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0);
+        if (tx.subType === 'in') balances[tx.partyId] = (balances[tx.partyId] || 0) - amt;
+        else balances[tx.partyId] = (balances[tx.partyId] || 0) + amt;
       }
     });
     return balances;
@@ -431,42 +350,24 @@ export default function App() {
     const totalExpenses = data.transactions.filter(tx => tx.type === 'expense').reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
     const pendingTasks = data.tasks.filter(t => t.status !== 'Done').length;
     let totalReceivables = 0, totalPayables = 0;
-    
-    Object.values(partyBalances).forEach(bal => {
-        if (bal > 0) totalReceivables += bal;
-        if (bal < 0) totalPayables += Math.abs(bal);
-    });
-
+    Object.values(partyBalances).forEach(bal => { if (bal > 0) totalReceivables += bal; if (bal < 0) totalPayables += Math.abs(bal); });
     let cashInHand = 0, bankBalance = 0;
     data.transactions.forEach(tx => {
         if (tx.type === 'estimate') return;
         const amt = parseFloat(tx.received || tx.paid || tx.amount || 0);
-        const mode = tx.paymentMode || 'Cash';
+        const isCash = (tx.paymentMode || 'Cash') === 'Cash';
         const isIncome = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
-        const isExpense = tx.type === 'purchase' || tx.type === 'expense' || (tx.type === 'payment' && tx.subType === 'out');
-        
-        if (isIncome) {
-            if (mode === 'Cash') cashInHand += amt; else bankBalance += amt;
-        } else if (isExpense) {
-            if (mode === 'Cash') cashInHand -= amt; else bankBalance -= amt;
-        }
+        if (isIncome) isCash ? cashInHand += amt : bankBalance += amt;
+        else isCash ? cashInHand -= amt : bankBalance -= amt;
     });
-
     return { todaySales, totalExpenses, pendingTasks, totalReceivables, totalPayables, cashInHand, bankBalance };
   }, [data, partyBalances]);
 
-  // --- ACTIONS ---
-
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
+  const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 3000); };
 
   const saveRecord = async (collectionName, record, idType) => {
     if (!user) return;
     let newData = { ...data };
-    let syncedRecord = null;
-    let isUpdate = !!record.id;
     let finalId = record.id;
     let newCounters = null;
 
@@ -477,195 +378,326 @@ export default function App() {
          if (task) {
            task.itemsUsed = record.items.map(i => ({ itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice, description: i.description }));
            newData.tasks = newData.tasks.map(t => t.id === task.id ? task : t);
-           await setDoc(doc(db, "tasks", task.id), task);
+           setDoc(doc(db, "tasks", task.id), task);
          }
       }
-      syncedRecord = record;
     } else {
-      const { id, nextCounters } = getNextId(data, idType, record.type);
+      const { id, nextCounters } = getNextId(data, idType);
       const createdField = collectionName === 'tasks' ? { taskCreatedAt: new Date().toISOString() } : {};
-      syncedRecord = { ...record, id, createdAt: new Date().toISOString(), ...createdField };
-      newData[collectionName] = [...data[collectionName], syncedRecord];
+      record = { ...record, id, createdAt: new Date().toISOString(), ...createdField };
+      newData[collectionName] = [...data[collectionName], record];
       newData.counters = nextCounters; 
       newCounters = nextCounters;
       finalId = id;
     }
-
-    setData(newData);
-    setModal({ type: null, data: null });
-    handleCloseUI(); 
-    showToast(isUpdate ? "Updated successfully" : "Created successfully");
-
+    const safeRecord = cleanData(record);
+    setData(newData); setModal({ type: null, data: null }); handleCloseUI(); showToast("Saved");
     try {
-        await setDoc(doc(db, collectionName, finalId.toString()), syncedRecord);
+        await setDoc(doc(db, collectionName, finalId.toString()), safeRecord);
         if (newCounters) await setDoc(doc(db, "settings", "counters"), newCounters);
-    } catch (e) {
-        console.error("Firestore Save Error: ", e);
-        showToast("Error saving to cloud", "error");
-    }
+    } catch (e) { console.error(e); showToast("Save Error", "error"); }
     return finalId; 
   };
 
   const deleteRecord = async (collectionName, id) => {
     if (!user) return;
-    if (collectionName === 'items' && data.transactions.some(t => t.items?.some(i => i.itemId === id))) { alert("Cannot delete: Item is used."); setConfirmDelete(null); return; }
-    if (collectionName === 'parties' && data.transactions.some(t => t.partyId === id)) { alert("Cannot delete: Party is used."); setConfirmDelete(null); return; }
+    if (collectionName === 'items' && data.transactions.some(t => t.items?.some(i => i.itemId === id))) { alert("Item is used."); setConfirmDelete(null); return; }
+    if (collectionName === 'parties' && data.transactions.some(t => t.partyId === id)) { alert("Party is used."); setConfirmDelete(null); return; }
     setData(prev => ({ ...prev, [collectionName]: prev[collectionName].filter(r => r.id !== id) }));
-    setConfirmDelete(null);
-    setModal({ type: null, data: null });
-    handleCloseUI(); 
-    showToast("Record deleted");
-    try { 
-        await deleteDoc(doc(db, collectionName, id.toString())); 
-    } catch (e) { console.error(e); }
+    setConfirmDelete(null); setModal({ type: null, data: null }); handleCloseUI(); showToast("Deleted");
+    try { await deleteDoc(doc(db, collectionName, id.toString())); } catch (e) { console.error(e); }
   };
 
-  const printInvoice = (tx) => {
-    const party = data.parties.find(p => p.id === tx.partyId);
-    const balance = partyBalances[party?.id] || 0;
-    const totals = getTransactionTotals(tx);
-    const isEst = tx.type === 'estimate';
+  // --- SUB-COMPONENTS ---
+
+  const Dashboard = () => {
+      const pnlData = useMemo(() => {
+          const now = new Date();
+          let filteredTx = data.transactions.filter(t => ['sales'].includes(t.type) && new Date(t.date).getMonth() === now.getMonth());
+          let profit = 0;
+          filteredTx.forEach(tx => {
+             (tx.items || []).forEach(item => {
+                 const itemMaster = data.items.find(i => i.id === item.itemId);
+                 const type = itemMaster?.type || 'Goods';
+                 const buy = parseFloat(item.buyPrice || itemMaster?.buyPrice || 0);
+                 const sell = parseFloat(item.price || 0);
+                 const qty = parseFloat(item.qty || 0);
+                 if(type === 'Service') profit += (sell * qty); else profit += ((sell - buy) * qty);
+             });
+          });
+          return profit;
+      }, [data.transactions]);
+
+      return (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <div><h1 className="text-2xl font-bold text-gray-800">{data.company.name}</h1><p className="text-sm text-gray-500">FY {data.company.financialYear}</p></div>
+            <div className="flex gap-2">
+                <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 bg-gray-100 rounded-xl"><Settings className="text-gray-600" /></button>
+                <button onClick={() => setUser(null)} className="p-2 bg-red-50 text-red-600 rounded-xl"><LogOut size={20} /></button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+              <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-4 rounded-2xl text-white shadow-lg cursor-pointer" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
+                  <p className="text-xs opacity-80 font-bold mb-1">NET PROFIT (MONTH)</p>
+                  <p className="text-2xl font-black">{formatCurrency(pnlData)}</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border shadow-sm">
+                  <p className="text-xs font-bold text-gray-400 mb-1">CASH / BANK</p>
+                  <div className="flex justify-between text-sm mb-1 cursor-pointer" onClick={() => { setListFilter('all'); setListPaymentMode('Cash'); setActiveTab('accounting'); }}><span>Cash:</span><span className="font-bold text-green-600">{formatCurrency(stats.cashInHand)}</span></div>
+                  <div className="flex justify-between text-sm cursor-pointer" onClick={() => { setListFilter('all'); setListPaymentMode('Bank'); setActiveTab('accounting'); }}><span>Bank:</span><span className="font-bold text-blue-600">{formatCurrency(stats.bankBalance)}</span></div>
+              </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div onClick={() => { pushHistory(); setMastersView('parties'); setPartyFilter('receivable'); }} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 cursor-pointer active:scale-95 transition-transform">
+               <p className="text-xs font-bold text-emerald-600 uppercase">Receivables</p>
+               <p className="text-xl font-bold text-emerald-900">{formatCurrency(stats.totalReceivables)}</p>
+            </div>
+            <div onClick={() => { pushHistory(); setMastersView('parties'); setPartyFilter('payable'); }} className="bg-rose-50 p-4 rounded-2xl border border-rose-100 cursor-pointer active:scale-95 transition-transform">
+               <p className="text-xs font-bold text-rose-600 uppercase">Payables</p>
+               <p className="text-xl font-bold text-rose-900">{formatCurrency(stats.totalPayables)}</p>
+            </div>
+            <div onClick={() => { setListFilter('sales'); setActiveTab('accounting'); }} className="bg-green-50 p-4 rounded-2xl border border-green-100 cursor-pointer active:scale-95 transition-transform">
+              <p className="text-xs font-bold text-green-600 uppercase">Today Sales</p>
+              <p className="text-xl font-bold text-green-900">{formatCurrency(stats.todaySales)}</p>
+            </div>
+            <div onClick={() => { pushHistory(); setMastersView('expenses'); }} className="bg-red-50 p-4 rounded-2xl border border-red-100 cursor-pointer active:scale-95 transition-transform">
+              <p className="text-xs font-bold text-red-600 uppercase">Expenses</p>
+              <p className="text-xl font-bold text-red-900">{formatCurrency(stats.totalExpenses)}</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <h3 className="font-bold text-gray-700">Quick Actions</h3>
+            <div className="grid grid-cols-4 gap-2">
+              {[{ label: 'Sale', icon: <TrendingUp />, type: 'sales', color: 'bg-green-100 text-green-700' }, { label: 'Estimate', icon: <FileText />, type: 'estimate', color: 'bg-yellow-100 text-yellow-700' }, { label: 'Purchase', icon: <ShoppingCart />, type: 'purchase', color: 'bg-blue-100 text-blue-700' }, { label: 'Expense', icon: <ReceiptText />, type: 'expense', color: 'bg-red-100 text-red-700' }, { label: 'Payment', icon: <Banknote />, type: 'payment', color: 'bg-purple-100 text-purple-700' }].map(action => (
+                <button key={action.label} onClick={() => { pushHistory(); setModal({ type: action.type }); }} className="flex flex-col items-center gap-2">
+                  <div className={`p-4 rounded-2xl ${action.color}`}>{action.icon}</div>
+                  <span className="text-xs font-medium text-gray-600">{action.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+  };
+
+  const MasterList = ({ title, collection, type, onRowClick }) => {
+    const [search, setSearch] = useState('');
+    const [sort, setSort] = useState('A-Z');
+    const [selectedIds, setSelectedIds] = useState([]);
     
-    const content = `
-      <html>
-        <head>
-          <title>${isEst ? 'ESTIMATE' : 'INVOICE'} ${tx.id}</title>
-          <style>
-            body { font-family: sans-serif; padding: 20px; color: #333; }
-            .header { display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
-            .company h1 { margin: 0; color: #2563eb; }
-            .invoice-details { text-align: right; }
-            .bill-to { margin-bottom: 20px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-            th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
-            th { background: #f8fafc; font-weight: bold; color: #64748b; }
-            .totals { display: flex; justify-content: flex-end; }
-            .totals table { width: 300px; }
-            .totals td { text-align: right; }
-            .footer { margin-top: 40px; text-align: center; font-size: 12px; color: #94a3b8; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <div class="company">
-              <h1>${data.company.name}</h1>
-              <p>${data.company.address}<br>Phone: ${data.company.mobile}</p>
+    let listData = data[collection];
+    
+    if (type === 'item') listData = listData.map(i => ({ ...i, subText: `${itemStock[i.id] || 0} ${i.unit}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
+    if (type === 'party') {
+        listData = listData.map(p => {
+           const bal = partyBalances[p.id] || 0;
+           return { ...p, subText: bal !== 0 ? formatCurrency(Math.abs(bal)) + (bal > 0 ? ' DR' : ' CR') : 'Settled', subColor: bal > 0 ? 'text-green-600' : bal < 0 ? 'text-red-600' : 'text-gray-400', balance: bal };
+        });
+        if (partyFilter === 'receivable') listData = listData.filter(p => p.balance > 0);
+        if (partyFilter === 'payable') listData = listData.filter(p => p.balance < 0);
+    }
+    if (type === 'staff') {
+        if (user.role !== 'admin') {
+            listData = listData.filter(s => s.id === user.id);
+        }
+        listData = listData.map(s => ({ ...s, subText: s.role, subColor: 'text-blue-500' }));
+    }
+
+    const filtered = sortData(listData.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(search.toLowerCase()))), sort);
+
+    // --- IMPORT LOGIC (FIX #10) ---
+    const handleImport = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            const bstr = evt.target.result;
+            const wb = window.XLSX.read(bstr, { type: 'binary' });
+            const wsname = wb.SheetNames[0];
+            const ws = wb.Sheets[wsname];
+            const jsonData = window.XLSX.utils.sheet_to_json(ws, { header: 1 });
+            let newRecords = [];
+            let batchPromises = [];
+            let nextCounters = { ...data.counters };
+
+            for (let i = 1; i < jsonData.length; i++) {
+                const row = jsonData[i];
+                if (!row || row.length === 0) continue;
+                let record = {};
+                let id = '';
+                
+                if (type === 'party') {
+                    // Get next ID locally for batch
+                    const num = nextCounters.party || 1000;
+                    id = `P-${num}`;
+                    nextCounters.party = num + 1;
+                    record = { id, name: row[1] || '', email: row[3] || '', mobile: row[4] || '', address: row[5] || '', lat: row[6] || '', lng: row[7] || '', reference: row[8] || '', openingBal: row[10] || 0, type: row[11] || 'DR' };
+                } else if (type === 'item') {
+                    const num = nextCounters.item || 1000;
+                    id = `I-${num}`;
+                    nextCounters.item = num + 1;
+                    record = { id, name: row[1] || '', category: row[2] || '', type: row[3] || 'Goods', sellPrice: row[4] || 0, buyPrice: row[5] || 0, unit: row[8] || 'pcs', openingStock: 0 };
+                }
+                
+                if (record.name) {
+                    newRecords.push(cleanData(record));
+                    batchPromises.push(setDoc(doc(db, collection, id), cleanData(record)));
+                }
+            }
+            
+            // Save counters
+            batchPromises.push(setDoc(doc(db, "settings", "counters"), nextCounters));
+            
+            await Promise.all(batchPromises);
+            // Update State ONCE
+            setData(prev => ({ 
+                ...prev, 
+                [collection]: [...prev[collection], ...newRecords],
+                counters: nextCounters
+            }));
+            alert(`Imported ${newRecords.length} records successfully!`);
+        };
+        reader.readAsBinaryString(file);
+    };
+
+    const toggleSelectAll = () => setSelectedIds(selectedIds.length === filtered.length ? [] : filtered.map(i => i.id));
+    const handleBulkDelete = async () => {
+       if(!window.confirm(`Delete ${selectedIds.length} records?`)) return;
+       const ids = [...selectedIds];
+       setSelectedIds([]);
+       setData(prev => ({ ...prev, [collection]: prev[collection].filter(item => !ids.includes(item.id)) }));
+       try { await Promise.all(ids.map(id => deleteDoc(doc(db, collection, id.toString())))); } catch (e) { console.error(e); }
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2">
+              <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={filtered.length > 0 && selectedIds.length === filtered.length} onChange={toggleSelectAll} />
+              <h1 className="text-xl font-bold">{title} {partyFilter ? `(${partyFilter})` : ''}</h1>
+          </div>
+          <div className="flex gap-2">
+              {(type === 'party' || type === 'item') && checkPermission(user, 'canViewMasters') && (
+                  <label className="p-2 bg-gray-100 rounded-xl cursor-pointer"><Upload size={18} className="text-gray-600"/><input type="file" hidden accept=".xlsx, .xls" onChange={handleImport} /></label>
+              )}
+              {selectedIds.length > 0 ? (
+                  <button onClick={handleBulkDelete} className="p-2 bg-red-100 text-red-600 rounded-xl flex items-center gap-1 text-sm px-4 font-bold"><Trash2 size={16}/> ({selectedIds.length})</button>
+              ) : (
+                  checkPermission(user, 'canViewMasters') && <button onClick={() => { pushHistory(); setModal({ type }); }} className="p-2 bg-blue-600 text-white rounded-xl flex items-center gap-1 text-sm px-4"><Plus size={18} /> Add</button>
+              )}
+          </div>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+          <input className="w-full pl-10 pr-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500" placeholder={`Search ${title}...`} value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          {filtered.map(item => (
+            <div key={item.id} className={`p-3 bg-white border rounded-2xl flex items-center gap-3 active:scale-95 transition-transform ${selectedIds.includes(item.id) ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50' : ''}`}>
+              <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={selectedIds.includes(item.id)} onChange={() => setSelectedIds(prev => prev.includes(item.id) ? prev.filter(i => i!==item.id) : [...prev, item.id])} />
+              <div className="flex-1" onClick={() => onRowClick ? onRowClick(item) : (pushHistory() || setViewDetail({ type, id: item.id }))}>
+                <div className="flex justify-between items-start">
+                    <div><p className="font-bold text-gray-800">{item.name}</p><p className="text-xs text-gray-500">{item.mobile || item.category || item.role}</p></div>
+                    {item.subText && <p className={`text-xs font-bold ${item.subColor}`}>{item.subText}</p>}
+                </div>
+              </div>
+              <ChevronRight className="text-gray-300" />
             </div>
-            <div class="invoice-details">
-              <h2 style="margin:0">${isEst ? 'ESTIMATE' : 'INVOICE'}</h2>
-              <p>#${tx.id}<br>Date: ${formatDate(tx.date)}</p>
-            </div>
-          </div>
-          
-          <div class="bill-to">
-            <p style="color:#64748b; font-size:12px; font-weight:bold; text-transform:uppercase;">Bill To</p>
-            <h3>${party?.name || 'Cash Sale'}</h3>
-            <p>${party?.address || ''}<br>${party?.mobile || ''}</p>
-          </div>
-
-          <table>
-            <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
-            <tbody>
-              ${(tx.items || []).map(i => {
-                const item = data.items.find(it => it.id === i.itemId);
-                return `<tr><td><b>${item?.name || 'Item'}</b><br><small style="color:#999">${i.description || ''}</small></td><td>${i.qty}</td><td>${i.price}</td><td>${(i.qty * i.price).toFixed(2)}</td></tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-
-          <div class="totals">
-            <table>
-              <tr><td>Gross Total</td><td>${formatCurrency(totals.gross)}</td></tr>
-              ${tx.discountValue > 0 ? `<tr><td>Discount (${tx.discountType})</td><td>-${tx.discountValue}</td></tr>` : ''}
-              <tr><td style="font-weight:bold; font-size:16px;">Grand Total</td><td style="font-weight:bold; font-size:16px;">${formatCurrency(totals.final)}</td></tr>
-              ${!isEst ? `<tr><td>Received</td><td>${formatCurrency(totals.paid)}</td></tr>` : ''}
-              ${!isEst && totals.status !== 'PAID' ? `<tr><td style="color:red">Balance Due</td><td style="color:red">${formatCurrency(totals.final - totals.paid)}</td></tr>` : ''}
-              ${!isEst ? `<tr><td style="border-top:2px solid #eee; padding-top:10px;"><b>Prev Balance</b></td><td style="border-top:2px solid #eee; padding-top:10px;">${formatCurrency(balance - (totals.final - totals.paid))}</td></tr>
-              <tr><td><b>Net Payable</b></td><td><b>${formatCurrency(balance)}</b></td></tr>` : ''}
-            </table>
-          </div>
-          ${tx.description ? `<div style="margin-top:20px; background:#f8fafc; padding:10px; border-radius:8px;"><p style="margin:0; font-size:12px;"><b>Notes:</b> ${tx.description}</p></div>` : ''}
-          <div class="footer"><p>Thank you for your business!</p></div>
-        </body>
-      </html>
-    `;
-    const win = window.open('', '_blank');
-    if (win) { win.document.write(content); win.document.close(); win.print(); }
+          ))}
+          {filtered.length === 0 && <p className="text-center text-gray-400 py-10">No records found</p>}
+        </div>
+      </div>
+    );
   };
 
-  const printStatement = (partyId, start, end, withItems) => {
-      const party = data.parties.find(p => p.id === partyId);
-      const startDate = new Date(start);
-      const endDate = new Date(end);
-      
-      // Calculate Opening Balance
-      let openingBal = party.type === 'DR' ? parseFloat(party.openingBal || 0) : -parseFloat(party.openingBal || 0);
-      data.transactions.forEach(tx => {
-          if(tx.partyId === partyId && new Date(tx.date) < startDate && tx.type !== 'estimate') {
-               const { final, paid } = getTransactionTotals(tx);
-               const unpaid = final - paid;
-               if (tx.type === 'sales') openingBal += unpaid;
-               if (tx.type === 'purchase') openingBal -= unpaid;
-               if (tx.type === 'payment') {
-                  const amt = parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0);
-                  if (tx.subType === 'in') openingBal -= amt; else openingBal += amt;
-               }
-          }
-      });
+  const TransactionList = () => {
+    const [sort, setSort] = useState('DateDesc');
+    const [filter, setFilter] = useState('all'); 
+    useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
-      const txs = data.transactions.filter(t => t.partyId === partyId && t.type !== 'estimate' && new Date(t.date) >= startDate && new Date(t.date) <= endDate).sort((a,b) => new Date(a.date) - new Date(b.date));
-      
-      let runningBal = openingBal;
-      const rows = txs.map(tx => {
-           let debit = 0, credit = 0;
-           const { final, paid } = getTransactionTotals(tx);
-           
-           if(tx.type === 'sales') { debit = final; credit = paid; }
-           else if(tx.type === 'purchase') { credit = final; debit = paid; }
-           else if(tx.type === 'payment') {
-               const total = parseFloat(tx.amount||0) + parseFloat(tx.discountValue||0);
-               if(tx.subType === 'in') credit = total; else debit = total;
-           }
-           runningBal = runningBal + debit - credit;
-           return `<tr>
-              <td>${formatDate(tx.date)}</td>
-              <td>${tx.type.toUpperCase()} #${tx.id} ${withItems && tx.items ? `<br><small>${tx.items.map(i=>i.description||'Item').join(', ')}</small>` : ''}</td>
-              <td>${debit > 0 ? formatCurrency(debit) : '-'}</td>
-              <td>${credit > 0 ? formatCurrency(credit) : '-'}</td>
-              <td>${formatCurrency(runningBal)}</td>
-           </tr>`;
-      }).join('');
+    let filtered = data.transactions.filter(tx => filter === 'all' || tx.type === filter);
+    if(listPaymentMode) filtered = filtered.filter(tx => (tx.paymentMode || 'Cash') === listPaymentMode);
+    if (categoryFilter) filtered = filtered.filter(tx => tx.category === categoryFilter);
+    filtered = sortData(filtered, sort);
 
-      const content = `<html>
-        <head><title>Statement - ${party.name}</title>
-        <style>body{font-family:sans-serif;padding:20px} table{width:100%;border-collapse:collapse;margin-top:20px} th,td{border:1px solid #ddd;padding:8px;text-align:left} th{background:#f0f0f0}</style>
-        </head>
-        <body>
-          <h2>Statement of Account</h2>
-          <h3>${party.name}</h3>
-          <p>From: ${formatDate(start)} To: ${formatDate(end)}</p>
-          <p><b>Opening Balance: ${formatCurrency(openingBal)}</b></p>
-          <table><thead><tr><th>Date</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead><tbody>${rows}</tbody></table>
-          <p><b>Closing Balance: ${formatCurrency(runningBal)}</b></p>
-        </body></html>`;
-      
-      const win = window.open('','_blank');
-      if(win) { win.document.write(content); win.document.close(); win.print(); }
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h1 className="text-xl font-bold">Accounting {categoryFilter && `(${categoryFilter})`}</h1>
+          <div className="flex gap-2 items-center">
+             <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option><option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option></select>
+          </div>
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+          {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
+            <button key={t} onClick={() => { setFilter(t); setCategoryFilter(null); }} className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
+          ))}
+        </div>
+        <div className="space-y-3">
+          {filtered.map(tx => {
+            const party = data.parties.find(p => p.id === tx.partyId);
+            const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
+            const totals = getBillLogic(tx);
+            let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
+            if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
+            if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
+            if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+            
+            return (
+              <div key={tx.id} onClick={() => { pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
+                <div className="flex gap-4 items-center">
+                  <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
+                  <div>
+                    <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
+                    <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
+                    <div className="flex gap-1 mt-1">
+                        {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className={`font-bold ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
+                  {['sales', 'purchase'].includes(tx.type) && totals.status !== 'PAID' && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
-  const saveCompanySettings = async (companyData) => {
-      if (!user) return;
-      const newData = { ...data, company: companyData };
-      setData(newData);
-      setModal({ type: null });
-      handleCloseUI();
-      try { 
-        await setDoc(doc(db, "settings", "company"), companyData); 
-        showToast("Settings saved"); 
-      } catch (e) { console.error(e); }
-  };
+  const ExpensesBreakdown = () => {
+      const expenses = data.transactions.filter(t => t.type === 'expense');
+      const byCategory = expenses.reduce((acc, curr) => {
+          const cat = curr.category || 'Uncategorized';
+          acc[cat] = (acc[cat] || 0) + parseFloat(curr.finalTotal || curr.amount || 0);
+          return acc;
+      }, {});
 
-  // --- SUB-COMPONENTS (DEFINED INSIDE APP) ---
+      return (
+          <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+              <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
+                  <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                  <h2 className="font-bold text-lg">Expenses Breakdown</h2>
+                  <div/>
+              </div>
+              <div className="p-4 space-y-4">
+                  {Object.entries(byCategory).map(([cat, total]) => (
+                      <div key={cat} onClick={() => { setListFilter('expense'); setCategoryFilter(cat); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border cursor-pointer hover:bg-gray-100">
+                          <span className="font-bold">{cat}</span>
+                          <span className="font-bold text-red-600">{formatCurrency(total)}</span>
+                      </div>
+                  ))}
+                  {expenses.length === 0 && <p className="text-center text-gray-400 mt-10">No expenses recorded</p>}
+              </div>
+          </div>
+      );
+  };
 
   const PnlReportView = () => {
     const filtered = data.transactions.filter(t => ['sales'].includes(t.type));
@@ -719,384 +751,15 @@ export default function App() {
     );
   };
 
-  const LoginScreen = () => {
-    const [id, setId] = useState('');
-    const [pass, setPass] = useState('');
-    const [err, setErr] = useState('');
-
-    const handleLogin = async () => {
-        if(id === 'him23' && pass === 'Himanshu#3499sp') {
-            setUser({ name: 'Admin', role: 'admin' });
-        } else {
-            try {
-                // Ensure auth is active for rules
-                await signInAnonymously(auth);
-                const q = query(collection(db, 'staff'), where('loginId', '==', id), where('password', '==', pass));
-                const snap = await getDocs(q);
-                if(!snap.empty) {
-                    setUser(snap.docs[0].data());
-                } else {
-                    setErr("Invalid ID or Password");
-                }
-            } catch (e) {
-                console.error(e);
-                setErr("Connection Error or Invalid Credentials");
-            }
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center p-6">
-            <div className="w-full max-w-sm">
-                <div className="flex justify-center mb-8"><div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white text-3xl font-black italic">S</div></div>
-                <h1 className="text-2xl font-bold text-center mb-6">SMEES Pro Login</h1>
-                <input className="w-full p-4 mb-4 bg-gray-50 border rounded-xl" placeholder="Login ID" value={id} onChange={e=>setId(e.target.value)}/>
-                <input className="w-full p-4 mb-4 bg-gray-50 border rounded-xl" type="password" placeholder="Password" value={pass} onChange={e=>setPass(e.target.value)}/>
-                {err && <p className="text-red-500 text-sm mb-4 text-center">{err}</p>}
-                <button onClick={handleLogin} className="w-full p-4 bg-blue-600 text-white rounded-xl font-bold text-lg">Login</button>
-            </div>
-        </div>
-    );
-  };
-
-  const PartyForm = ({ record }) => {
-    const [form, setForm] = useState({ 
-        name: '', mobile: '', address: '', type: 'customer', ref: '', lat: '', lng: '', 
-        ...(record || {}) 
-    });
-    
-    return (
-      <div className="space-y-4">
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Party Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
-        <textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Reference (Optional)" value={form.ref} onChange={e => setForm({...form, ref: e.target.value})} />
-        <div className="grid grid-cols-2 gap-4">
-            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Lat" value={form.lat} onChange={e => setForm({...form, lat: e.target.value})} />
-            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Lng" value={form.lng} onChange={e => setForm({...form, lng: e.target.value})} />
-        </div>
-        <button onClick={() => {
-             if (navigator.geolocation) {
-                 navigator.geolocation.getCurrentPosition(pos => {
-                     setForm({...form, lat: pos.coords.latitude, lng: pos.coords.longitude});
-                 });
-             }
-        }} className="w-full p-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-bold flex items-center justify-center gap-2"><MapPin size={14}/> Get Current Location</button>
-        <button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Party</button>
-      </div>
-    );
-  };
-
-  const ItemForm = ({ record }) => {
-    const [form, setForm] = useState({ 
-        name: '', sellPrice: '', buyPrice: '', unit: 'pcs', openingStock: '0', type: 'Goods', 
-        ...(record || {}) 
-    });
-    
-    return (
-      <div className="space-y-4">
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Item Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
-            <option>Goods</option>
-            <option>Service</option>
-            <option>Expense Item</option>
-        </select>
-        <div className="grid grid-cols-2 gap-4">
-           <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Sell Price" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} />
-           <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Buy Price" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Unit (e.g. pcs)" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} />
-          <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Opening Stock" value={form.openingStock} onChange={e => setForm({...form, openingStock: e.target.value})} />
-        </div>
-        <button onClick={() => saveRecord('items', form, 'item')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Item</button>
-      </div>
-    );
-  };
-
-  const ConvertTaskModal = ({ task }) => {
-      const [form, setForm] = useState({
-          date: new Date().toISOString().split('T')[0],
-          received: '',
-          mode: 'Cash'
-      });
-
-      const handleConfirm = async () => {
-          const saleItems = (task.itemsUsed || []).map(i => ({
-              itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice || 0, description: i.description || ''
-          }));
-          const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
-          
-          const workDoneBy = (task.timeLogs || []).map(l => `${l.staffName} (${l.duration}m)`).join(', ');
-          const totalMins = (task.timeLogs || []).reduce((acc,l) => acc + (parseFloat(l.duration)||0), 0);
-          const workSummary = `${workDoneBy} | Total: ${totalMins} mins`;
-
-          const newSale = {
-              type: 'sales',
-              date: form.date,
-              partyId: task.partyId,
-              items: saleItems,
-              discountType: '%',
-              discountValue: 0,
-              received: parseFloat(form.received || 0),
-              paymentMode: form.mode,
-              grossTotal: gross,
-              finalTotal: gross,
-              convertedFromTask: task.id,
-              workSummary: workSummary,
-              description: `Converted from Task ${task.id}. Work: ${workSummary}`
-          };
-
-          const saleId = await saveRecord('transactions', newSale, 'transaction');
-          const updatedTask = { ...task, status: 'Done', generatedSaleId: saleId };
-          await saveRecord('tasks', updatedTask, 'task');
-          
-          setConvertModal(null);
-          setViewDetail(null);
-          handleCloseUI();
-      };
-
-      return (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
-             <h3 className="font-bold text-lg mb-4">Convert to Sale</h3>
-             <div className="space-y-4">
-               <div>
-                  <label className="text-xs font-bold text-gray-500">Sale Date</label>
-                  <input type="date" className="w-full p-2 border rounded-xl font-bold text-blue-600" value={form.date} onChange={e => setForm({...form, date: e.target.value})}/>
-               </div>
-               <div>
-                  <label className="text-xs font-bold text-gray-500">Received Amount</label>
-                  <input type="number" className="w-full p-2 border rounded-xl" placeholder="0.00" value={form.received} onChange={e => setForm({...form, received: e.target.value})}/>
-               </div>
-               <div>
-                  <label className="text-xs font-bold text-gray-500">Payment Mode</label>
-                  <select className="w-full p-2 border rounded-xl" value={form.mode} onChange={e => setForm({...form, mode: e.target.value})}>
-                    <option>Cash</option><option>UPI</option><option>Bank</option>
-                  </select>
-               </div>
-               <div className="flex gap-3 pt-2">
-                  <button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancel</button>
-                  <button onClick={handleConfirm} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Confirm Sale</button>
-               </div>
-             </div>
-          </div>
-        </div>
-      );
-  };
-
-  const TimeLogModal = () => {
-      const [form, setForm] = useState({ start: '', end: '' });
-
-      useEffect(() => {
-          if (editingTimeLog) {
-              const { task, index } = editingTimeLog;
-              const log = task.timeLogs[index] || {};
-              setForm({
-                  start: log.start ? log.start.slice(0, 16) : '', 
-                  end: log.end ? log.end.slice(0, 16) : ''
-              });
-          }
-      }, [editingTimeLog]); 
-
-      if (!editingTimeLog) return null;
-
-      const { task, index } = editingTimeLog;
-      const log = task.timeLogs[index];
-
-      const handleSave = async () => {
-          const startD = new Date(form.start);
-          const endD = form.end ? new Date(form.end) : null;
-          const duration = endD ? ((endD - startD) / 1000 / 60).toFixed(0) : 0;
-
-          const newLogs = [...task.timeLogs];
-          newLogs[index] = { ...log, start: new Date(form.start).toISOString(), end: form.end ? new Date(form.end).toISOString() : null, duration };
-          
-          const updatedTask = { ...task, timeLogs: newLogs };
-          setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
-          if (user) await setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
-          setEditingTimeLog(null);
-          handleCloseUI();
-      };
-
-      return (
-          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-              <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
-                  <h3 className="font-bold text-lg mb-4">Edit Time Log</h3>
-                  <div className="space-y-3">
-                      <div>
-                          <label className="text-xs font-bold text-gray-500">Start Time</label>
-                          <input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.start} onChange={e => setForm({...form, start: e.target.value})}/>
-                      </div>
-                      <div>
-                          <label className="text-xs font-bold text-gray-500">End Time</label>
-                          <input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.end} onChange={e => setForm({...form, end: e.target.value})}/>
-                      </div>
-                      <div className="flex gap-3 pt-2">
-                          <button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
-                          <button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Save</button>
-                      </div>
-                  </div>
-              </div>
-          </div>
-      );
-  };
-
-  const ReportsModule = () => {
-      const [filter, setFilter] = useState('');
-      
-      const filteredTx = data.transactions.filter(t => 
-          JSON.stringify(t).toLowerCase().includes(filter.toLowerCase()) ||
-          data.parties.find(p => p.id === t.partyId)?.name.toLowerCase().includes(filter.toLowerCase())
-      );
-
-      return (
-          <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
-              <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
-                  <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-                  <div className="flex-1 px-4">
-                      <div className="flex items-center gap-2 bg-gray-100 p-2 rounded-xl">
-                          <Search size={16} className="text-gray-400"/>
-                          <input className="bg-transparent text-sm w-full outline-none" placeholder="Search invoices, parties, items..." value={filter} onChange={e => setFilter(e.target.value)} autoFocus />
-                      </div>
-                  </div>
-              </div>
-              
-              <div className="p-4 space-y-4">
-                  {filter ? (
-                      <div>
-                          <h3 className="font-bold mb-2">Search Results ({filteredTx.length})</h3>
-                          {filteredTx.map(tx => (
-                              <div key={tx.id} onClick={() => setViewDetail({ type: 'transaction', id: tx.id })} className="p-3 border rounded-xl mb-2 bg-white">
-                                  <div className="flex justify-between">
-                                      <span className="font-bold">{tx.id}</span>
-                                      <span>{formatDate(tx.date)}</span>
-                                  </div>
-                                  <div className="text-xs text-gray-500">
-                                      {data.parties.find(p => p.id === tx.partyId)?.name} • {tx.type} • {formatCurrency(tx.amount || tx.finalTotal)}
-                                  </div>
-                              </div>
-                          ))}
-                      </div>
-                  ) : (
-                      <div className="grid grid-cols-2 gap-4">
-                          <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl flex flex-col items-center gap-2" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
-                              <BarChart3 className="text-blue-600"/>
-                              <span className="font-bold text-blue-900">Profit & Loss</span>
-                          </div>
-                          <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl flex flex-col items-center gap-2" onClick={() => { pushHistory(); setMastersView('parties'); }}>
-                              <FileText className="text-orange-600"/>
-                              <span className="font-bold text-orange-900">Party Statements</span>
-                          </div>
-                          <div className="p-4 bg-purple-50 border border-purple-100 rounded-2xl flex flex-col items-center gap-2" onClick={() => { pushHistory(); setMastersView('expenses'); }}>
-                              <PieChart className="text-purple-600"/>
-                              <span className="font-bold text-purple-900">Expense Report</span>
-                          </div>
-                      </div>
-                  )}
-              </div>
-          </div>
-      );
-  };
-
-  const ExpensesBreakdown = () => {
-      const expenses = data.transactions.filter(t => t.type === 'expense');
-      const byCategory = expenses.reduce((acc, curr) => {
-          const cat = curr.category || 'Uncategorized';
-          acc[cat] = (acc[cat] || 0) + parseFloat(curr.finalTotal || curr.amount || 0);
-          return acc;
-      }, {});
-
-      return (
-          <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
-              <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
-                  <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-                  <h2 className="font-bold text-lg">Expenses Breakdown</h2>
-                  <div/>
-              </div>
-              <div className="p-4 space-y-4">
-                  {Object.entries(byCategory).map(([cat, total]) => (
-                      <div key={cat} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border">
-                          <span className="font-bold">{cat}</span>
-                          <span className="font-bold text-red-600">{formatCurrency(total)}</span>
-                      </div>
-                  ))}
-                  {expenses.length === 0 && <p className="text-center text-gray-400 mt-10">No expenses recorded</p>}
-              </div>
-          </div>
-      );
-  };
-
-  const TaskModule = () => {
-    const [sort, setSort] = useState('DateAsc');
-    const [search, setSearch] = useState('');
-    
-    const sortedTasks = sortData(data.tasks, sort).filter(t => t.name.toLowerCase().includes(search.toLowerCase()) || t.description.toLowerCase().includes(search.toLowerCase()));
-    
-    const pending = sortedTasks.filter(t => t.status !== 'Done' && t.status !== 'Converted');
-    const done = sortedTasks.filter(t => t.status === 'Done' || t.status === 'Converted');
-
-    const TaskItem = ({ task }) => (
-      <div 
-        onClick={() => { pushHistory(); setViewDetail({ type: 'task', id: task.id }); }}
-        className="p-4 bg-white border rounded-2xl mb-2 flex justify-between items-start cursor-pointer active:scale-95 transition-transform"
-      >
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : task.status === 'Converted' ? 'bg-purple-500' : 'bg-orange-500'}`} />
-            <p className="font-bold text-gray-800">{task.name}</p>
-          </div>
-          <p className="text-xs text-gray-500 line-clamp-1">{task.description}</p>
-          <div className="flex gap-3 mt-2 text-[10px] font-bold text-gray-400 uppercase">
-            <span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(task.dueDate)}</span>
-            <span className="flex items-center gap-1"><Users size={10} /> {task.assignedStaff?.length || 0} Staff</span>
-          </div>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full font-bold">{task.id}</p>
-        </div>
-      </div>
-    );
-
-    return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-xl font-bold">Tasks</h1>
-          <div className="flex gap-2 items-center">
-             <input className="p-2 border rounded-xl text-xs w-32" placeholder="Search tasks..." value={search} onChange={e => setSearch(e.target.value)}/>
-             <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}>
-                  <option value="DateAsc">Due Soon</option><option value="DateDesc">Due Later</option>
-                  <option value="A-Z">A-Z</option><option value="Z-A">Z-A</option>
-             </select>
-             <button onClick={() => { pushHistory(); setModal({ type: 'task' }); }} className="p-2 bg-blue-600 text-white rounded-xl"><Plus /></button>
-          </div>
-        </div>
-
-        <div>
-          <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Pending ({pending.length})</h3>
-          {pending.map(t => <TaskItem key={t.id} task={t} />)}
-        </div>
-
-        <div>
-          <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Completed ({done.length})</h3>
-          <div className="opacity-60">
-            {done.map(t => <TaskItem key={t.id} task={t} />)}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   const DetailView = () => {
     if (!viewDetail) return null;
     
+    // --- TRANSACTION DETAIL ---
     if (viewDetail.type === 'transaction') {
       const tx = data.transactions.find(t => t.id === viewDetail.id);
       if (!tx) return null;
       const party = data.parties.find(p => p.id === tx.partyId);
       const totals = getBillLogic(tx);
-
-      // Payment logic specifics
       const isPayment = tx.type === 'payment';
       const paymentMode = tx.paymentMode || 'Cash';
 
@@ -1108,56 +771,37 @@ export default function App() {
             const qty = parseFloat(item.qty || 0);
             const sell = parseFloat(item.price || 0);
             const buy = parseFloat(item.buyPrice || itemMaster?.buyPrice || 0);
-            
-            if (type === 'Service') {
-              pnl.service += (sell * qty);
-            } else {
-              pnl.goods += ((sell - buy) * qty);
-            }
+            if (type === 'Service') pnl.service += (sell * qty);
+            else pnl.goods += ((sell - buy) * qty);
           });
           pnl.total = pnl.service + pnl.goods;
       }
+      
+      const printInvoice = () => {
+        const content = `<html><head><title>${tx.type}</title></head><body><h1>Invoice ${tx.id}</h1></body></html>`; 
+        const win = window.open('', '_blank');
+        if (win) { win.document.write(content); win.document.close(); win.print(); }
+      };
 
       return (
         <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
           <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
             <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
             <div className="flex gap-2">
-               <button onClick={() => printInvoice(tx)} className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg font-bold text-xs flex items-center gap-1"><Printer size={16}/> PDF</button>
-               <button onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full">Edit</button>
+               <button onClick={printInvoice} className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg font-bold text-xs flex items-center gap-1"><Printer size={16}/> PDF</button>
+               {checkPermission(user, 'canEditTasks') && <button onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full">Edit</button>}
             </div>
           </div>
-          
           <div className="p-4 space-y-6">
             <div className="text-center">
               <h1 className="text-2xl font-black text-gray-800">{formatCurrency(totals.amount)}</h1>
               <p className="text-xs font-bold text-gray-400 uppercase">{tx.type} • {formatDate(tx.date)}</p>
-              <div className="mt-2 flex justify-center gap-2">
-                  <span className={`px-3 py-1 rounded-full text-xs font-black ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>
-                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-600 uppercase">{paymentMode}</span>
-              </div>
             </div>
-
             <div className="bg-gray-50 p-4 rounded-2xl border">
               <p className="text-xs font-bold text-gray-400 uppercase mb-1">{isPayment ? 'Paid Via' : 'Party'}</p>
               <p className="font-bold text-lg">{party?.name || tx.category || 'Unknown'}</p>
               <p className="text-sm text-gray-500">{party?.mobile}</p>
             </div>
-
-            {isPayment && tx.linkedBills && tx.linkedBills.length > 0 && (
-                <div className="bg-white p-4 rounded-2xl border">
-                    <h3 className="font-bold text-gray-700 mb-2 flex items-center gap-2"><LinkIcon size={16}/> Linked Invoices</h3>
-                    <div className="space-y-2">
-                        {tx.linkedBills.map((link, i) => (
-                            <div key={i} className="flex justify-between items-center p-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100" onClick={() => setViewDetail({ type: 'transaction', id: link.billId })}>
-                                <span className="text-blue-600 font-bold underline">{link.billId}</span>
-                                <span className="font-bold">{formatCurrency(link.amount)}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
             {tx.convertedFromTask && (
                 <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100">
                     <p className="text-xs font-bold text-purple-600 uppercase mb-1">Source Task</p>
@@ -1167,42 +811,27 @@ export default function App() {
                     </button>
                 </div>
             )}
-
-            {tx.description && (
-              <div className="bg-white p-4 rounded-2xl border">
-                <p className="text-xs font-bold text-gray-400 uppercase mb-1">Description</p>
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{tx.description}</p>
-              </div>
-            )}
-
             {['sales'].includes(tx.type) && (
               <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
                 <h3 className="font-bold text-blue-800 flex items-center gap-2 mb-3"><Info size={16}/> Profit Analysis</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between"><span>Service Profit</span><span className="font-bold text-green-600">{formatCurrency(pnl.service)}</span></div>
                   <div className="flex justify-between"><span>Goods Profit</span><span className="font-bold text-green-600">{formatCurrency(pnl.goods)}</span></div>
-                  <div className="border-t border-blue-200 pt-2 mt-2 flex justify-between font-black text-blue-900">
-                    <span>Net Profit</span><span>{formatCurrency(pnl.total)}</span>
-                  </div>
+                  <div className="border-t border-blue-200 pt-2 mt-2 flex justify-between font-black text-blue-900"><span>Net Profit</span><span>{formatCurrency(pnl.total)}</span></div>
                 </div>
               </div>
             )}
-
-            {!isPayment && (
+             {!isPayment && (
                 <div className="space-y-2">
                   <h3 className="font-bold text-gray-400 text-xs uppercase">Items</h3>
                   {tx.items?.map((item, i) => {
-                     const m = data.items.find(x => x.id === item.itemId);
-                     return (
-                       <div key={i} className="flex justify-between p-3 border rounded-xl bg-white">
-                         <div className="flex-1">
-                           <p className="font-bold text-sm">{m?.name || 'Item'}</p>
-                           <p className="text-xs text-gray-500">{item.qty} x {item.price}</p>
-                           {item.description && <p className="text-xs text-gray-600 italic mt-1">{item.description}</p>}
-                         </div>
-                         <p className="font-bold text-sm">{formatCurrency(item.qty * item.price)}</p>
-                       </div>
-                     );
+                      const m = data.items.find(x => x.id === item.itemId);
+                      return (
+                        <div key={i} className="flex justify-between p-3 border rounded-xl bg-white">
+                          <div className="flex-1"><p className="font-bold text-sm">{m?.name || 'Item'}</p><p className="text-xs text-gray-500">{item.qty} x {item.price}</p></div>
+                          <p className="font-bold text-sm">{formatCurrency(item.qty * item.price)}</p>
+                        </div>
+                      );
                   })}
                 </div>
             )}
@@ -1211,174 +840,115 @@ export default function App() {
       );
     }
     
+    // --- TASK DETAIL ---
     if (viewDetail.type === 'task') {
         const task = data.tasks.find(t => t.id === viewDetail.id);
         if (!task) return null;
         const party = data.parties.find(p => p.id === task.partyId);
         
-        const openEditTimeLog = (idx) => {
-            pushHistory();
-            setEditingTimeLog({ task, index: idx });
-        };
-
+        const openEditTimeLog = (idx) => { pushHistory(); setEditingTimeLog({ task, index: idx }); };
         const toggleTimer = (staffId) => {
             if (!user) return;
             const now = new Date().toISOString();
             let newLogs = [...(task.timeLogs || [])];
             const activeLogIndex = newLogs.findIndex(l => l.staffId === staffId && !l.end);
-
             if (activeLogIndex >= 0) {
-                const start = new Date(newLogs[activeLogIndex].start);
-                const end = new Date(now);
+                const start = new Date(newLogs[activeLogIndex].start); const end = new Date(now);
                 const duration = ((end - start) / 1000 / 60).toFixed(0); 
                 newLogs[activeLogIndex] = { ...newLogs[activeLogIndex], end: now, duration };
                 updateTaskLogs(newLogs);
             } else {
                 const activeTask = data.tasks.find(t => t.timeLogs && t.timeLogs.some(l => l.staffId === staffId && !l.end));
-                if (activeTask && activeTask.id !== task.id) {
-                    pushHistory();
-                    setTimerConflict({ staffId, activeTaskId: activeTask.id, targetTaskId: task.id });
-                    return;
-                }
+                if (activeTask && activeTask.id !== task.id) { pushHistory(); setTimerConflict({ staffId, activeTaskId: activeTask.id, targetTaskId: task.id }); return; }
                 const staff = data.staff.find(s => s.id === staffId);
                 newLogs.push({ staffId, staffName: staff?.name, start: now, end: null, duration: 0 });
                 updateTaskLogs(newLogs);
             }
         };
-
         const updateTaskLogs = (logs) => {
             const updatedTask = { ...task, timeLogs: logs };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
             setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
         };
-
-        const totalTime = (task.timeLogs || []).reduce((acc, log) => acc + (parseFloat(log.duration) || 0), 0);
         const updateTaskItems = (newItems) => {
             const updated = { ...task, itemsUsed: newItems };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updated : t) }));
             setDoc(doc(db, "tasks", updated.id), updated);
         };
+        const totalTime = (task.timeLogs || []).reduce((acc, log) => acc + (parseFloat(log.duration) || 0), 0);
+        
+        // WhatsApp Share
+        const shareTask = () => {
+            const text = `*Task Update: ${task.name}*\nClient: ${party?.name}\nStatus: ${task.status}\nDesc: ${task.description}\n\nView details in SMEES Pro.`;
+            window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+        }
 
         return (
           <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
             <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
               <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
               <h2 className="font-bold text-lg">Task Details</h2>
-              <button onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
+              <div className="flex gap-2">
+                   <button onClick={shareTask} className="p-2 bg-green-100 text-green-700 rounded-lg"><MessageCircle size={20}/></button>
+                   {checkPermission(user, 'canEditTasks') && <button onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>}
+              </div>
             </div>
             
             <div className="p-4 space-y-6 pb-20">
                 <div className="bg-gray-50 p-4 rounded-2xl border">
-                    <div className="flex justify-between items-start mb-2">
-                        <h1 className="text-xl font-black text-gray-800">{task.name}</h1>
-                        <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
-                    </div>
-                    <p className="text-sm text-gray-600 mb-4">{task.description}</p>
+                    <h1 className="text-xl font-black text-gray-800 mb-2">{task.name}</h1>
+                    <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
+                    <p className="text-sm text-gray-600 my-4">{task.description}</p>
                     
-                    <div className="grid grid-cols-2 gap-4 text-xs">
-                          <div>
-                             <p className="font-bold text-gray-400 uppercase">Client</p>
-                             <p className="font-bold text-gray-800">{party?.name || 'N/A'}</p>
-                             <p className="text-gray-500">{party?.mobile}</p>
-                         </div>
-                         <div>
-                             <p className="font-bold text-gray-400 uppercase">Assigned To</p>
-                             <div className="flex flex-wrap gap-1 mt-1">
-                                 {(task.assignedStaff || []).map(sid => {
-                                     const s = data.staff.find(st => st.id === sid);
-                                     return <span key={sid} className="bg-white border px-2 py-0.5 rounded-full text-gray-700">{s?.name}</span>;
-                                 })}
-                                 {(!task.assignedStaff || task.assignedStaff.length===0) && <span className="text-gray-400">Unassigned</span>}
+                    {/* Client Info (Fix #9) */}
+                    {party && (
+                        <div className="mt-4 pt-4 border-t border-gray-200 space-y-2">
+                             <p className="text-xs font-bold text-gray-400 uppercase">Client Details</p>
+                             <p className="font-bold text-gray-800">{party.name}</p>
+                             <div className="flex gap-3">
+                                 <a href={`tel:${party.mobile}`} className="flex items-center gap-1 text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded"><Phone size={12}/> {party.mobile}</a>
+                                 {party.lat && <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${party.lat},${party.lng}`)} className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded"><Navigation size={12}/> Direction</button>}
                              </div>
-                         </div>
-                    </div>
-                    
-                    {/* ACTION BUTTONS */}
-                    <div className="grid grid-cols-3 gap-2 mt-4">
-                        {party?.mobile && <a href={`tel:${String(party.mobile).split(',')[0]}`} className="p-2 bg-green-100 text-green-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1"><Phone size={14}/> Call</a>}
-                        {party?.lat && <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${party.lat},${party.lng}`)} className="p-2 bg-blue-100 text-blue-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1"><Navigation size={14}/> Map</button>}
-                    </div>
-                    {party?.address && <p className="mt-2 text-xs text-gray-500 bg-white p-2 rounded border">{party.address}</p>}
+                             {party.address && <p className="text-xs text-gray-500">{party.address}</p>}
+                        </div>
+                    )}
                 </div>
-
-                <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                    <div className="flex justify-between items-center mb-3">
-                        <h3 className="font-bold flex items-center gap-2 text-blue-800"><Clock size={18}/> Time Logs</h3>
-                        <span className="text-xs font-black bg-white px-2 py-1 rounded text-blue-600">{totalTime} mins</span>
-                    </div>
-                    
-                    <div className="flex flex-col gap-2 mb-4">
-                        {data.staff.map(s => {
-                            const isRunning = task.timeLogs?.some(l => l.staffId === s.id && !l.end);
-                            return (
-                                <div key={s.id} className="flex justify-between items-center bg-white p-2 rounded-xl border">
-                                    <span className="text-sm font-bold text-gray-700">{s.name}</span>
-                                    <button onClick={() => toggleTimer(s.id)} className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 ${isRunning ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                                        {isRunning ? <><Square size={10} fill="currentColor"/> STOP</> : <><Play size={10} fill="currentColor"/> START</>}
-                                    </button>
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    <div className="space-y-1 max-h-40 overflow-y-auto">
-                        {(task.timeLogs || []).map((log, i) => (
-                            <div key={i} className="flex justify-between items-center text-[10px] text-gray-600 border-b border-blue-100 pb-1">
-                                <div className="flex-1">
-                                    <span className="font-bold block">{log.staffName}</span>
-                                    <span>{new Date(log.start).toLocaleString()}</span>
-                                    {log.end && <span> - {new Date(log.end).toLocaleTimeString()}</span>}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="font-bold">{log.duration}m</span>
-                                    <button onClick={() => openEditTimeLog(i)} className="p-1 bg-white rounded border"><Edit2 size={10}/></button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
+                
+                {/* ITEMS SECTION (FIX #2) */}
                 <div>
-                    <div className="flex justify-between items-center mb-2">
-                        <h3 className="font-bold flex items-center gap-2 text-gray-700"><ShoppingCart size={18}/> Items Used</h3>
-                         {task.status !== 'Converted' && (
-                             <div className="w-40">
-                                 <SearchableSelect placeholder="+ Add Item" options={data.items} value="" onChange={(val) => {
-                                          if(val) {
-                                             const item = data.items.find(i=>i.id===val);
-                                             updateTaskItems([...(task.itemsUsed || []), { 
-                                                 itemId: val, qty: 1, price: item?.sellPrice || 0, buyPrice: item?.buyPrice || 0, description: ''
-                                             }]);
-                                          }
-                                      }}
-                                  />
-                             </div>
-                         )}
-                    </div>
-                    
-                    <div className="space-y-2">
-                        {(task.itemsUsed || []).map((item, idx) => {
-                            const itemDetails = data.items.find(i => i.id === item.itemId);
-                            return (
-                                <div key={idx} className="p-3 border rounded-xl bg-white space-y-2 text-sm">
-                                    <div className="flex justify-between">
-                                        <p className="font-bold">{itemDetails?.name}</p>
-                                        <button onClick={() => updateTaskItems(task.itemsUsed.filter((_, i) => i !== idx))} className="text-red-500"><Trash2 size={14}/></button>
-                                    </div>
-                                    <input className="w-full text-xs p-1 border rounded" placeholder="Description" value={item.description} onChange={e => {
-                                        const n = [...task.itemsUsed]; n[idx].description = e.target.value; updateTaskItems(n);
-                                    }}/>
-                                    <div className="flex gap-2">
-                                        <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={item.qty} onChange={e => { const n = [...task.itemsUsed]; n[idx].qty = e.target.value; updateTaskItems(n); }} />
-                                        <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={item.price} onChange={e => { const n = [...task.itemsUsed]; n[idx].price = e.target.value; updateTaskItems(n); }} />
-                                        <input type="number" className="w-20 p-1 border rounded text-xs bg-gray-50" placeholder="Buy" value={item.buyPrice} onChange={e => { const n = [...task.itemsUsed]; n[idx].buyPrice = e.target.value; updateTaskItems(n); }} />
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
+                   <div className="flex justify-between items-center mb-2">
+                       <h3 className="font-bold flex items-center gap-2 text-gray-700"><ShoppingCart size={18}/> Items Used</h3>
+                       {task.status !== 'Converted' && (
+                           <div className="w-40">
+                               <SearchableSelect placeholder="+ Add Item" options={data.items} value="" onChange={(val) => {
+                                   if(val) {
+                                      const item = data.items.find(i=>i.id===val);
+                                      updateTaskItems([...(task.itemsUsed || []), { itemId: val, qty: 1, price: item?.sellPrice || 0, buyPrice: item?.buyPrice || 0, description: '' }]);
+                                   }
+                               }} />
+                           </div>
+                       )}
+                   </div>
+                   <div className="space-y-2">
+                       {(task.itemsUsed || []).map((item, idx) => {
+                           const itemDetails = data.items.find(i => i.id === item.itemId);
+                           return (
+                               <div key={idx} className="p-3 border rounded-xl bg-white space-y-2 text-sm">
+                                   <div className="flex justify-between">
+                                       <p className="font-bold">{itemDetails?.name}</p>
+                                       <button onClick={() => updateTaskItems(task.itemsUsed.filter((_, i) => i !== idx))} className="text-red-500"><Trash2 size={14}/></button>
+                                   </div>
+                                   <div className="flex gap-2">
+                                       <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={item.qty} onChange={e => { const n = [...task.itemsUsed]; n[idx].qty = e.target.value; updateTaskItems(n); }} />
+                                       <span className="text-xs self-center">x {item.price}</span>
+                                   </div>
+                               </div>
+                           );
+                       })}
+                   </div>
                 </div>
 
+                {/* CONVERT OR VIEW INVOICE (Fix #9) */}
                 {task.generatedSaleId ? (
                     <div className="pt-4 border-t">
                         <button onClick={() => setViewDetail({ type: 'transaction', id: task.generatedSaleId })} className="w-full py-3 bg-green-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-200">
@@ -1386,7 +956,7 @@ export default function App() {
                         </button>
                     </div>
                 ) : (
-                    task.status !== 'Converted' && (task.itemsUsed && task.itemsUsed.length > 0) && (
+                    task.status !== 'Converted' && (
                         <div className="pt-4 border-t">
                             <button onClick={() => { pushHistory(); setConvertModal(task); }} className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-purple-200">
                                 <ReceiptText size={18}/> Convert to Sale
@@ -1394,8 +964,138 @@ export default function App() {
                         </div>
                     )
                 )}
+
+                <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="font-bold flex items-center gap-2 text-blue-800"><Clock size={18}/> Time Logs</h3>
+                        <span className="text-xs font-black bg-white px-2 py-1 rounded text-blue-600">{totalTime} mins</span>
+                    </div>
+                    <div className="flex flex-col gap-2 mb-4">
+                        {data.staff.filter(s => task.assignedStaff?.includes(s.id) || user.role === 'admin').map(s => {
+                            const isRunning = task.timeLogs?.some(l => l.staffId === s.id && !l.end);
+                            return (
+                                <div key={s.id} className="flex justify-between items-center bg-white p-2 rounded-xl border"><span className="text-sm font-bold text-gray-700">{s.name}</span><button onClick={() => toggleTimer(s.id)} className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 ${isRunning ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{isRunning ? <><Square size={10} fill="currentColor"/> STOP</> : <><Play size={10} fill="currentColor"/> START</>}</button></div>
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
           </div>
+        );
+    }
+
+    // --- STAFF DETAIL (New Features: Tabs, Manual Entry, Edit/Delete) ---
+    if (viewDetail.type === 'staff') {
+        const staff = data.staff.find(s => s.id === viewDetail.id);
+        if (!staff) return null;
+        
+        // Use a Wrapper Component to handle internal tab state correctly
+        const StaffDetailContent = () => {
+             const [sTab, setSTab] = useState('attendance');
+             const attToday = data.attendance.find(a => a.staffId === staff.id && a.date === new Date().toISOString().split('T')[0]) || {};
+             const attHistory = data.attendance.filter(a => a.staffId === staff.id).sort((a,b) => new Date(b.date) - new Date(a.date));
+             const workLogs = data.tasks.flatMap(t => (t.timeLogs || []).filter(l => l.staffId === staff.id).map(l => ({ ...l, taskName: t.name, type: 'task' }))).sort((a,b) => new Date(b.start) - new Date(a.start));
+
+             const handleAttendance = async (type) => {
+                if (!user) return;
+                const now = new Date();
+                const todayStr = now.toISOString().split('T')[0];
+                const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+                const existingDoc = data.attendance.find(a => a.staffId === staff.id && a.date === todayStr);
+                let attRecord = existingDoc || { staffId: staff.id, date: todayStr, checkIn: '', checkOut: '', lunchStart: '', lunchEnd: '', status: 'Present', id: `ATT-${staff.id}-${todayStr}` };
+                if (type === 'checkIn') attRecord.checkIn = timeStr;
+                if (type === 'checkOut') attRecord.checkOut = timeStr;
+                if (type === 'lunchStart') attRecord.lunchStart = timeStr;
+                if (type === 'lunchEnd') attRecord.lunchEnd = timeStr;
+                const newAtt = [...data.attendance.filter(a => a.id !== attRecord.id), attRecord];
+                setData(prev => ({ ...prev, attendance: newAtt }));
+                await setDoc(doc(db, "attendance", attRecord.id), attRecord);
+                showToast(`${type} Recorded`);
+            };
+
+            const deleteAtt = async (id) => {
+                if(!window.confirm("Delete this attendance record?")) return;
+                await deleteDoc(doc(db, "attendance", id));
+                setData(prev => ({...prev, attendance: prev.attendance.filter(a => a.id !== id)}));
+            }
+            
+            // Fix #4 & #6: Edit Logic -> Reuse Manual Modal
+            const editAtt = (record) => {
+                pushHistory();
+                setManualAttModal({ ...record, isEdit: true });
+            }
+
+             return (
+                 <div className="p-4 space-y-6">
+                    <div className="p-4 bg-gray-50 rounded-2xl border">
+                        <div className="flex justify-between items-center mb-2"><p className="font-bold text-lg text-gray-800">{staff.role}</p><span className={`px-2 py-1 rounded text-xs font-bold ${staff.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{staff.active ? 'Active' : 'Inactive'}</span></div>
+                        <p className="text-sm text-gray-500 flex items-center gap-2"><Phone size={14}/> {staff.mobile}</p>
+                    </div>
+
+                    {/* Fix #5: Tabs */}
+                    <div className="flex bg-gray-100 p-1 rounded-xl">
+                        <button onClick={()=>setSTab('attendance')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${sTab==='attendance' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Attendance</button>
+                        <button onClick={()=>setSTab('work')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${sTab==='work' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Work Logs</button>
+                    </div>
+
+                    {sTab === 'attendance' && (
+                        <div className="space-y-4">
+                             <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                                <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2"><UserCheck size={18}/> Actions (Today)</h3>
+                                <div className="grid grid-cols-2 gap-2 mb-3">
+                                    <button onClick={() => handleAttendance('checkIn')} disabled={!!attToday.checkIn} className="p-3 bg-green-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 disabled:bg-gray-400">Check In <br/> <span className="text-xs font-normal">{attToday.checkIn || '--:--'}</span></button>
+                                    <button onClick={() => handleAttendance('checkOut')} className="p-3 bg-red-600 text-white rounded-xl font-bold text-sm">Check Out <br/> <span className="text-xs font-normal">{attToday.checkOut || '--:--'}</span></button>
+                                    <button onClick={() => handleAttendance('lunchStart')} disabled={!!attToday.lunchStart} className="p-2 bg-yellow-100 text-yellow-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50"><Coffee size={14}/> Start Lunch <br/>{attToday.lunchStart}</button>
+                                    <button onClick={() => handleAttendance('lunchEnd')} disabled={!!attToday.lunchEnd} className="p-2 bg-yellow-100 text-yellow-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50"><Briefcase size={14}/> End Lunch <br/>{attToday.lunchEnd}</button>
+                                </div>
+                            </div>
+                            
+                            {/* Fix #6: Manual Entry Button */}
+                            {user.role === 'admin' && (
+                                <button onClick={() => { pushHistory(); setManualAttModal({ staffId: staff.id }); }} className="w-full p-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 font-bold text-xs flex items-center justify-center gap-2 hover:bg-gray-50">+ Add/Edit Attendance (Admin)</button>
+                            )}
+
+                            <div className="space-y-2">
+                                {attHistory.map(item => (
+                                    <div key={item.id} className="p-3 border rounded-xl bg-white text-xs relative">
+                                        {user.role === 'admin' && (
+                                            <div className="absolute top-2 right-2 flex gap-2">
+                                                <button onClick={() => editAtt(item)} className="text-blue-500"><Edit2 size={14}/></button>
+                                                <button onClick={() => deleteAtt(item.id)} className="text-red-500"><Trash2 size={14}/></button>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between font-bold text-gray-800 mb-1"><span>{formatDate(item.date)}</span></div>
+                                        <div className="flex justify-between text-gray-600"><span>In: {item.checkIn || '-'}</span><span>Out: {item.checkOut || '-'}</span></div>
+                                        {item.lunchStart && <div className="text-gray-400 mt-1">Lunch: {item.lunchStart} - {item.lunchEnd}</div>}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {sTab === 'work' && (
+                        <div className="space-y-2">
+                            {workLogs.map((item, idx) => (
+                                <div key={idx} className="p-3 border rounded-xl bg-white text-xs">
+                                    <div className="flex justify-between font-bold text-gray-800 mb-1"><span>Task: {item.taskName}</span><span>{new Date(item.start).toLocaleDateString()}</span></div>
+                                    <div className="flex justify-between text-gray-500"><span>{formatTime(item.start)} - {item.end ? formatTime(item.end) : 'Active'}</span><span className="font-bold">{item.duration}m</span></div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                 </div>
+             );
+        };
+
+        return (
+            <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+                <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
+                    <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                    <h2 className="font-bold text-lg">{staff.name}</h2>
+                    {user.role === 'admin' && <button onClick={() => { pushHistory(); setModal({ type: 'staff', data: staff }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>}
+                </div>
+                <StaffDetailContent />
+            </div>
         );
     }
 
@@ -1429,279 +1129,40 @@ export default function App() {
               </p>
               {!isItem && <p className="text-[10px] font-bold text-gray-400">{partyBalances[record.id] > 0 ? 'TO PAY' : 'TO COLLECT'}</p>}
             </div>
-            
             {isItem ? (
-               <div className="p-4 bg-gray-50 rounded-2xl border">
-                 <p className="text-[10px] font-bold text-gray-400 uppercase">Prices</p>
-                 <p className="text-sm font-bold">Sell: {formatCurrency(record.sellPrice)}</p>
-                 <p className="text-sm text-gray-500">Buy: {formatCurrency(record.buyPrice)}</p>
-               </div>
-            ) : (
+                <div className="p-4 bg-gray-50 rounded-2xl border">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">Prices</p>
+                    <p className="text-sm font-bold">Sell: {formatCurrency(record.sellPrice)}</p>
+                    <p className="text-sm text-gray-500">Buy: {formatCurrency(record.buyPrice)}</p>
+                </div>
+             ) : (
                 <div className="p-4 bg-gray-50 rounded-2xl border space-y-1">
-                   {mobiles.map((m, i) => <p key={i} className="text-sm font-bold flex items-center gap-1"><Phone size={12}/> <a href={`tel:${m}`}>{m}</a></p>)}
-                   {record.address && <p className="text-xs text-gray-500 truncate">{record.address}</p>}
-                   
-                   <div className="grid grid-cols-2 gap-2 mt-2">
-                        {record.lat && <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${record.lat},${record.lng}`)} className="py-2 bg-blue-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"><Navigation size={12}/> Direction</button>}
-                        {mobiles.length > 0 && <a href={`tel:${mobiles[0]}`} className="py-2 bg-green-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"><Phone size={12}/> Call</a>}
-                   </div>
-                </div>
-            )}
-          </div>
-          
-          <div className="space-y-4">
-            <h3 className="font-bold flex items-center gap-2 text-gray-700"><History size={18}/> Transaction History</h3>
-            {history.map(tx => {
-              const t = getBillLogic(tx);
-              return (
-                <div key={tx.id} onClick={() => setViewDetail({ type: 'transaction', id: tx.id })} className="p-4 border rounded-2xl flex justify-between items-center bg-white shadow-sm cursor-pointer">
-                  <div>
-                    <p className="font-bold text-sm">{tx.id} • {formatDate(tx.date)}</p>
-                    <p className="text-[10px] uppercase font-bold text-gray-400">{tx.type} • {tx.paymentMode}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold">{formatCurrency(tx.amount || t.final)}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const Dashboard = () => {
-      const pnlData = useMemo(() => {
-          let filteredTx = data.transactions.filter(t => ['sales'].includes(t.type));
-          const now = new Date();
-          if(pnlFilter === 'Week') filteredTx = filteredTx.filter(t => (now - new Date(t.date)) / (1000*60*60*24) <= 7);
-          if(pnlFilter === 'Month') filteredTx = filteredTx.filter(t => new Date(t.date).getMonth() === now.getMonth());
-          if(pnlFilter === 'Year') filteredTx = filteredTx.filter(t => new Date(t.date).getFullYear() === now.getFullYear());
-          if(pnlFilter === 'Custom' && pnlCustomDates.start && pnlCustomDates.end) {
-              filteredTx = filteredTx.filter(t => {
-                  const d = new Date(t.date);
-                  return d >= new Date(pnlCustomDates.start) && d <= new Date(pnlCustomDates.end);
-              });
-          }
-
-          let profit = 0;
-          filteredTx.forEach(tx => {
-             (tx.items || []).forEach(item => {
-                 const itemMaster = data.items.find(i => i.id === item.itemId);
-                 const type = itemMaster?.type || 'Goods';
-                 const buy = parseFloat(item.buyPrice || itemMaster?.buyPrice || 0);
-                 const sell = parseFloat(item.price || 0);
-                 const qty = parseFloat(item.qty || 0);
-                 if(type === 'Service') profit += (sell * qty);
-                 else profit += ((sell - buy) * qty);
-             });
-          });
-          return profit;
-      }, [data.transactions, pnlFilter, pnlCustomDates]);
-
-      const navTo = (tab, filter) => {
-          setListFilter(filter);
-          setListPaymentMode(null);
-          setActiveTab(tab);
-      };
-
-      const navToCashBank = (mode) => {
-          setListFilter('all');
-          setListPaymentMode(mode);
-          setActiveTab('accounting');
-      }
-
-      return (
-        <div className="space-y-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-800">{data.company.name}</h1>
-              <p className="text-sm text-gray-500">FY {data.company.financialYear}</p>
-            </div>
-            <div className="flex gap-2">
-                <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 bg-gray-100 rounded-xl">
-                  <Settings className="text-gray-600" />
-                </button>
-                <button onClick={() => setUser(null)} className="p-2 bg-red-50 text-red-600 rounded-xl">
-                  <LogOut size={20} />
-                </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-4 rounded-2xl text-white shadow-lg cursor-pointer" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
-                  <p className="text-xs opacity-80 font-bold mb-1">NET PROFIT</p>
-                  <p className="text-2xl font-black">{formatCurrency(pnlData)}</p>
-              </div>
-              <div className="bg-white p-4 rounded-2xl border shadow-sm">
-                  <p className="text-xs font-bold text-gray-400 mb-1">CASH / BANK</p>
-                  <div className="flex justify-between text-sm mb-1 cursor-pointer" onClick={() => navToCashBank('Cash')}><span>Cash:</span><span className="font-bold text-green-600">{formatCurrency(stats.cashInHand)}</span></div>
-                  <div className="flex justify-between text-sm cursor-pointer" onClick={() => navToCashBank('Bank')}><span>Bank:</span><span className="font-bold text-blue-600">{formatCurrency(stats.bankBalance)}</span></div>
-              </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div onClick={() => { pushHistory(); setMastersView('parties'); }} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 cursor-pointer active:scale-95 transition-transform">
-               <p className="text-xs font-bold text-emerald-600 uppercase">Receivables</p>
-               <p className="text-xl font-bold text-emerald-900">{formatCurrency(stats.totalReceivables)}</p>
-            </div>
-            <div onClick={() => { pushHistory(); setMastersView('parties'); }} className="bg-rose-50 p-4 rounded-2xl border border-rose-100 cursor-pointer active:scale-95 transition-transform">
-               <p className="text-xs font-bold text-rose-600 uppercase">Payables</p>
-               <p className="text-xl font-bold text-rose-900">{formatCurrency(stats.totalPayables)}</p>
-            </div>
-            <div onClick={() => navTo('accounting', 'sales')} className="bg-green-50 p-4 rounded-2xl border border-green-100 cursor-pointer active:scale-95 transition-transform">
-              <p className="text-xs font-bold text-green-600 uppercase">Today Sales</p>
-              <p className="text-xl font-bold text-green-900">{formatCurrency(stats.todaySales)}</p>
-            </div>
-            <div onClick={() => { pushHistory(); setActiveTab('staff'); setMastersView('expenses'); }} className="bg-red-50 p-4 rounded-2xl border border-red-100 cursor-pointer active:scale-95 transition-transform">
-              <p className="text-xs font-bold text-red-600 uppercase">Expenses</p>
-              <p className="text-xl font-bold text-red-900">{formatCurrency(stats.totalExpenses)}</p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="font-bold text-gray-700">Quick Actions</h3>
-            <div className="grid grid-cols-4 gap-2">
-              {[{ label: 'Sale', icon: <TrendingUp />, type: 'sales', color: 'bg-green-100 text-green-700' }, { label: 'Estimate', icon: <FileText />, type: 'estimate', color: 'bg-yellow-100 text-yellow-700' }, { label: 'Purchase', icon: <ShoppingCart />, type: 'purchase', color: 'bg-blue-100 text-blue-700' }, { label: 'Expense', icon: <ReceiptText />, type: 'expense', color: 'bg-red-100 text-red-700' }, { label: 'Payment', icon: <Banknote />, type: 'payment', color: 'bg-purple-100 text-purple-700' }].map(action => (
-                <button key={action.label} onClick={() => { pushHistory(); setModal({ type: action.type }); }} className="flex flex-col items-center gap-2">
-                  <div className={`p-4 rounded-2xl ${action.color}`}>{action.icon}</div>
-                  <span className="text-xs font-medium text-gray-600">{action.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      );
-  };
-
-  const MasterList = ({ title, collection, type, onRowClick }) => {
-    const [search, setSearch] = useState('');
-    const [sort, setSort] = useState('A-Z');
-    const [selectedIds, setSelectedIds] = useState([]);
-    
-    let listData = data[collection];
-    if (type === 'item') listData = listData.map(i => ({ ...i, subText: `${itemStock[i.id] || 0} ${i.unit}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
-    if (type === 'party') listData = listData.map(p => {
-        const bal = partyBalances[p.id] || 0;
-        return { ...p, subText: bal !== 0 ? formatCurrency(Math.abs(bal)) + (bal > 0 ? ' DR' : ' CR') : 'Settled', subColor: bal > 0 ? 'text-green-600' : bal < 0 ? 'text-red-600' : 'text-gray-400' };
-    });
-
-    const filtered = sortData(listData.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(search.toLowerCase()))), sort);
-
-    const toggleSelectAll = () => setSelectedIds(selectedIds.length === filtered.length ? [] : filtered.map(i => i.id));
-    const handleBulkDelete = async () => {
-        if(!window.confirm(`Delete ${selectedIds.length} records?`)) return;
-        const ids = [...selectedIds];
-        setSelectedIds([]);
-        setData(prev => ({ ...prev, [collection]: prev[collection].filter(item => !ids.includes(item.id)) }));
-        try { await Promise.all(ids.map(id => deleteDoc(doc(db, collection, id.toString())))); } catch (e) { console.error(e); }
-    };
-
-    return (
-      <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-2">
-              <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={filtered.length > 0 && selectedIds.length === filtered.length} onChange={toggleSelectAll} />
-              <h1 className="text-xl font-bold">{title}</h1>
-          </div>
-          <div className="flex gap-2">
-              <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option>A-Z</option><option>Z-A</option></select>
-              {selectedIds.length > 0 ? (
-                  <button onClick={handleBulkDelete} className="p-2 bg-red-100 text-red-600 rounded-xl flex items-center gap-1 text-sm px-4 font-bold"><Trash2 size={16}/> ({selectedIds.length})</button>
-              ) : (
-                  <button onClick={() => { pushHistory(); setModal({ type }); }} className="p-2 bg-blue-600 text-white rounded-xl flex items-center gap-1 text-sm px-4"><Plus size={18} /> Add</button>
-              )}
-          </div>
-        </div>
-        <div className="relative">
-          <Search className="absolute left-3 top-3 text-gray-400" size={18} />
-          <input className="w-full pl-10 pr-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500" placeholder={`Search ${title}...`} value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
-        <div className="space-y-2">
-          {filtered.map(item => (
-            <div key={item.id} className={`p-3 bg-white border rounded-2xl flex items-center gap-3 active:scale-95 transition-transform ${selectedIds.includes(item.id) ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50' : ''}`}>
-              <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={selectedIds.includes(item.id)} onChange={() => setSelectedIds(prev => prev.includes(item.id) ? prev.filter(i => i!==item.id) : [...prev, item.id])} />
-              <div className="flex-1" onClick={() => onRowClick ? onRowClick(item) : (pushHistory() || setModal({ type, data: item }))}>
-                <div className="flex justify-between items-start">
-                    <div><p className="font-bold text-gray-800">{item.name}</p><p className="text-xs text-gray-500">{item.id} • {item.category || (item.mobile ? String(item.mobile).split(',')[0] : '') || item.role}</p></div>
-                    {item.subText && <p className={`text-xs font-bold ${item.subColor}`}>{item.subText}</p>}
-                </div>
-              </div>
-              <ChevronRight className="text-gray-300" />
-            </div>
-          ))}
-          {filtered.length === 0 && <p className="text-center text-gray-400 py-10">No records found</p>}
-        </div>
-      </div>
-    );
-  };
-
-  const TransactionList = () => {
-    const [sort, setSort] = useState('DateDesc');
-    const [filter, setFilter] = useState('all'); 
-    useEffect(() => { setFilter(listFilter); }, [listFilter]);
-
-    let filtered = data.transactions.filter(tx => filter === 'all' || tx.type === filter);
-    if(listPaymentMode) {
-        filtered = filtered.filter(tx => (tx.paymentMode || 'Cash') === listPaymentMode && ['sales', 'purchase', 'expense', 'payment'].includes(tx.type));
-    }
-    filtered = sortData(filtered, sort);
-
-    return (
-      <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h1 className="text-xl font-bold">Accounting {listPaymentMode && `(${listPaymentMode})`}</h1>
-          <div className="flex gap-2 items-center">
-             <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}>
-                  <option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option>
-                  <option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option>
-             </select>
-            <button onClick={() => { pushHistory(); setReportView('search'); }} className="p-2 bg-gray-100 rounded-lg text-xs font-bold flex items-center gap-1 text-gray-600"><Search size={14} /></button>
-          </div>
-        </div>
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
-            <button key={t} onClick={() => setFilter(t)} className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
-          ))}
-        </div>
-        <div className="space-y-3">
-          {filtered.map(tx => {
-            const party = data.parties.find(p => p.id === tx.partyId);
-            const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
-            const totals = getBillLogic(tx);
-            let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
-            if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
-            if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
-            if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
-            if (tx.type === 'estimate') { Icon = FileText; iconColor = 'text-yellow-600'; bg = 'bg-yellow-100'; }
-
-            return (
-              <div key={tx.id} onClick={() => { pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
-                <div className="flex gap-4 items-center">
-                  <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
-                  <div>
-                    <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
-                    <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
-                    <div className="flex gap-1 mt-1">
-                        {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
-                        {tx.type === 'estimate' && <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-yellow-100 text-yellow-700">ESTIMATE</span>}
-                        {tx.type === 'payment' && <><span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${isIncoming ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{isIncoming ? 'IN' : 'OUT'}</span><span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-100 text-gray-600">{totals.status === 'UNUSED' ? 'UNUSED' : totals.used >= parseFloat(tx.amount)-0.1 ? 'USED' : 'PARTIAL'}</span></>}
+                    {mobiles.map((m, i) => <p key={i} className="text-sm font-bold flex items-center gap-1"><Phone size={12}/> <a href={`tel:${m}`}>{m}</a></p>)}
+                    {record.address && <p className="text-xs text-gray-500 truncate">{record.address}</p>}
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                        {record.lat && <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${record.lat},${record.lng}`)} className="py-2 bg-blue-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"><Navigation size={12}/> Map</button>}
                     </div>
-                  </div>
                 </div>
-                <div className="text-right">
-                  <p className={`font-bold ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
-                  {['sales', 'purchase'].includes(tx.type) && totals.status !== 'PAID' && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
-                </div>
-              </div>
-            );
-          })}
+             )}
+           </div>
+           <div className="space-y-4">
+             <h3 className="font-bold flex items-center gap-2 text-gray-700"><History size={18}/> Transaction History</h3>
+             {history.map(tx => {
+               const t = getBillLogic(tx);
+               return (
+                 <div key={tx.id} onClick={() => setViewDetail({ type: 'transaction', id: tx.id })} className="p-4 border rounded-2xl flex justify-between items-center bg-white shadow-sm cursor-pointer">
+                   <div><p className="font-bold text-sm">{tx.id} • {formatDate(tx.date)}</p><p className="text-[10px] uppercase font-bold text-gray-400">{tx.type} • {tx.paymentMode}</p></div>
+                   <div className="text-right"><p className="font-bold">{formatCurrency(tx.amount || t.final)}</p></div>
+                 </div>
+               );
+             })}
+           </div>
         </div>
       </div>
     );
   };
 
+  // 2. Forms (Restored from Code A)
   const TransactionForm = ({ type, record }) => {
     const [tx, setTx] = useState(record ? { linkedBills: [], items: [], paymentMode: 'Cash', discountType: '%', discountValue: 0, ...record } : { type, date: new Date().toISOString().split('T')[0], partyId: '', items: [], discountType: '%', discountValue: 0, received: 0, paid: 0, paymentMode: 'Cash', category: '', subType: type==='payment'?'in':'', amount: '', linkedBills: [], description: '' });
     const [showLinking, setShowLinking] = useState(false);
@@ -1744,19 +1205,6 @@ export default function App() {
     );
   };
 
-  const StaffForm = ({ record }) => {
-    const [form, setForm] = useState({ name: '', mobile: '', role: 'Staff', active: true, loginId: '', password: '', ...(record || {}) });
-    return (
-      <div className="space-y-4">
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Staff Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
-        <div className="grid grid-cols-2 gap-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Login ID" value={form.loginId} onChange={e => setForm({...form, loginId: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} /></div>
-        <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.role} onChange={e => setForm({...form, role: e.target.value})}><option>Admin</option><option>Staff</option><option>Manager</option></select>
-        <button onClick={() => saveRecord('staff', form, 'staff')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Staff</button>
-      </div>
-    );
-  };
-
   const TaskForm = ({ record }) => {
     const [form, setForm] = useState(record ? { ...record, itemsUsed: record.itemsUsed || [], assignedStaff: record.assignedStaff || [] } : { name: '', partyId: '', description: '', status: 'To Do', dueDate: '', assignedStaff: [], itemsUsed: [] });
     const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
@@ -1774,36 +1222,186 @@ export default function App() {
     );
   };
 
-  const CompanyForm = () => {
-    const [form, setForm] = useState(data.company);
+  const TaskModule = () => {
+    const [sort, setSort] = useState('DateAsc');
+    const [search, setSearch] = useState('');
+    const filtered = data.tasks.filter(t => {
+        const clientName = data.parties.find(p => p.id === t.partyId)?.name || '';
+        const searchText = search.toLowerCase();
+        return t.name.toLowerCase().includes(searchText) || t.description.toLowerCase().includes(searchText) || clientName.toLowerCase().includes(searchText);
+    });
+    const sortedTasks = sortData(filtered, sort);
+    const pending = sortedTasks.filter(t => t.status !== 'Done' && t.status !== 'Converted');
+    const done = sortedTasks.filter(t => t.status === 'Done' || t.status === 'Converted');
+    const TaskItem = ({ task }) => (
+      <div onClick={() => { pushHistory(); setViewDetail({ type: 'task', id: task.id }); }} className="p-4 bg-white border rounded-2xl mb-2 flex justify-between items-start cursor-pointer active:scale-95 transition-transform">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1"><span className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : task.status === 'Converted' ? 'bg-purple-500' : 'bg-orange-500'}`} /><p className="font-bold text-gray-800">{task.name}</p></div>
+          <p className="text-xs text-gray-500 line-clamp-1">{task.description}</p>
+          <div className="flex gap-3 mt-2 text-[10px] font-bold text-gray-400 uppercase"><span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(task.dueDate)}</span><span className="flex items-center gap-1"><Users size={10} /> {task.assignedStaff?.length || 0} Staff</span></div>
+        </div>
+        <div className="text-right"><p className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full font-bold">{task.id}</p></div>
+      </div>
+    );
     return (
-      <div className="space-y-4">
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Company Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
-        <textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
-        <div className="grid grid-cols-2 gap-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="FY" value={form.financialYear} onChange={e => setForm({...form, financialYear: e.target.value})} /><div className="p-3 bg-gray-100 border rounded-xl text-gray-500">Currency: ₹</div></div>
-        <button onClick={() => { saveCompanySettings(form); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Settings</button>
+      <div className="space-y-6">
+        <div className="flex justify-between items-center"><h1 className="text-xl font-bold">Tasks</h1><div className="flex gap-2 items-center"><input className="p-2 border rounded-xl text-xs w-32" placeholder="Search tasks..." value={search} onChange={e => setSearch(e.target.value)}/><select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateAsc">Due Soon</option><option value="DateDesc">Due Later</option><option value="A-Z">A-Z</option><option value="Z-A">Z-A</option></select>{checkPermission(user, 'canEditTasks') && <button onClick={() => { pushHistory(); setModal({ type: 'task' }); }} className="p-2 bg-blue-600 text-white rounded-xl"><Plus /></button>}</div></div>
+        <div><h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Pending ({pending.length})</h3>{pending.map(t => <TaskItem key={t.id} task={t} />)}</div>
+        <div><h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Completed ({done.length})</h3><div className="opacity-60">{done.map(t => <TaskItem key={t.id} task={t} />)}</div></div>
       </div>
     );
   };
 
+  const StaffForm = ({ record }) => {
+    const [form, setForm] = useState({ name: '', mobile: '', role: 'Staff', active: true, loginId: '', password: '', permissions: { canViewAccounts: false, canViewMasters: false, canViewTasks: true, canEditTasks: false, canViewDashboard: true }, ...(record || {}) });
+    const togglePerm = (p) => setForm({ ...form, permissions: { ...form.permissions, [p]: !form.permissions[p] } });
+    return (
+      <div className="space-y-4">
+        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Staff Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
+        <div className="grid grid-cols-2 gap-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Login ID" value={form.loginId} onChange={e => setForm({...form, loginId: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} /></div>
+        <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.role} onChange={e => setForm({...form, role: e.target.value})}><option>Admin</option><option>Staff</option><option>Manager</option></select>
+        <div className="p-4 bg-gray-50 rounded-xl border"><p className="font-bold text-xs uppercase text-gray-500 mb-2">Permissions</p><div className="grid grid-cols-2 gap-2"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewDashboard} onChange={() => togglePerm('canViewDashboard')}/> View Home</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewAccounts} onChange={() => togglePerm('canViewAccounts')}/> View Accounts</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewMasters} onChange={() => togglePerm('canViewMasters')}/> View Masters</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewTasks} onChange={() => togglePerm('canViewTasks')}/> View Tasks</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canEditTasks} onChange={() => togglePerm('canEditTasks')}/> Edit Tasks</label></div></div>
+        <button onClick={() => saveRecord('staff', form, 'staff')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Staff</button>
+      </div>
+    );
+  };
+
+  const PartyForm = ({ record }) => {
+    const [form, setForm] = useState({ name: '', mobile: '', address: '', type: 'customer', ref: '', lat: '', lng: '', email: '', ...(record || {}) });
+    return <div className="space-y-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Email (Optional)" value={form.email} onChange={e => setForm({...form, email: e.target.value})} /><button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button></div>;
+  };
+  
+  // FIX #3: Item Master Form restored
+  const ItemForm = ({ record }) => {
+    const [form, setForm] = useState({ name: '', sellPrice: '', buyPrice: '', unit: 'pcs', openingStock: '0', type: 'Goods', ...(record || {}) });
+    return (
+       <div className="space-y-4">
+         <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Item Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+         <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option>Goods</option><option>Service</option><option>Expense Item</option></select>
+         <div className="grid grid-cols-2 gap-4"><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Sell Price" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} /><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Buy Price" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} /></div>
+         <div className="grid grid-cols-2 gap-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Unit (e.g. pcs)" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} /><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Opening Stock" value={form.openingStock} onChange={e => setForm({...form, openingStock: e.target.value})} /></div>
+         <button onClick={() => saveRecord('items', form, 'item')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Item</button>
+       </div>
+    );
+  };
+  
+  // FIX #7: Company Settings
+  const CompanyForm = ({ record }) => {
+    const [form, setForm] = useState(data.company);
+    return <div className="space-y-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Company Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} /><textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} /><button onClick={() => { setData({...data, company: form}); setModal({type:null}); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Settings</button></div>;
+  };
+  
+  const ConvertTaskModal = ({ task }) => {
+      const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], received: '', mode: 'Cash' });
+      const handleConfirm = async () => {
+          const saleItems = (task.itemsUsed || []).map(i => ({ itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice || 0, description: i.description || '' }));
+          const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
+          const workDoneBy = (task.timeLogs || []).map(l => `${l.staffName} (${l.duration}m)`).join(', ');
+          const totalMins = (task.timeLogs || []).reduce((acc,l) => acc + (parseFloat(l.duration)||0), 0);
+          const workSummary = `${workDoneBy} | Total: ${totalMins} mins`;
+          const newSale = { type: 'sales', date: form.date, partyId: task.partyId, items: saleItems, discountType: '%', discountValue: 0, received: parseFloat(form.received || 0), paymentMode: form.mode, grossTotal: gross, finalTotal: gross, convertedFromTask: task.id, workSummary: workSummary, description: `Converted from Task ${task.id}. Work: ${workSummary}` };
+          const saleId = await saveRecord('transactions', newSale, 'transaction');
+          const updatedTask = { ...task, status: 'Done', generatedSaleId: saleId };
+          await saveRecord('tasks', updatedTask, 'task');
+          setConvertModal(null); setViewDetail(null); handleCloseUI();
+      };
+      return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Convert to Sale</h3><div className="space-y-4"><input type="date" className="w-full p-2 border rounded-xl" value={form.date} onChange={e => setForm({...form, date: e.target.value})}/><input type="number" className="w-full p-2 border rounded-xl" placeholder="Received" value={form.received} onChange={e => setForm({...form, received: e.target.value})}/><div className="flex gap-3"><button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button><button onClick={handleConfirm} className="flex-1 p-3 bg-blue-600 text-white rounded-xl">Confirm</button></div></div></div></div>;
+  };
+  const TimeLogModal = () => {
+      const [form, setForm] = useState({ start: '', end: '' });
+      useEffect(() => { if (editingTimeLog) { const { task, index } = editingTimeLog; const log = task.timeLogs[index] || {}; setForm({ start: log.start ? log.start.slice(0, 16) : '', end: log.end ? log.end.slice(0, 16) : '' }); } }, [editingTimeLog]); 
+      if (!editingTimeLog) return null;
+      const { task, index } = editingTimeLog;
+      const handleSave = async () => {
+          const startD = new Date(form.start); const endD = form.end ? new Date(form.end) : null;
+          const duration = endD ? ((endD - startD) / 1000 / 60).toFixed(0) : 0;
+          const newLogs = [...task.timeLogs]; newLogs[index] = { ...task.timeLogs[index], start: new Date(form.start).toISOString(), end: form.end ? new Date(form.end).toISOString() : null, duration };
+          const updatedTask = { ...task, timeLogs: newLogs };
+          setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
+          if (user) await setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
+          setEditingTimeLog(null); handleCloseUI();
+      };
+      return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Edit Time Log</h3><div className="space-y-3"><input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.start} onChange={e => setForm({...form, start: e.target.value})}/><input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.end} onChange={e => setForm({...form, end: e.target.value})}/><div className="flex gap-3"><button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button><button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl">Save</button></div></div></div></div>;
+  };
   const StatementModal = () => {
       if (!statementModal) return null;
       const [dates, setDates] = useState({ start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] });
       const [withItems, setWithItems] = useState(false);
-      return (
-          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-              <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
-                  <h3 className="font-bold text-lg mb-4">Generate Statement</h3>
-                  <div className="space-y-4">
-                      <div><label className="text-xs font-bold text-gray-500">From Date</label><input type="date" className="w-full p-3 border rounded-xl" value={dates.start} onChange={e=>setDates({...dates, start:e.target.value})}/></div>
-                      <div><label className="text-xs font-bold text-gray-500">To Date</label><input type="date" className="w-full p-3 border rounded-xl" value={dates.end} onChange={e=>setDates({...dates, end:e.target.value})}/></div>
-                      <div className="flex items-center gap-2"><input type="checkbox" checked={withItems} onChange={e=>setWithItems(e.target.checked)} className="w-5 h-5"/> <label>Show Item Details</label></div>
-                      <div className="flex gap-2"><button onClick={() => setStatementModal(null)} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button><button onClick={() => { printStatement(statementModal.partyId, dates.start, dates.end, withItems); setStatementModal(null); }} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Generate PDF</button></div>
-                  </div>
-              </div>
-          </div>
-      );
+      return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Statement</h3><div className="space-y-4"><input type="date" className="w-full p-3 border rounded-xl" value={dates.start} onChange={e=>setDates({...dates, start:e.target.value})}/><input type="date" className="w-full p-3 border rounded-xl" value={dates.end} onChange={e=>setDates({...dates, end:e.target.value})}/><div className="flex gap-2"><button onClick={() => setStatementModal(null)} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button></div></div></div></div>;
+  };
+  
+  // FIX #6: Manual Attendance Modal with support for editing (Fix #4)
+  const ManualAttendanceModal = () => {
+      if (!manualAttModal) return null;
+      // If editing existing record, pre-fill. Else default to today/standard hours
+      const initial = manualAttModal.isEdit ? manualAttModal : { date: new Date().toISOString().split('T')[0], checkIn: '09:00', checkOut: '18:00', lunchStart: '13:00', lunchEnd: '14:00' };
+      
+      const [form, setForm] = useState({ date: initial.date, in: initial.checkIn || '', out: initial.checkOut || '', lStart: initial.lunchStart || '', lEnd: initial.lunchEnd || '' });
+      
+      const handleSave = async () => {
+          const staffId = manualAttModal.staffId || manualAttModal.id.split('-')[1]; // Extract ID if editing
+          const attId = manualAttModal.isEdit ? manualAttModal.id : `ATT-${staffId}-${form.date}`;
+          
+          const record = { 
+              staffId, 
+              date: form.date, 
+              checkIn: form.in, 
+              checkOut: form.out, 
+              lunchStart: form.lStart, 
+              lunchEnd: form.lEnd, 
+              id: attId, 
+              status: 'Present' 
+          };
+          
+          const newAtt = [...data.attendance.filter(a => a.id !== attId), record];
+          setData(prev => ({ ...prev, attendance: newAtt }));
+          await setDoc(doc(db, "attendance", attId), record);
+          setManualAttModal(false); handleCloseUI(); showToast(manualAttModal.isEdit ? "Updated" : "Added");
+      };
+      
+      return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">{manualAttModal.isEdit ? 'Edit' : 'Manual'} Attendance</h3><div className="space-y-4"><input type="date" disabled={manualAttModal.isEdit} className="w-full p-3 border rounded-xl" value={form.date} onChange={e=>setForm({...form, date: e.target.value})} /><div className="grid grid-cols-2 gap-4"><input type="time" className="w-full p-3 border rounded-xl" value={form.in} onChange={e=>setForm({...form, in: e.target.value})} /><input type="time" className="w-full p-3 border rounded-xl" value={form.out} onChange={e=>setForm({...form, out: e.target.value})} /></div><div className="grid grid-cols-2 gap-4"><input type="time" className="w-full p-3 border rounded-xl bg-yellow-50" placeholder="Lunch Start" value={form.lStart} onChange={e=>setForm({...form, lStart: e.target.value})} /><input type="time" className="w-full p-3 border rounded-xl bg-yellow-50" placeholder="Lunch End" value={form.lEnd} onChange={e=>setForm({...form, lEnd: e.target.value})} /></div><button onClick={handleSave} className="w-full p-3 bg-blue-600 text-white rounded-xl font-bold">Save Entry</button></div></div></div>;
+  }
+
+  const LoginScreen = () => {
+    const [id, setId] = useState('');
+    const [pass, setPass] = useState('');
+    const [err, setErr] = useState('');
+
+    const handleLogin = async () => {
+        if(id === 'him23' && pass === 'Himanshu#3499sp') {
+            setUser({ name: 'Admin', role: 'admin', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true } });
+        } else {
+            try {
+                await signInAnonymously(auth);
+                const q = query(collection(db, 'staff'), where('loginId', '==', id), where('password', '==', pass));
+                const snap = await getDocs(q);
+                if(!snap.empty) {
+                    const userData = snap.docs[0].data();
+                    const defaults = { canViewAccounts: false, canViewMasters: false, canViewTasks: true, canEditTasks: false, canViewDashboard: true };
+                    setUser({ ...userData, permissions: { ...defaults, ...userData.permissions } });
+                } else {
+                    setErr("Invalid ID or Password");
+                }
+            } catch (e) {
+                console.error(e);
+                setErr("Connection Error or Invalid Credentials");
+            }
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center p-6">
+            <div className="w-full max-w-sm">
+                <div className="flex justify-center mb-8"><div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white text-3xl font-black italic">S</div></div>
+                <h1 className="text-2xl font-bold text-center mb-6">SMEES Pro Login</h1>
+                <input className="w-full p-4 mb-4 bg-gray-50 border rounded-xl" placeholder="Login ID" value={id} onChange={e=>setId(e.target.value)}/>
+                <input className="w-full p-4 mb-4 bg-gray-50 border rounded-xl" type="password" placeholder="Password" value={pass} onChange={e=>setPass(e.target.value)}/>
+                {err && <p className="text-red-500 text-sm mb-4 text-center">{err}</p>}
+                <button onClick={handleLogin} className="w-full p-4 bg-blue-600 text-white rounded-xl font-bold text-lg">Login</button>
+            </div>
+        </div>
+    );
   };
 
   if (!user) return <LoginScreen />;
@@ -1814,31 +1412,33 @@ export default function App() {
       <DetailView />
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md px-4 py-3 border-b flex justify-between items-center">
         <div className="flex items-center gap-2"><div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black italic">S</div><span className="font-black text-gray-800 tracking-tight">SMEES Pro</span></div>
-        <div className="flex gap-3">
-          <button onClick={() => { setActiveTab('accounting'); setListFilter('all'); }} className="p-2 hover:bg-gray-100 rounded-full"><Search size={20} className="text-gray-500" /></button>
-          <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 hover:bg-gray-100 rounded-full"><Settings size={20} className="text-gray-500" /></button>
-        </div>
+        <div className="flex gap-3"><button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 hover:bg-gray-100 rounded-full"><Settings size={20} className="text-gray-500" /></button></div>
       </div>
       <main className="max-w-xl mx-auto p-4">
         {loading ? <div className="flex flex-col items-center justify-center h-64 text-gray-400"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div><p className="text-sm font-bold">Syncing Data...</p></div> : (
           <>
-            {activeTab === 'dashboard' && <Dashboard />}
-            {activeTab === 'accounting' && <TransactionList />}
-            {activeTab === 'tasks' && <TaskModule />}
+            {activeTab === 'dashboard' && checkPermission(user, 'canViewDashboard') && <Dashboard />}
+            {activeTab === 'accounting' && checkPermission(user, 'canViewAccounts') && <TransactionList />}
+            {activeTab === 'tasks' && checkPermission(user, 'canViewTasks') && <TaskModule />}
             {activeTab === 'staff' && (
+                <div className="space-y-6">
+                    {mastersView === null ? (
+                        <div className="space-y-4"><MasterList title="Staff" collection="staff" type="staff" onRowClick={(s) => { pushHistory(); setViewDetail({type: 'staff', id: s.id}); }} /></div>
+                    ) : null}
+                </div>
+            )}
+            {activeTab === 'masters' && checkPermission(user, 'canViewMasters') && (
               <div className="space-y-6">
                 {mastersView === null ? (
                     <div className="grid grid-cols-2 gap-4">
-                        <button onClick={() => { pushHistory(); setMastersView('items'); }} className="p-6 bg-blue-50 border border-blue-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-blue-100 transition-colors"><Package size={32} className="text-blue-600"/><span className="font-bold text-blue-800">Manage Items</span></button>
-                        <button onClick={() => { pushHistory(); setMastersView('parties'); }} className="p-6 bg-emerald-50 border border-emerald-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-emerald-100 transition-colors"><Users size={32} className="text-emerald-600"/><span className="font-bold text-emerald-800">Manage Parties</span></button>
-                        <button onClick={() => { pushHistory(); setMastersView('staff'); }} className="p-6 bg-purple-50 border border-purple-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-purple-100 transition-colors"><Briefcase size={32} className="text-purple-600"/><span className="font-bold text-purple-800">Manage Staff</span></button>
+                        <button onClick={() => { pushHistory(); setMastersView('items'); }} className="p-6 bg-blue-50 border border-blue-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-blue-100"><Package size={32} className="text-blue-600"/><span className="font-bold text-blue-800">Items</span></button>
+                        <button onClick={() => { pushHistory(); setMastersView('parties'); }} className="p-6 bg-emerald-50 border border-emerald-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-emerald-100"><Users size={32} className="text-emerald-600"/><span className="font-bold text-emerald-800">Parties</span></button>
                     </div>
                 ) : (
                     <div>
-                        <button onClick={handleCloseUI} className="mb-4 flex items-center gap-2 text-gray-500 font-bold hover:text-gray-800"><ArrowLeft size={18}/> Back to Menu</button>
+                        <button onClick={handleCloseUI} className="mb-4 flex items-center gap-2 text-gray-500 font-bold hover:text-gray-800"><ArrowLeft size={18}/> Back</button>
                         {mastersView === 'items' && <MasterList title="Items" collection="items" type="item" onRowClick={(item) => { pushHistory(); setViewDetail({type: 'item', id: item.id}); }} />}
                         {mastersView === 'parties' && <MasterList title="Parties" collection="parties" type="party" onRowClick={(item) => { pushHistory(); setViewDetail({type: 'party', id: item.id}); }} />}
-                        {mastersView === 'staff' && <MasterList title="Staff" collection="staff" type="staff" />}
                         {mastersView === 'expenses' && <ExpensesBreakdown />}
                     </div>
                 )}
@@ -1847,13 +1447,12 @@ export default function App() {
           </>
         )}
       </main>
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t px-6 py-2 flex justify-between items-center z-50 safe-area-bottom shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
-        {[{ id: 'dashboard', icon: <LayoutDashboard />, label: 'Home' }, { id: 'accounting', icon: <ReceiptText />, label: 'Accounts' }, { id: 'tasks', icon: <CheckSquare />, label: 'Tasks' }, { id: 'staff', icon: <Users />, label: 'Masters' }].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 transition-all ${activeTab === tab.id ? 'text-blue-600 scale-110' : 'text-gray-400'}`}>{tab.icon}<span className="text-[10px] font-bold uppercase tracking-wider">{tab.label}</span></button>
-        ))}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t px-2 py-2 flex justify-around items-center z-50 safe-area-bottom shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
+        {[{ id: 'dashboard', icon: <LayoutDashboard />, label: 'Home', perm: 'canViewDashboard' }, { id: 'accounting', icon: <ReceiptText />, label: 'Accounts', perm: 'canViewAccounts' }, { id: 'tasks', icon: <CheckSquare />, label: 'Tasks', perm: 'canViewTasks' }, { id: 'masters', icon: <Package />, label: 'Masters', perm: 'canViewMasters' }, { id: 'staff', icon: <Users />, label: 'Staff' }].map(tab => {
+            if (tab.perm && !checkPermission(user, tab.perm)) return null;
+            return <button key={tab.id} onClick={() => { setActiveTab(tab.id); setMastersView(null); setListFilter('all'); }} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${activeTab === tab.id ? 'text-blue-600 bg-blue-50' : 'text-gray-400'}`}>{tab.icon}<span className="text-[10px] font-bold uppercase tracking-wider">{tab.label}</span></button>;
+        })}
       </nav>
-      
-      {/* MODALS */}
       <Modal isOpen={!!modal.type} onClose={handleCloseUI} title={modal.type ? (modal.data ? `Edit ${modal.type}` : `New ${modal.type}`) : ''}>
         {modal.type === 'company' && <CompanyForm />}
         {modal.type === 'party' && <PartyForm record={modal.data} />}
@@ -1862,45 +1461,12 @@ export default function App() {
         {modal.type === 'task' && <TaskForm record={modal.data} />}
         {['sales', 'estimate', 'purchase', 'expense', 'payment'].includes(modal.type) && <TransactionForm type={modal.type} record={modal.data} />}
       </Modal>
-
-      {/* 7. Timer Conflict Warning Modal */}
-      {timerConflict && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-              <div className="bg-white p-6 rounded-2xl w-full max-w-sm text-center">
-                  <div className="mx-auto w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mb-4"><AlertTriangle className="text-yellow-600"/></div>
-                  <h3 className="font-bold text-lg">Active Timer Detected</h3>
-                  <p className="text-sm text-gray-600 my-2">Staff is already active on another task. Stop it first?</p>
-                  <div className="flex gap-3 mt-4">
-                      <button onClick={() => { 
-                          const sId = timerConflict.staffId; 
-                          setTimerConflict(null);
-                          // Force Start
-                          const task = data.tasks.find(t => t.id === timerConflict.targetTaskId);
-                          const now = new Date().toISOString();
-                          const staff = data.staff.find(s => s.id === sId);
-                          const newLogs = [...(task.timeLogs || []), { staffId: sId, staffName: staff?.name, start: now, end: null, duration: 0 }];
-                          const updated = { ...task, timeLogs: newLogs };
-                          setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updated : t) }));
-                          setDoc(doc(db, "tasks", updated.id), updated);
-                      }} className="flex-1 p-3 bg-gray-100 font-bold rounded-xl text-gray-600">Start Anyway</button>
-                      <button onClick={() => { 
-                          const tId = timerConflict.activeTaskId;
-                          setTimerConflict(null); 
-                          setViewDetail({ type: 'task', id: tId }); 
-                      }} className="flex-1 p-3 bg-blue-600 font-bold rounded-xl text-white">Go to Task</button>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {confirmDelete && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm"><div className="bg-white p-6 rounded-3xl w-full max-w-xs text-center"><div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 size={32} /></div><h3 className="text-xl font-bold mb-2">Are you sure?</h3><div className="flex gap-3"><button onClick={() => setConfirmDelete(null)} className="flex-1 p-3 font-bold text-gray-500 bg-gray-100 rounded-xl">Cancel</button><button onClick={() => deleteRecord(confirmDelete.collection, confirmDelete.id)} className="flex-1 p-3 font-bold text-white bg-red-600 rounded-xl">Delete</button></div></div></div>}
-      
+      {timerConflict && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm text-center"><AlertTriangle className="text-yellow-600 mx-auto mb-4" size={32}/><h3 className="font-bold">Timer Conflict</h3><p className="text-sm my-2">Another task is active.</p><button onClick={() => setTimerConflict(null)} className="p-2 bg-gray-100 rounded font-bold">Dismiss</button></div></div>}
+      {showPnlReport && <PnlReportView />}
       {convertModal && <ConvertTaskModal task={convertModal} />}
       {editingTimeLog && <TimeLogModal />}
-      {showPnlReport && <PnlReportView />}
-      {reportView && <ReportsModule />}
       {statementModal && <StatementModal />}
-      {mastersView === 'expenses' && <ExpensesBreakdown />}
+      {manualAttModal && <ManualAttendanceModal />}
     </div>
   );
 }
