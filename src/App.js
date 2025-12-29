@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, getDocs, setDoc, deleteDoc, doc } from "firebase/firestore";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+import { 
+  getFirestore, 
+  collection, 
+  getDocs, 
+  setDoc, 
+  deleteDoc, 
+  doc, 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager 
+} from "firebase/firestore";
 import { 
   LayoutDashboard, 
   ReceiptText, 
@@ -38,23 +49,28 @@ import {
   ExternalLink
 } from 'lucide-react';
 
-/** * SMEES Pro - Final Fixed Version
- * Backend: Firebase Firestore
+/** * SMEES Pro - Production Version 
+ * Ready for Vercel Deployment
  */
 
-// --- FIREBASE CONFIGURATION ---
+// --- FIREBASE CONFIGURATION (Production) ---
 const firebaseConfig = {
-  apiKey: "AIzaSyA0GkAFhV6GfFsszHPJG-aPfGNiVRdBPNg",
-  authDomain: "smees-33e6c.firebaseapp.com",
-  projectId: "smees-33e6c",
-  storageBucket: "smees-33e6c.firebasestorage.app",
-  messagingSenderId: "723248995098",
-  appId: "1:723248995098:web:a61b659e31f42332656aa3",
-  measurementId: "G-JVBZZ8SHGM"
+  apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
+  authDomain: "smeestest.firebaseapp.com",
+  projectId: "smeestest",
+  storageBucket: "smeestest.firebasestorage.app",
+  messagingSenderId: "1086297510582",
+  appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
+  measurementId: "G-BQ6NW6D84Z"
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+const auth = getAuth(app);
+
+// Enable Offline Persistence
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+});
 
 const INITIAL_DATA = {
   company: {
@@ -244,6 +260,7 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
 };
 
 export default function App() {
+  const [user, setUser] = useState(null);
   const [data, setData] = useState(INITIAL_DATA);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [mastersView, setMastersView] = useState(null); 
@@ -262,23 +279,39 @@ export default function App() {
   const [timerConflict, setTimerConflict] = useState(null);
   const [editingTimeLog, setEditingTimeLog] = useState(null);
 
+  // --- AUTH ---
+  useEffect(() => {
+    const initAuth = async () => {
+      await signInAnonymously(auth);
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+        setUser(u);
+    });
+    return () => unsubscribe();
+  }, []);
+
   // --- FIREBASE FETCH ---
   useEffect(() => {
+    if (!user) return;
     const fetchData = async () => {
       setLoading(true);
       try {
         const newData = { ...INITIAL_DATA };
         const collections = ['parties', 'items', 'staff', 'transactions', 'tasks'];
+        
         for (const col of collections) {
             const querySnapshot = await getDocs(collection(db, col));
             newData[col] = querySnapshot.docs.map(doc => doc.data());
         }
+        
         const companySnap = await getDocs(collection(db, "settings"));
         companySnap.forEach(doc => {
             if (doc.id === 'company') newData.company = doc.data();
             if (doc.id === 'counters') newData.counters = doc.data();
         });
-        if (Object.keys(newData.counters).length === 0) newData.counters = INITIAL_DATA.counters;
+        
+        if (!newData.counters || Object.keys(newData.counters).length === 0) newData.counters = INITIAL_DATA.counters;
         setData(newData);
       } catch (error) {
         console.error("Error fetching data from Firestore: ", error);
@@ -288,7 +321,7 @@ export default function App() {
       }
     };
     fetchData();
-  }, []);
+  }, [user]);
 
   // --- HISTORY HANDLING ---
   useEffect(() => {
@@ -389,6 +422,7 @@ export default function App() {
   }, [data, itemStock]);
 
   const saveRecord = async (collectionName, record, idType) => {
+    if (!user) return;
     let newData = { ...data };
     let syncedRecord = null;
     let isUpdate = !!record.id;
@@ -400,9 +434,9 @@ export default function App() {
       if (collectionName === 'transactions' && record.type === 'sales' && record.convertedFromTask) {
          const task = newData.tasks.find(t => t.id === record.convertedFromTask);
          if (task) {
-            task.itemsUsed = record.items.map(i => ({ itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice, description: i.description }));
-            newData.tasks = newData.tasks.map(t => t.id === task.id ? task : t);
-            await setDoc(doc(db, "tasks", task.id), task);
+           task.itemsUsed = record.items.map(i => ({ itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice, description: i.description }));
+           newData.tasks = newData.tasks.map(t => t.id === task.id ? task : t);
+           await setDoc(doc(db, "tasks", task.id), task);
          }
       }
       syncedRecord = record;
@@ -432,14 +466,19 @@ export default function App() {
   };
 
   const saveCompanySettings = async (companyData) => {
+      if (!user) return;
       const newData = { ...data, company: companyData };
       setData(newData);
       setModal({ type: null });
       handleCloseUI();
-      try { await setDoc(doc(db, "settings", "company"), companyData); showToast("Settings saved"); } catch (e) { console.error(e); }
+      try { 
+        await setDoc(doc(db, "settings", "company"), companyData); 
+        showToast("Settings saved"); 
+      } catch (e) { console.error(e); }
   };
 
   const deleteRecord = async (collectionName, id) => {
+    if (!user) return;
     if (collectionName === 'items' && data.transactions.some(t => t.items?.some(i => i.itemId === id))) { alert("Cannot delete: Item is used."); setConfirmDelete(null); return; }
     if (collectionName === 'parties' && data.transactions.some(t => t.partyId === id)) { alert("Cannot delete: Party is used."); setConfirmDelete(null); return; }
     setData(prev => ({ ...prev, [collectionName]: prev[collectionName].filter(r => r.id !== id) }));
@@ -447,19 +486,53 @@ export default function App() {
     setModal({ type: null, data: null });
     handleCloseUI(); 
     showToast("Record deleted");
-    try { await deleteDoc(doc(db, collectionName, id.toString())); } catch (e) { console.error(e); }
+    try { 
+        await deleteDoc(doc(db, collectionName, id.toString())); 
+    } catch (e) { console.error(e); }
   };
 
   const printInvoice = (tx) => {
     const party = data.parties.find(p => p.id === tx.partyId);
     const content = `<html><body><h1>INVOICE ${tx.id}</h1><p>Date: ${tx.date}</p><p>Party: ${party?.name}</p><p>Notes: ${tx.description || ''}</p></body></html>`; 
     const win = window.open('', '_blank');
-    win.document.write(content);
-    win.document.close();
-    win.print();
+    if (win) {
+      win.document.write(content);
+      win.document.close();
+      win.print();
+    }
   };
 
-  // --- SUB-COMPONENTS ---
+  // --- SUB-COMPONENTS (DEFINED INSIDE APP) ---
+
+  const PartyForm = ({ record }) => {
+    const [form, setForm] = useState(record || { name: '', mobile: '', address: '', type: 'customer' });
+    return (
+      <div className="space-y-4">
+        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Party Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
+        <textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+        <button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Party</button>
+      </div>
+    );
+  };
+
+  const ItemForm = ({ record }) => {
+    const [form, setForm] = useState(record || { name: '', sellPrice: '', buyPrice: '', unit: 'pcs', openingStock: '0' });
+    return (
+      <div className="space-y-4">
+        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Item Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+        <div className="grid grid-cols-2 gap-4">
+           <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Sell Price" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} />
+           <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Buy Price" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Unit (e.g. pcs)" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} />
+          <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Opening Stock" value={form.openingStock} onChange={e => setForm({...form, openingStock: e.target.value})} />
+        </div>
+        <button onClick={() => saveRecord('items', form, 'item')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Item</button>
+      </div>
+    );
+  };
 
   const ConvertTaskModal = ({ task }) => {
       const [form, setForm] = useState({
@@ -533,14 +606,25 @@ export default function App() {
   };
 
   const TimeLogModal = () => {
+      // 1. Hook Declarations (Unconditional)
+      const [form, setForm] = useState({ start: '', end: '' });
+
+      useEffect(() => {
+          if (editingTimeLog) {
+              const { task, index } = editingTimeLog;
+              const log = task.timeLogs[index] || {};
+              setForm({
+                  start: log.start ? log.start.slice(0, 16) : '', 
+                  end: log.end ? log.end.slice(0, 16) : ''
+              });
+          }
+      }, [editingTimeLog]); // Re-run when modal target changes
+
+      // 2. Conditional Return (After Hooks)
       if (!editingTimeLog) return null;
+
       const { task, index } = editingTimeLog;
       const log = task.timeLogs[index];
-      
-      const [form, setForm] = useState({
-          start: log.start.slice(0, 16), 
-          end: log.end ? log.end.slice(0, 16) : ''
-      });
 
       const handleSave = async () => {
           const startD = new Date(form.start);
@@ -552,7 +636,8 @@ export default function App() {
           
           const updatedTask = { ...task, timeLogs: newLogs };
           setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
-          await setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
+          // Updated to use dynamic appId
+          if (user) await setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
           setEditingTimeLog(null);
           handleCloseUI();
       };
@@ -799,6 +884,7 @@ export default function App() {
         };
 
         const toggleTimer = (staffId) => {
+            if (!user) return;
             const now = new Date().toISOString();
             let newLogs = [...(task.timeLogs || [])];
             const activeLogIndex = newLogs.findIndex(l => l.staffId === staffId && !l.end);
@@ -825,6 +911,7 @@ export default function App() {
         const updateTaskLogs = (logs) => {
             const updatedTask = { ...task, timeLogs: logs };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
+            // Updated to use dynamic appId
             setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
         };
 
@@ -832,6 +919,7 @@ export default function App() {
         const updateTaskItems = (newItems) => {
             const updated = { ...task, itemsUsed: newItems };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updated : t) }));
+            // Updated to use dynamic appId
             setDoc(doc(db, "tasks", updated.id), updated);
         };
 
@@ -852,21 +940,21 @@ export default function App() {
                     <p className="text-sm text-gray-600 mb-4">{task.description}</p>
                     
                     <div className="grid grid-cols-2 gap-4 text-xs">
+                          <div>
+                             <p className="font-bold text-gray-400 uppercase">Client</p>
+                             <p className="font-bold text-gray-800">{party?.name || 'N/A'}</p>
+                             <p className="text-gray-500">{party?.mobile}</p>
+                         </div>
                          <div>
-                            <p className="font-bold text-gray-400 uppercase">Client</p>
-                            <p className="font-bold text-gray-800">{party?.name || 'N/A'}</p>
-                            <p className="text-gray-500">{party?.mobile}</p>
-                        </div>
-                        <div>
-                            <p className="font-bold text-gray-400 uppercase">Assigned To</p>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                                {(task.assignedStaff || []).map(sid => {
-                                    const s = data.staff.find(st => st.id === sid);
-                                    return <span key={sid} className="bg-white border px-2 py-0.5 rounded-full text-gray-700">{s?.name}</span>;
-                                })}
-                                {(!task.assignedStaff || task.assignedStaff.length===0) && <span className="text-gray-400">Unassigned</span>}
-                            </div>
-                        </div>
+                             <p className="font-bold text-gray-400 uppercase">Assigned To</p>
+                             <div className="flex flex-wrap gap-1 mt-1">
+                                 {(task.assignedStaff || []).map(sid => {
+                                     const s = data.staff.find(st => st.id === sid);
+                                     return <span key={sid} className="bg-white border px-2 py-0.5 rounded-full text-gray-700">{s?.name}</span>;
+                                 })}
+                                 {(!task.assignedStaff || task.assignedStaff.length===0) && <span className="text-gray-400">Unassigned</span>}
+                             </div>
+                         </div>
                     </div>
                 </div>
 
@@ -913,14 +1001,14 @@ export default function App() {
                          {task.status !== 'Converted' && (
                              <div className="w-40">
                                  <SearchableSelect placeholder="+ Add Item" options={data.items} value="" onChange={(val) => {
-                                         if(val) {
-                                            const item = data.items.find(i=>i.id===val);
-                                            updateTaskItems([...(task.itemsUsed || []), { 
-                                                itemId: val, qty: 1, price: item?.sellPrice || 0, buyPrice: item?.buyPrice || 0, description: ''
-                                            }]);
-                                         }
-                                     }}
-                                 />
+                                          if(val) {
+                                             const item = data.items.find(i=>i.id===val);
+                                             updateTaskItems([...(task.itemsUsed || []), { 
+                                                 itemId: val, qty: 1, price: item?.sellPrice || 0, buyPrice: item?.buyPrice || 0, description: ''
+                                             }]);
+                                          }
+                                      }}
+                                  />
                              </div>
                          )}
                     </div>
@@ -948,12 +1036,20 @@ export default function App() {
                     </div>
                 </div>
 
-                {task.status !== 'Converted' && (task.itemsUsed && task.itemsUsed.length > 0) && (
+                {task.generatedSaleId ? (
                     <div className="pt-4 border-t">
-                        <button onClick={() => { pushHistory(); setConvertModal(task); }} className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-purple-200">
-                            <ReceiptText size={18}/> Convert to Sale
+                        <button onClick={() => setViewDetail({ type: 'transaction', id: task.generatedSaleId })} className="w-full py-3 bg-green-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-200">
+                            <ReceiptText size={18} /> View Invoice #{task.generatedSaleId}
                         </button>
                     </div>
+                ) : (
+                    task.status !== 'Converted' && (task.itemsUsed && task.itemsUsed.length > 0) && (
+                        <div className="pt-4 border-t">
+                            <button onClick={() => { pushHistory(); setConvertModal(task); }} className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-purple-200">
+                                <ReceiptText size={18}/> Convert to Sale
+                            </button>
+                        </div>
+                    )
                 )}
             </div>
           </div>
@@ -1078,24 +1174,24 @@ export default function App() {
           </div>
 
           <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 rounded-2xl text-white shadow-lg cursor-pointer" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
-             <div className="flex justify-between items-center mb-2" onClick={(e) => e.stopPropagation()}>
-                 <h2 className="font-bold text-sm opacity-90">Total Profit</h2>
-                 <select className="bg-white/20 border-none text-xs rounded-lg p-1 text-white font-bold cursor-pointer outline-none" value={pnlFilter} onChange={e => setPnlFilter(e.target.value)}>
-                     <option value="All">All Time</option>
-                     <option value="Week">This Week</option>
-                     <option value="Month">This Month</option>
-                     <option value="Year">This Year</option>
-                     <option value="Custom">Custom</option>
-                 </select>
-             </div>
-             {pnlFilter === 'Custom' && (
-                 <div className="flex gap-2 mb-2 text-black text-xs" onClick={(e) => e.stopPropagation()}>
-                     <input type="date" className="rounded p-1" value={pnlCustomDates.start} onChange={e => setPnlCustomDates({...pnlCustomDates, start: e.target.value})}/>
-                     <input type="date" className="rounded p-1" value={pnlCustomDates.end} onChange={e => setPnlCustomDates({...pnlCustomDates, end: e.target.value})}/>
-                 </div>
-             )}
-             <p className="text-3xl font-black">{formatCurrency(pnlData)}</p>
-             <p className="text-xs opacity-70 mt-1">Net Profit (Sales - Cost) • Tap for details</p>
+              <div className="flex justify-between items-center mb-2" onClick={(e) => e.stopPropagation()}>
+                  <h2 className="font-bold text-sm opacity-90">Total Profit</h2>
+                  <select className="bg-white/20 border-none text-xs rounded-lg p-1 text-white font-bold cursor-pointer outline-none" value={pnlFilter} onChange={e => setPnlFilter(e.target.value)}>
+                      <option className="text-black" value="All">All Time</option>
+                      <option className="text-black" value="Week">This Week</option>
+                      <option className="text-black" value="Month">This Month</option>
+                      <option className="text-black" value="Year">This Year</option>
+                      <option className="text-black" value="Custom">Custom</option>
+                  </select>
+              </div>
+              {pnlFilter === 'Custom' && (
+                  <div className="flex gap-2 mb-2 text-black text-xs" onClick={(e) => e.stopPropagation()}>
+                      <input type="date" className="rounded p-1" value={pnlCustomDates.start} onChange={e => setPnlCustomDates({...pnlCustomDates, start: e.target.value})}/>
+                      <input type="date" className="rounded p-1" value={pnlCustomDates.end} onChange={e => setPnlCustomDates({...pnlCustomDates, end: e.target.value})}/>
+                  </div>
+              )}
+              <p className="text-3xl font-black">{formatCurrency(pnlData)}</p>
+              <p className="text-xs opacity-70 mt-1">Net Profit (Sales - Cost) • Tap for details</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -1167,7 +1263,10 @@ export default function App() {
         const ids = [...selectedIds];
         setSelectedIds([]);
         setData(prev => ({ ...prev, [collection]: prev[collection].filter(item => !ids.includes(item.id)) }));
-        try { await Promise.all(ids.map(id => deleteDoc(doc(db, collection, id.toString())))); } catch (e) { console.error(e); }
+        try { 
+            // Updated to use dynamic appId
+            await Promise.all(ids.map(id => deleteDoc(doc(db, collection, id.toString())))); 
+        } catch (e) { console.error(e); }
     };
 
     return (
@@ -1351,14 +1450,35 @@ export default function App() {
             <button onClick={() => setTx({...tx, subType: 'out'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${tx.subType === 'out' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500'}`}>Payment OUT</button>
           </div>
         )}
-        <SearchableSelect label="Party" options={partyOptions} value={tx.partyId} onChange={v => setTx({...tx, partyId: v})} onAddNew={() => { pushHistory(); setModal({ type: 'party' }); }} />
+        
+        {type === 'expense' ? (
+            <SearchableSelect
+                label="Category"
+                options={data.categories.expense}
+                value={tx.category}
+                onChange={v => setTx({ ...tx, category: v })}
+                onAddNew={() => {
+                    const newCat = prompt("New Category Name:");
+                    if (newCat) {
+                        setData(prev => ({
+                            ...prev,
+                            categories: { ...prev.categories, expense: [...prev.categories.expense, newCat] }
+                        }));
+                        setTx({ ...tx, category: newCat });
+                    }
+                }}
+            />
+        ) : (
+            <SearchableSelect label="Party" options={partyOptions} value={tx.partyId} onChange={v => setTx({ ...tx, partyId: v })} onAddNew={() => { pushHistory(); setModal({ type: 'party' }); }} />
+        )}
+
         {type !== 'payment' && (
             <div className="space-y-3">
                  <div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items</h4><button onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0 }]})} className="text-blue-600 text-xs font-bold">+ Add Item</button></div>
                  {tx.items.map((line, idx) => (
                      <div key={idx} className="p-3 bg-gray-50 border rounded-xl relative space-y-2">
                          <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
-                         <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine(idx, 'itemId', v)} />
+                         <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine(idx, 'itemId', v)} onAddNew={() => { pushHistory(); setModal({ type: 'item' }); }}/>
                          <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
                          <div className="grid grid-cols-3 gap-2">
                              <input type="number" className="p-2 border rounded-lg text-sm" value={line.qty} placeholder="Qty" onChange={e => updateLine(idx, 'qty', e.target.value)} />
@@ -1382,12 +1502,12 @@ export default function App() {
                 <input type="number" className="w-full bg-blue-50 text-2xl font-bold p-4 rounded-xl text-blue-600" placeholder="0.00" value={tx.amount} onChange={e=>setTx({...tx, amount: e.target.value})}/>
                 <button onClick={() => setShowLinking(!showLinking)} className="w-full p-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg">{showLinking?"Hide":"Link Bills (Advanced)"}</button>
                 {showLinking && <div className="space-y-2 max-h-40 overflow-y-auto p-2 border rounded-xl">{unpaidBills.map(b => (
-                    <div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0"><div className="text-[10px]"><p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p><p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillLogic(b).final)}</p></div><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/></div>
+                    <div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0"><div className="text-[10px]"><p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p><p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillLogic(b).final)} • Bal: {formatCurrency(getBillLogic(b).pending)}</p></div><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/></div>
                 ))}</div>}
             </div>
         )}
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl text-sm h-16" placeholder="Notes" value={tx.description} onChange={e => setTx({...tx, description: e.target.value})} />
-        <button onClick={() => { if(!tx.partyId) return alert("Party Required"); saveRecord('transactions', {...tx, ...totals}, 'transaction'); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
+        <button onClick={() => { if(!tx.partyId && type !== 'expense') return alert("Party Required"); saveRecord('transactions', {...tx, ...totals}, 'transaction'); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
       </div>
     );
   };
