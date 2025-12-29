@@ -34,10 +34,11 @@ import {
   Navigation,
   Edit2,
   Filter,
-  Link as LinkIcon
+  Link as LinkIcon,
+  ExternalLink
 } from 'lucide-react';
 
-/** * SMEES Pro - Major Update (Fixed Type Errors)
+/** * SMEES Pro - Final Fixed Version
  * Backend: Firebase Firestore
  */
 
@@ -219,7 +220,6 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
                 onClick={() => { onChange(id); setIsOpen(false); setSearchTerm(''); }}
               >
                 <span>{name}</span>
-                {/* Updated Dropdown UI for Stock/Due */}
                 {opt.subText && (
                     <span className={`text-[10px] font-bold ${opt.subColor}`}>
                         {opt.subText}
@@ -254,8 +254,13 @@ export default function App() {
   const [viewDetail, setViewDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // Navigation State
-  const [listFilter, setListFilter] = useState('all'); // For Dashboard navigation
+  // Logic Update States
+  const [listFilter, setListFilter] = useState('all'); 
+  const [pnlFilter, setPnlFilter] = useState('All'); 
+  const [pnlCustomDates, setPnlCustomDates] = useState({ start: '', end: '' });
+  const [showPnlReport, setShowPnlReport] = useState(false);
+  const [timerConflict, setTimerConflict] = useState(null);
+  const [editingTimeLog, setEditingTimeLog] = useState(null);
 
   // --- FIREBASE FETCH ---
   useEffect(() => {
@@ -285,31 +290,23 @@ export default function App() {
     fetchData();
   }, []);
 
-  // --- HISTORY HANDLING (MOBILE BACK BUTTON) ---
+  // --- HISTORY HANDLING ---
   useEffect(() => {
       const handlePopState = (event) => {
-          if (modal.type) {
-              setModal({ type: null, data: null });
-          } else if (viewDetail) {
-              setViewDetail(null);
-          } else if (mastersView) {
-              setMastersView(null);
-          } else if (convertModal) {
-              setConvertModal(null);
-          }
+          if (modal.type) setModal({ type: null, data: null });
+          else if (viewDetail) setViewDetail(null);
+          else if (mastersView) setMastersView(null);
+          else if (convertModal) setConvertModal(null);
+          else if (showPnlReport) setShowPnlReport(false);
+          else if (timerConflict) setTimerConflict(null);
+          else if (editingTimeLog) setEditingTimeLog(null);
       };
-
       window.addEventListener('popstate', handlePopState);
       return () => window.removeEventListener('popstate', handlePopState);
-  }, [modal, viewDetail, mastersView, convertModal]);
+  }, [modal, viewDetail, mastersView, convertModal, showPnlReport, timerConflict, editingTimeLog]);
 
-  const pushHistory = () => {
-      window.history.pushState({ modal: true }, '');
-  };
-
-  const handleCloseUI = () => {
-      window.history.back();
-  };
+  const pushHistory = () => window.history.pushState({ modal: true }, '');
+  const handleCloseUI = () => window.history.back();
 
   // --- HELPERS & LOGIC ---
   const showToast = (message, type = 'success') => {
@@ -326,7 +323,6 @@ export default function App() {
          return sum + (link ? parseFloat(link.amount || 0) : 0);
       }, 0);
     
-    // For payments, check usage
     let status = 'UNPAID';
     if(bill.type === 'payment') {
          const used = bill.linkedBills?.reduce((sum, l) => sum + parseFloat(l.amount || 0), 0) || 0;
@@ -379,29 +375,19 @@ export default function App() {
 
   const stats = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
-    const todaySales = data.transactions
-      .filter(tx => tx.type === 'sales' && tx.date === today)
-      .reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
-    
-    const totalExpenses = data.transactions
-      .filter(tx => tx.type === 'expense')
-      .reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
-
+    const todaySales = data.transactions.filter(tx => tx.type === 'sales' && tx.date === today).reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
+    const totalExpenses = data.transactions.filter(tx => tx.type === 'expense').reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
     const pendingTasks = data.tasks.filter(t => t.status !== 'Done').length;
     const lowStockItems = data.items.filter(item => (itemStock[item.id] || 0) < 5);
-
-    let totalReceivables = 0;
-    let totalPayables = 0;
+    let totalReceivables = 0, totalPayables = 0;
     data.transactions.forEach(tx => {
        const { pending } = getBillLogic(tx);
        if (tx.type === 'sales') totalReceivables += pending;
        if (tx.type === 'purchase') totalPayables += pending;
     });
-
     return { todaySales, totalExpenses, pendingTasks, lowStockItems, totalReceivables, totalPayables };
   }, [data, itemStock]);
 
-  // --- SAVE & DELETE ---
   const saveRecord = async (collectionName, record, idType) => {
     let newData = { ...data };
     let syncedRecord = null;
@@ -414,10 +400,7 @@ export default function App() {
       if (collectionName === 'transactions' && record.type === 'sales' && record.convertedFromTask) {
          const task = newData.tasks.find(t => t.id === record.convertedFromTask);
          if (task) {
-            // Task -> Sale Traceability logic
-            task.itemsUsed = record.items.map(i => ({ 
-               itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice, description: i.description 
-            }));
+            task.itemsUsed = record.items.map(i => ({ itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice, description: i.description }));
             newData.tasks = newData.tasks.map(t => t.id === task.id ? task : t);
             await setDoc(doc(db, "tasks", task.id), task);
          }
@@ -435,7 +418,7 @@ export default function App() {
 
     setData(newData);
     setModal({ type: null, data: null });
-    handleCloseUI(); // Close modal using history back
+    handleCloseUI(); 
     showToast(isUpdate ? "Updated successfully" : "Created successfully");
 
     try {
@@ -453,75 +436,18 @@ export default function App() {
       setData(newData);
       setModal({ type: null });
       handleCloseUI();
-      try {
-          await setDoc(doc(db, "settings", "company"), companyData);
-          showToast("Settings saved");
-      } catch (e) { console.error(e); }
+      try { await setDoc(doc(db, "settings", "company"), companyData); showToast("Settings saved"); } catch (e) { console.error(e); }
   };
 
   const deleteRecord = async (collectionName, id) => {
-    if (collectionName === 'items' && data.transactions.some(t => t.items?.some(i => i.itemId === id))) {
-        alert("Cannot delete: Item is used in transactions.");
-        setConfirmDelete(null); return;
-    }
-    if (collectionName === 'parties' && data.transactions.some(t => t.partyId === id)) {
-        alert("Cannot delete: Party is used in transactions.");
-        setConfirmDelete(null); return;
-    }
-
-    setData(prev => ({
-      ...prev,
-      [collectionName]: prev[collectionName].filter(r => r.id !== id)
-    }));
+    if (collectionName === 'items' && data.transactions.some(t => t.items?.some(i => i.itemId === id))) { alert("Cannot delete: Item is used."); setConfirmDelete(null); return; }
+    if (collectionName === 'parties' && data.transactions.some(t => t.partyId === id)) { alert("Cannot delete: Party is used."); setConfirmDelete(null); return; }
+    setData(prev => ({ ...prev, [collectionName]: prev[collectionName].filter(r => r.id !== id) }));
     setConfirmDelete(null);
     setModal({ type: null, data: null });
-    handleCloseUI(); // Close if modal was open
+    handleCloseUI(); 
     showToast("Record deleted");
-
     try { await deleteDoc(doc(db, collectionName, id.toString())); } catch (e) { console.error(e); }
-  };
-
-  const handleConvertTask = async () => {
-    const task = convertModal;
-    if(!task) return;
-
-    // Capture Work Done By
-    const workDoneBy = (task.timeLogs || []).map(l => `${l.staffName} (${l.duration}m)`).join(', ');
-    const totalMins = (task.timeLogs || []).reduce((acc,l) => acc + (parseFloat(l.duration)||0), 0);
-    const workSummary = `${workDoneBy} | Total: ${totalMins} mins`;
-
-    const saleItems = (task.itemsUsed || []).map(i => ({
-        itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice || 0, description: i.description || ''
-    }));
-
-    const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
-    const saleDate = document.getElementById('convert_date')?.value || new Date().toISOString().split('T')[0];
-    const received = parseFloat(document.getElementById('convert_received')?.value || 0);
-    const mode = document.getElementById('convert_mode')?.value || 'Cash';
-
-    const newSale = {
-        type: 'sales',
-        date: saleDate,
-        partyId: task.partyId,
-        items: saleItems,
-        discountType: '%',
-        discountValue: 0,
-        received: received, 
-        paymentMode: mode,
-        grossTotal: gross,
-        finalTotal: gross, 
-        convertedFromTask: task.id,
-        workSummary: workSummary, // TRACEABILITY
-        description: `Converted from Task ${task.id}. Work: ${workSummary}`
-    };
-
-    const saleId = await saveRecord('transactions', newSale, 'transaction');
-    const updatedTask = { ...task, status: 'Done', generatedSaleId: saleId };
-    await saveRecord('tasks', updatedTask, 'task');
-
-    setConvertModal(null);
-    setViewDetail(null);
-    handleCloseUI();
   };
 
   const printInvoice = (tx) => {
@@ -533,6 +459,235 @@ export default function App() {
     win.print();
   };
 
+  // --- SUB-COMPONENTS ---
+
+  const ConvertTaskModal = ({ task }) => {
+      const [form, setForm] = useState({
+          date: new Date().toISOString().split('T')[0],
+          received: '',
+          mode: 'Cash'
+      });
+
+      const handleConfirm = async () => {
+          const saleItems = (task.itemsUsed || []).map(i => ({
+              itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice || 0, description: i.description || ''
+          }));
+          const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
+          
+          const workDoneBy = (task.timeLogs || []).map(l => `${l.staffName} (${l.duration}m)`).join(', ');
+          const totalMins = (task.timeLogs || []).reduce((acc,l) => acc + (parseFloat(l.duration)||0), 0);
+          const workSummary = `${workDoneBy} | Total: ${totalMins} mins`;
+
+          const newSale = {
+              type: 'sales',
+              date: form.date,
+              partyId: task.partyId,
+              items: saleItems,
+              discountType: '%',
+              discountValue: 0,
+              received: parseFloat(form.received || 0),
+              paymentMode: form.mode,
+              grossTotal: gross,
+              finalTotal: gross,
+              convertedFromTask: task.id,
+              workSummary: workSummary,
+              description: `Converted from Task ${task.id}. Work: ${workSummary}`
+          };
+
+          const saleId = await saveRecord('transactions', newSale, 'transaction');
+          const updatedTask = { ...task, status: 'Done', generatedSaleId: saleId };
+          await saveRecord('tasks', updatedTask, 'task');
+          
+          setConvertModal(null);
+          setViewDetail(null);
+          handleCloseUI();
+      };
+
+      return (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
+             <h3 className="font-bold text-lg mb-4">Convert to Sale</h3>
+             <div className="space-y-4">
+               <div>
+                  <label className="text-xs font-bold text-gray-500">Sale Date</label>
+                  <input type="date" className="w-full p-2 border rounded-xl font-bold text-blue-600" value={form.date} onChange={e => setForm({...form, date: e.target.value})}/>
+               </div>
+               <div>
+                  <label className="text-xs font-bold text-gray-500">Received Amount</label>
+                  <input type="number" className="w-full p-2 border rounded-xl" placeholder="0.00" value={form.received} onChange={e => setForm({...form, received: e.target.value})}/>
+               </div>
+               <div>
+                  <label className="text-xs font-bold text-gray-500">Payment Mode</label>
+                  <select className="w-full p-2 border rounded-xl" value={form.mode} onChange={e => setForm({...form, mode: e.target.value})}>
+                    <option>Cash</option><option>UPI</option><option>Bank</option>
+                  </select>
+               </div>
+               <div className="flex gap-3 pt-2">
+                  <button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancel</button>
+                  <button onClick={handleConfirm} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Confirm Sale</button>
+               </div>
+             </div>
+          </div>
+        </div>
+      );
+  };
+
+  const TimeLogModal = () => {
+      if (!editingTimeLog) return null;
+      const { task, index } = editingTimeLog;
+      const log = task.timeLogs[index];
+      
+      const [form, setForm] = useState({
+          start: log.start.slice(0, 16), 
+          end: log.end ? log.end.slice(0, 16) : ''
+      });
+
+      const handleSave = async () => {
+          const startD = new Date(form.start);
+          const endD = form.end ? new Date(form.end) : null;
+          const duration = endD ? ((endD - startD) / 1000 / 60).toFixed(0) : 0;
+
+          const newLogs = [...task.timeLogs];
+          newLogs[index] = { ...log, start: new Date(form.start).toISOString(), end: form.end ? new Date(form.end).toISOString() : null, duration };
+          
+          const updatedTask = { ...task, timeLogs: newLogs };
+          setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
+          await setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
+          setEditingTimeLog(null);
+          handleCloseUI();
+      };
+
+      return (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+              <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
+                  <h3 className="font-bold text-lg mb-4">Edit Time Log</h3>
+                  <div className="space-y-3">
+                      <div>
+                          <label className="text-xs font-bold text-gray-500">Start Time</label>
+                          <input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.start} onChange={e => setForm({...form, start: e.target.value})}/>
+                      </div>
+                      <div>
+                          <label className="text-xs font-bold text-gray-500">End Time</label>
+                          <input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.end} onChange={e => setForm({...form, end: e.target.value})}/>
+                      </div>
+                      <div className="flex gap-3 pt-2">
+                          <button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
+                          <button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Save</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      );
+  };
+
+  const PnlReportView = () => {
+      const filtered = data.transactions.filter(t => ['sales'].includes(t.type));
+      const filteredDate = filtered.filter(t => {
+          const d = new Date(t.date);
+          const now = new Date();
+          if (pnlFilter === 'Week') return (now - d) / (1000*60*60*24) <= 7;
+          if (pnlFilter === 'Month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+          if (pnlFilter === 'Year') return d.getFullYear() === now.getFullYear();
+          if (pnlFilter === 'Custom' && pnlCustomDates.start && pnlCustomDates.end) {
+              return d >= new Date(pnlCustomDates.start) && d <= new Date(pnlCustomDates.end);
+          }
+          return true;
+      });
+
+      return (
+          <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+              <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
+                  <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                  <h2 className="font-bold text-lg">Profit & Loss Report</h2>
+                  <div/>
+              </div>
+              <div className="p-4 space-y-4">
+                  {filteredDate.map(tx => {
+                      let serviceP = 0, goodsP = 0;
+                      (tx.items || []).forEach(item => {
+                          const m = data.items.find(i => i.id === item.itemId);
+                          const type = m?.type || 'Goods';
+                          const buy = parseFloat(item.buyPrice || m?.buyPrice || 0);
+                          const sell = parseFloat(item.price || 0);
+                          const qty = parseFloat(item.qty || 0);
+                          if(type === 'Service') serviceP += (sell * qty);
+                          else goodsP += ((sell - buy) * qty);
+                      });
+                      const totalP = serviceP + goodsP;
+                      return (
+                          <div key={tx.id} className="p-3 border rounded-xl bg-white shadow-sm" onClick={() => setViewDetail({ type: 'transaction', id: tx.id })}>
+                              <div className="flex justify-between items-center mb-2">
+                                  <span className="font-bold text-gray-800">{tx.id} • {formatDate(tx.date)}</span>
+                                  <span className="font-black text-green-600">{formatCurrency(totalP)}</span>
+                              </div>
+                              <div className="text-xs text-gray-500 flex justify-between">
+                                  <span>Service: {formatCurrency(serviceP)}</span>
+                                  <span>Goods: {formatCurrency(goodsP)}</span>
+                              </div>
+                          </div>
+                      );
+                  })}
+              </div>
+          </div>
+      );
+  };
+
+  const TaskModule = () => {
+    const [sort, setSort] = useState('DateAsc');
+    const sortedTasks = sortData(data.tasks, sort);
+    const pending = sortedTasks.filter(t => t.status !== 'Done' && t.status !== 'Converted');
+    const done = sortedTasks.filter(t => t.status === 'Done' || t.status === 'Converted');
+
+    const TaskItem = ({ task }) => (
+      <div 
+        onClick={() => { pushHistory(); setViewDetail({ type: 'task', id: task.id }); }}
+        className="p-4 bg-white border rounded-2xl mb-2 flex justify-between items-start cursor-pointer active:scale-95 transition-transform"
+      >
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : task.status === 'Converted' ? 'bg-purple-500' : 'bg-orange-500'}`} />
+            <p className="font-bold text-gray-800">{task.name}</p>
+          </div>
+          <p className="text-xs text-gray-500 line-clamp-1">{task.description}</p>
+          <div className="flex gap-3 mt-2 text-[10px] font-bold text-gray-400 uppercase">
+            <span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(task.dueDate)}</span>
+            <span className="flex items-center gap-1"><Users size={10} /> {task.assignedStaff?.length || 0} Staff</span>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full font-bold">{task.id}</p>
+        </div>
+      </div>
+    );
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-xl font-bold">Tasks</h1>
+          <div className="flex gap-2 items-center">
+             <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}>
+                  <option value="DateAsc">Due Soon</option><option value="DateDesc">Due Later</option>
+                  <option value="A-Z">A-Z</option><option value="Z-A">Z-A</option>
+             </select>
+             <button onClick={() => { pushHistory(); setModal({ type: 'task' }); }} className="p-2 bg-blue-600 text-white rounded-xl"><Plus /></button>
+          </div>
+        </div>
+
+        <div>
+          <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Pending ({pending.length})</h3>
+          {pending.map(t => <TaskItem key={t.id} task={t} />)}
+        </div>
+
+        <div>
+          <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Completed ({done.length})</h3>
+          <div className="opacity-60">
+            {done.map(t => <TaskItem key={t.id} task={t} />)}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const DetailView = () => {
     if (!viewDetail) return null;
     
@@ -542,7 +697,6 @@ export default function App() {
       const party = data.parties.find(p => p.id === tx.partyId);
       const totals = getBillLogic(tx);
 
-      // --- Bill P&L Logic Updated ---
       let pnl = { service: 0, goods: 0, total: 0 };
       (tx.items || []).forEach(item => {
         const itemMaster = data.items.find(i => i.id === item.itemId);
@@ -554,7 +708,6 @@ export default function App() {
         if (type === 'Service') {
           pnl.service += (sell * qty);
         } else {
-          // Goods AND Expense Items treated as Goods for Profit
           pnl.goods += ((sell - buy) * qty);
         }
       });
@@ -583,16 +736,12 @@ export default function App() {
               <p className="text-sm text-gray-500">{party?.mobile}</p>
             </div>
 
-            {/* Traceability: Work Done By */}
             {tx.convertedFromTask && (
                 <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100">
                     <p className="text-xs font-bold text-purple-600 uppercase mb-1">Source Task</p>
                     <p className="text-sm font-bold text-gray-800">Task #{tx.convertedFromTask}</p>
                     <p className="text-xs text-gray-600 mt-1">{tx.workSummary}</p>
-                    <button 
-                        onClick={() => { setViewDetail({ type: 'task', id: tx.convertedFromTask }); }}
-                        className="mt-2 text-xs font-bold text-white bg-purple-600 px-3 py-1 rounded-lg flex items-center gap-1"
-                    >
+                    <button onClick={() => { setViewDetail({ type: 'task', id: tx.convertedFromTask }); }} className="mt-2 text-xs font-bold text-white bg-purple-600 px-3 py-1 rounded-lg flex items-center gap-1">
                         <LinkIcon size={12}/> View Source Task
                     </button>
                 </div>
@@ -644,23 +793,9 @@ export default function App() {
         if (!task) return null;
         const party = data.parties.find(p => p.id === task.partyId);
         
-        // Manual Time Edit
-        const editTimeLog = (idx) => {
-            const log = task.timeLogs[idx];
-            const newStart = prompt("Start Time (YYYY-MM-DDTHH:MM)", log.start);
-            if(!newStart) return;
-            const newEnd = prompt("End Time (YYYY-MM-DDTHH:MM)", log.end || new Date().toISOString());
-            
-            const startD = new Date(newStart);
-            const endD = new Date(newEnd);
-            const duration = ((endD - startD) / 1000 / 60).toFixed(0);
-
-            const newLogs = [...task.timeLogs];
-            newLogs[idx] = { ...log, start: newStart, end: newEnd, duration };
-            
-            const updatedTask = { ...task, timeLogs: newLogs };
-            setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
-            setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
+        const openEditTimeLog = (idx) => {
+            pushHistory();
+            setEditingTimeLog({ task, index: idx });
         };
 
         const toggleTimer = (staffId) => {
@@ -673,11 +808,22 @@ export default function App() {
                 const end = new Date(now);
                 const duration = ((end - start) / 1000 / 60).toFixed(0); 
                 newLogs[activeLogIndex] = { ...newLogs[activeLogIndex], end: now, duration };
+                updateTaskLogs(newLogs);
             } else {
+                const activeTask = data.tasks.find(t => t.timeLogs && t.timeLogs.some(l => l.staffId === staffId && !l.end));
+                if (activeTask && activeTask.id !== task.id) {
+                    pushHistory();
+                    setTimerConflict({ staffId, activeTaskId: activeTask.id, targetTaskId: task.id });
+                    return;
+                }
                 const staff = data.staff.find(s => s.id === staffId);
                 newLogs.push({ staffId, staffName: staff?.name, start: now, end: null, duration: 0 });
+                updateTaskLogs(newLogs);
             }
-            const updatedTask = { ...task, timeLogs: newLogs };
+        };
+
+        const updateTaskLogs = (logs) => {
+            const updatedTask = { ...task, timeLogs: logs };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
             setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
         };
@@ -736,10 +882,7 @@ export default function App() {
                             return (
                                 <div key={s.id} className="flex justify-between items-center bg-white p-2 rounded-xl border">
                                     <span className="text-sm font-bold text-gray-700">{s.name}</span>
-                                    <button 
-                                        onClick={() => toggleTimer(s.id)}
-                                        className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 ${isRunning ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}
-                                    >
+                                    <button onClick={() => toggleTimer(s.id)} className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 ${isRunning ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
                                         {isRunning ? <><Square size={10} fill="currentColor"/> STOP</> : <><Play size={10} fill="currentColor"/> START</>}
                                     </button>
                                 </div>
@@ -757,7 +900,7 @@ export default function App() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <span className="font-bold">{log.duration}m</span>
-                                    <button onClick={() => editTimeLog(i)} className="p-1 bg-white rounded border"><Edit2 size={10}/></button>
+                                    <button onClick={() => openEditTimeLog(i)} className="p-1 bg-white rounded border"><Edit2 size={10}/></button>
                                 </div>
                             </div>
                         ))}
@@ -769,11 +912,7 @@ export default function App() {
                         <h3 className="font-bold flex items-center gap-2 text-gray-700"><ShoppingCart size={18}/> Items Used</h3>
                          {task.status !== 'Converted' && (
                              <div className="w-40">
-                                 <SearchableSelect 
-                                     placeholder="+ Add Item"
-                                     options={data.items} 
-                                     value=""
-                                     onChange={(val) => {
+                                 <SearchableSelect placeholder="+ Add Item" options={data.items} value="" onChange={(val) => {
                                          if(val) {
                                             const item = data.items.find(i=>i.id===val);
                                             updateTaskItems([...(task.itemsUsed || []), { 
@@ -829,7 +968,6 @@ export default function App() {
       isItem ? tx.items?.some(l => l.itemId === record.id) : tx.partyId === record.id
     ).sort((a,b) => new Date(b.date) - new Date(a.date));
 
-    // Split multiple mobiles with safety check for null/undefined/number
     const mobiles = String(record.mobile || '').split(',').map(m => m.trim()).filter(Boolean);
 
     return (
@@ -894,14 +1032,18 @@ export default function App() {
   };
 
   const Dashboard = () => {
-      // P&L Filter
-      const [pnlFilter, setPnlFilter] = useState('All');
       const pnlData = useMemo(() => {
           let filteredTx = data.transactions.filter(t => ['sales'].includes(t.type));
           const now = new Date();
           if(pnlFilter === 'Week') filteredTx = filteredTx.filter(t => (now - new Date(t.date)) / (1000*60*60*24) <= 7);
           if(pnlFilter === 'Month') filteredTx = filteredTx.filter(t => new Date(t.date).getMonth() === now.getMonth());
           if(pnlFilter === 'Year') filteredTx = filteredTx.filter(t => new Date(t.date).getFullYear() === now.getFullYear());
+          if(pnlFilter === 'Custom' && pnlCustomDates.start && pnlCustomDates.end) {
+              filteredTx = filteredTx.filter(t => {
+                  const d = new Date(t.date);
+                  return d >= new Date(pnlCustomDates.start) && d <= new Date(pnlCustomDates.end);
+              });
+          }
 
           let profit = 0;
           filteredTx.forEach(tx => {
@@ -916,7 +1058,7 @@ export default function App() {
              });
           });
           return profit;
-      }, [data.transactions, pnlFilter]);
+      }, [data.transactions, pnlFilter, pnlCustomDates]);
 
       const navTo = (tab, filter) => {
           setListFilter(filter);
@@ -935,19 +1077,25 @@ export default function App() {
             </button>
           </div>
 
-          {/* P&L Section */}
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 rounded-2xl text-white shadow-lg">
-             <div className="flex justify-between items-center mb-2">
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 rounded-2xl text-white shadow-lg cursor-pointer" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
+             <div className="flex justify-between items-center mb-2" onClick={(e) => e.stopPropagation()}>
                  <h2 className="font-bold text-sm opacity-90">Total Profit</h2>
                  <select className="bg-white/20 border-none text-xs rounded-lg p-1 text-white font-bold cursor-pointer outline-none" value={pnlFilter} onChange={e => setPnlFilter(e.target.value)}>
                      <option value="All">All Time</option>
                      <option value="Week">This Week</option>
                      <option value="Month">This Month</option>
                      <option value="Year">This Year</option>
+                     <option value="Custom">Custom</option>
                  </select>
              </div>
+             {pnlFilter === 'Custom' && (
+                 <div className="flex gap-2 mb-2 text-black text-xs" onClick={(e) => e.stopPropagation()}>
+                     <input type="date" className="rounded p-1" value={pnlCustomDates.start} onChange={e => setPnlCustomDates({...pnlCustomDates, start: e.target.value})}/>
+                     <input type="date" className="rounded p-1" value={pnlCustomDates.end} onChange={e => setPnlCustomDates({...pnlCustomDates, end: e.target.value})}/>
+                 </div>
+             )}
              <p className="text-3xl font-black">{formatCurrency(pnlData)}</p>
-             <p className="text-xs opacity-70 mt-1">Net Profit (Sales - Cost)</p>
+             <p className="text-xs opacity-70 mt-1">Net Profit (Sales - Cost) • Tap for details</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -1054,7 +1202,6 @@ export default function App() {
                 <div className="flex justify-between items-start">
                     <div>
                         <p className="font-bold text-gray-800">{item.name}</p>
-                        {/* FIX: Ensure mobile is string before split */}
                         <p className="text-xs text-gray-500">{item.id} • {item.category || (item.mobile ? String(item.mobile).split(',')[0] : '') || item.role}</p>
                     </div>
                     {item.subText && <p className={`text-xs font-bold ${item.subColor}`}>{item.subText}</p>}
@@ -1072,12 +1219,9 @@ export default function App() {
   const TransactionList = () => {
     const [sort, setSort] = useState('DateDesc');
     const [filter, setFilter] = useState('all'); 
-    
-    // Auto-apply filter from dashboard nav when component mounts or listFilter changes
     useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
-    const filtered = sortData(data.transactions
-      .filter(tx => filter === 'all' || tx.type === filter), sort);
+    const filtered = sortData(data.transactions.filter(tx => filter === 'all' || tx.type === filter), sort);
 
     return (
       <div className="space-y-4">
@@ -1138,104 +1282,6 @@ export default function App() {
     );
   };
 
-  const TaskModule = () => {
-    const [sort, setSort] = useState('DateAsc');
-    const sortedTasks = sortData(data.tasks, sort);
-    const pending = sortedTasks.filter(t => t.status !== 'Done' && t.status !== 'Converted');
-    const done = sortedTasks.filter(t => t.status === 'Done' || t.status === 'Converted');
-
-    const TaskItem = ({ task }) => (
-      <div 
-        onClick={() => { pushHistory(); setViewDetail({ type: 'task', id: task.id }); }}
-        className="p-4 bg-white border rounded-2xl mb-2 flex justify-between items-start cursor-pointer active:scale-95 transition-transform"
-      >
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : task.status === 'Converted' ? 'bg-purple-500' : 'bg-orange-500'}`} />
-            <p className="font-bold text-gray-800">{task.name}</p>
-          </div>
-          <p className="text-xs text-gray-500 line-clamp-1">{task.description}</p>
-          <div className="flex gap-3 mt-2 text-[10px] font-bold text-gray-400 uppercase">
-            <span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(task.dueDate)}</span>
-            <span className="flex items-center gap-1"><Users size={10} /> {task.assignedStaff?.length || 0} Staff</span>
-          </div>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full font-bold">{task.id}</p>
-        </div>
-      </div>
-    );
-
-    return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-xl font-bold">Tasks</h1>
-          <div className="flex gap-2 items-center">
-             <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}>
-                  <option value="DateAsc">Due Soon</option><option value="DateDesc">Due Later</option>
-                  <option value="A-Z">A-Z</option><option value="Z-A">Z-A</option>
-             </select>
-             <button onClick={() => { pushHistory(); setModal({ type: 'task' }); }} className="p-2 bg-blue-600 text-white rounded-xl"><Plus /></button>
-          </div>
-        </div>
-
-        <div>
-          <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Pending ({pending.length})</h3>
-          {pending.map(t => <TaskItem key={t.id} task={t} />)}
-        </div>
-
-        <div>
-          <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Completed ({done.length})</h3>
-          <div className="opacity-60">
-            {done.map(t => <TaskItem key={t.id} task={t} />)}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const PartyForm = ({ record }) => {
-    const [form, setForm] = useState(record || { name: '', mobile: '', email: '', openingBal: 0, type: 'CR', address: '', lat: '', lng: '' });
-    return (
-      <div className="space-y-4">
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Party Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile (comma separated)" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
-        <div className="grid grid-cols-2 gap-4">
-             <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Latitude" value={form.lat} onChange={e => setForm({...form, lat: e.target.value})} />
-             <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Longitude" value={form.lng} onChange={e => setForm({...form, lng: e.target.value})} />
-        </div>
-        <div className="flex gap-2 items-center">
-          <input className="flex-1 p-3 bg-gray-50 border rounded-xl" type="number" placeholder="Opening Balance" value={form.openingBal} onChange={e => setForm({...form, openingBal: e.target.value})} />
-          <select className="p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
-            <option value="CR">CR</option><option value="DR">DR</option>
-          </select>
-        </div>
-        <textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
-        <button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Party</button>
-      </div>
-    );
-  };
-
-  const ItemForm = ({ record }) => {
-    const [form, setForm] = useState(record || { name: '', unit: 'PCS', sellPrice: 0, buyPrice: 0, category: 'General', type: 'Goods', openingStock: 0, description: '' });
-    return (
-      <div className="space-y-4">
-        <input className="w-full p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Item Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        <textarea className="w-full p-3 bg-gray-50 border rounded-xl text-sm h-20" placeholder="Item Description" value={form.description || ''} onChange={e => setForm({...form, description: e.target.value})} />
-        <div className="grid grid-cols-2 gap-4">
-          <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Unit" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} />
-          <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Category" value={form.category} onChange={e => setForm({...form, category: e.target.value})} />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <input className="w-full p-3 bg-gray-50 border rounded-xl" type="number" placeholder="Sale Price" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} />
-          <input className="w-full p-3 bg-gray-50 border rounded-xl" type="number" placeholder="Buy Price" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} />
-        </div>
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" type="number" placeholder="Opening Stock" value={form.openingStock} onChange={e => setForm({...form, openingStock: e.target.value})} />
-        <button onClick={() => saveRecord('items', form, 'item')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Item</button>
-      </div>
-    );
-  };
-
   const TransactionForm = ({ type, record }) => {
     const [tx, setTx] = useState(record ? { ...record, linkedBills: record.linkedBills||[], items: record.items||[] } : {
         type, date: new Date().toISOString().split('T')[0], partyId: '', items: [], discountType: '%', discountValue: 0,
@@ -1244,7 +1290,6 @@ export default function App() {
     const [showLinking, setShowLinking] = useState(false);
     const totals = getTransactionTotals(tx);
 
-    // Linking Payments logic includes UNUSED payments
     const unpaidBills = useMemo(() => {
       if (!tx.partyId) return [];
       return data.transactions.filter(t => 
@@ -1265,7 +1310,6 @@ export default function App() {
         setTx({...tx, items: newItems});
     };
 
-    // Prepare options for Dropdowns
     const partyOptions = data.parties.map(p => {
         const bal = partyBalances[p.id] || 0;
         return {
@@ -1279,6 +1323,21 @@ export default function App() {
         subText: `Stock: ${itemStock[i.id] || 0}`, 
         subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600'
     }));
+
+    const handleLinkChange = (billId, value) => {
+        const amt = parseFloat(value) || 0;
+        const currentLinked = tx.linkedBills?.filter(l => l.billId !== billId).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0) || 0;
+        const total = parseFloat(tx.amount || 0);
+        
+        if (currentLinked + amt > total) {
+            alert(`Total linked amount cannot exceed payment amount (${formatCurrency(total)})`);
+            return;
+        }
+        
+        const others = tx.linkedBills?.filter(l => l.billId !== billId) || [];
+        if (amt > 0) setTx({...tx, linkedBills: [...others, { billId, amount: value }]});
+        else setTx({...tx, linkedBills: others});
+    };
 
     return (
       <div className="space-y-4 pb-10">
@@ -1323,9 +1382,7 @@ export default function App() {
                 <input type="number" className="w-full bg-blue-50 text-2xl font-bold p-4 rounded-xl text-blue-600" placeholder="0.00" value={tx.amount} onChange={e=>setTx({...tx, amount: e.target.value})}/>
                 <button onClick={() => setShowLinking(!showLinking)} className="w-full p-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg">{showLinking?"Hide":"Link Bills (Advanced)"}</button>
                 {showLinking && <div className="space-y-2 max-h-40 overflow-y-auto p-2 border rounded-xl">{unpaidBills.map(b => (
-                    <div key={b.id} className="flex justify-between items-center p-2 border-b"><div className="text-[10px]"><p className="font-bold">{b.id}</p><p>{formatDate(b.date)} • {b.type}</p></div><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e=>{
-                        const o = tx.linkedBills?.filter(l=>l.billId!==b.id)||[]; setTx({...tx, linkedBills: [...o, {billId: b.id, amount: e.target.value}]});
-                    }}/></div>
+                    <div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0"><div className="text-[10px]"><p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p><p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillLogic(b).final)}</p></div><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/></div>
                 ))}</div>}
             </div>
         )}
@@ -1354,7 +1411,6 @@ export default function App() {
   const TaskForm = ({ record }) => {
     const [form, setForm] = useState(record ? { ...record, itemsUsed: record.itemsUsed || [], assignedStaff: record.assignedStaff || [] } : { name: '', partyId: '', description: '', status: 'To Do', dueDate: '', assignedStaff: [], itemsUsed: [] });
     
-    // Item Options with Stock
     const itemOptions = data.items.map(i => ({ 
         ...i, 
         subText: `Stock: ${itemStock[i.id] || 0}`, 
@@ -1374,7 +1430,6 @@ export default function App() {
       <div className="space-y-4">
         <input className="w-full p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Task Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
         
-        {/* Multi-Staff Selection */}
         <div className="p-3 bg-gray-50 rounded-xl border">
             <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Assigned Staff</label>
             <div className="flex flex-wrap gap-2 mb-2">
@@ -1396,7 +1451,6 @@ export default function App() {
         <SearchableSelect label="Client" options={data.parties} value={form.partyId} onChange={v => setForm({...form, partyId: v})} />
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-20" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
         
-        {/* Enhanced Item Entry */}
         <div className="space-y-2">
             <div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4><button onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="text-blue-600 text-xs font-bold">+ Add</button></div>
             {form.itemsUsed.map((line, idx) => (
@@ -1481,6 +1535,8 @@ export default function App() {
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 transition-all ${activeTab === tab.id ? 'text-blue-600 scale-110' : 'text-gray-400'}`}>{tab.icon}<span className="text-[10px] font-bold uppercase tracking-wider">{tab.label}</span></button>
         ))}
       </nav>
+      
+      {/* MODALS */}
       <Modal isOpen={!!modal.type} onClose={handleCloseUI} title={modal.type ? (modal.data ? `Edit ${modal.type}` : `New ${modal.type}`) : ''}>
         {modal.type === 'company' && <CompanyForm />}
         {modal.type === 'party' && <PartyForm record={modal.data} />}
@@ -1489,7 +1545,42 @@ export default function App() {
         {modal.type === 'task' && <TaskForm record={modal.data} />}
         {['sales', 'purchase', 'expense', 'payment'].includes(modal.type) && <TransactionForm type={modal.type} record={modal.data} />}
       </Modal>
+
+      {/* 7. Timer Conflict Warning Modal */}
+      {timerConflict && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+              <div className="bg-white p-6 rounded-2xl w-full max-w-sm text-center">
+                  <div className="mx-auto w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mb-4"><AlertTriangle className="text-yellow-600"/></div>
+                  <h3 className="font-bold text-lg">Active Timer Detected</h3>
+                  <p className="text-sm text-gray-600 my-2">Staff is already active on another task. Stop it first?</p>
+                  <div className="flex gap-3 mt-4">
+                      <button onClick={() => { 
+                          const sId = timerConflict.staffId; 
+                          setTimerConflict(null);
+                          // Force Start
+                          const task = data.tasks.find(t => t.id === timerConflict.targetTaskId);
+                          const now = new Date().toISOString();
+                          const staff = data.staff.find(s => s.id === sId);
+                          const newLogs = [...(task.timeLogs || []), { staffId: sId, staffName: staff?.name, start: now, end: null, duration: 0 }];
+                          const updated = { ...task, timeLogs: newLogs };
+                          setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updated : t) }));
+                          setDoc(doc(db, "tasks", updated.id), updated);
+                      }} className="flex-1 p-3 bg-gray-100 font-bold rounded-xl text-gray-600">Start Anyway</button>
+                      <button onClick={() => { 
+                          const tId = timerConflict.activeTaskId;
+                          setTimerConflict(null); 
+                          setViewDetail({ type: 'task', id: tId }); 
+                      }} className="flex-1 p-3 bg-blue-600 font-bold rounded-xl text-white">Go to Task</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {confirmDelete && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm"><div className="bg-white p-6 rounded-3xl w-full max-w-xs text-center"><div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 size={32} /></div><h3 className="text-xl font-bold mb-2">Are you sure?</h3><div className="flex gap-3"><button onClick={() => setConfirmDelete(null)} className="flex-1 p-3 font-bold text-gray-500 bg-gray-100 rounded-xl">Cancel</button><button onClick={() => deleteRecord(confirmDelete.collection, confirmDelete.id)} className="flex-1 p-3 font-bold text-white bg-red-600 rounded-xl">Delete</button></div></div></div>}
+      
+      {convertModal && <ConvertTaskModal task={convertModal} />}
+      {editingTimeLog && <TimeLogModal />}
+      {showPnlReport && <PnlReportView />}
     </div>
   );
 }
