@@ -58,7 +58,7 @@ import {
 
 /** * SMEES Pro - Final Production Version 
  * Ready for Vercel Deployment
- * Includes Custom Login, Statements, Maps, and Estimations.
+ * Fixed Scope, Hooks, and User State issues.
  */
 
 // --- FIREBASE CONFIGURATION (Production) ---
@@ -111,7 +111,7 @@ const INITIAL_DATA = {
   }
 };
 
-// --- HELPER FUNCTIONS ---
+// --- HELPER FUNCTIONS (Pure Logic) ---
 
 const getNextId = (data, type, subtype = null) => {
   let prefix = type.charAt(0).toUpperCase();
@@ -161,9 +161,7 @@ const getTransactionTotals = (tx) => {
   if (paid >= final && final > 0) status = 'PAID';
   else if (paid > 0) status = 'PARTIAL';
   
-  // For payments, the amount is explicitly entered
   const amount = parseFloat(tx.amount || 0);
-  
   return { gross, final, paid, status, amount: amount || final };
 };
 
@@ -181,7 +179,7 @@ const sortData = (data, criterion) => {
     }
 };
 
-// --- COMPONENTS ---
+// --- GENERIC UI COMPONENTS (Stateless) ---
 
 const Modal = ({ isOpen, onClose, title, children }) => {
   if (!isOpen) return null;
@@ -273,7 +271,7 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
 };
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(null); // Custom Login State
+  const [user, setUser] = useState(null); // Renamed from currentUser
   const [data, setData] = useState(INITIAL_DATA);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [mastersView, setMastersView] = useState(null); 
@@ -306,7 +304,7 @@ export default function App() {
 
   // Sync Data ONLY when logged in
   useEffect(() => {
-    if (!currentUser) return;
+    if (!user) return;
     
     const fetchData = async () => {
       setLoading(true);
@@ -335,7 +333,7 @@ export default function App() {
       }
     };
     fetchData();
-  }, [currentUser]);
+  }, [user]);
 
   // --- HISTORY HANDLING ---
   useEffect(() => {
@@ -465,6 +463,7 @@ export default function App() {
   };
 
   const saveRecord = async (collectionName, record, idType) => {
+    if (!user) return;
     let newData = { ...data };
     let syncedRecord = null;
     let isUpdate = !!record.id;
@@ -508,6 +507,7 @@ export default function App() {
   };
 
   const deleteRecord = async (collectionName, id) => {
+    if (!user) return;
     if (collectionName === 'items' && data.transactions.some(t => t.items?.some(i => i.itemId === id))) { alert("Cannot delete: Item is used."); setConfirmDelete(null); return; }
     if (collectionName === 'parties' && data.transactions.some(t => t.partyId === id)) { alert("Cannot delete: Party is used."); setConfirmDelete(null); return; }
     setData(prev => ({ ...prev, [collectionName]: prev[collectionName].filter(r => r.id !== id) }));
@@ -653,6 +653,18 @@ export default function App() {
       if(win) { win.document.write(content); win.document.close(); win.print(); }
   };
 
+  const saveCompanySettings = async (companyData) => {
+      if (!user) return;
+      const newData = { ...data, company: companyData };
+      setData(newData);
+      setModal({ type: null });
+      handleCloseUI();
+      try { 
+        await setDoc(doc(db, "settings", "company"), companyData); 
+        showToast("Settings saved"); 
+      } catch (e) { console.error(e); }
+  };
+
   // --- SUB-COMPONENTS (DEFINED INSIDE APP) ---
 
   const PnlReportView = () => {
@@ -714,7 +726,7 @@ export default function App() {
 
     const handleLogin = async () => {
         if(id === 'him23' && pass === 'Himanshu#3499sp') {
-            setCurrentUser({ name: 'Admin', role: 'admin' });
+            setUser({ name: 'Admin', role: 'admin' });
         } else {
             try {
                 // Ensure auth is active for rules
@@ -722,7 +734,7 @@ export default function App() {
                 const q = query(collection(db, 'staff'), where('loginId', '==', id), where('password', '==', pass));
                 const snap = await getDocs(q);
                 if(!snap.empty) {
-                    setCurrentUser(snap.docs[0].data());
+                    setUser(snap.docs[0].data());
                 } else {
                     setErr("Invalid ID or Password");
                 }
@@ -1490,7 +1502,7 @@ export default function App() {
 
       const navTo = (tab, filter) => {
           setListFilter(filter);
-          setListPaymentMode(null); // Clear payment mode filter
+          setListPaymentMode(null);
           setActiveTab(tab);
       };
 
@@ -1511,7 +1523,7 @@ export default function App() {
                 <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 bg-gray-100 rounded-xl">
                   <Settings className="text-gray-600" />
                 </button>
-                <button onClick={() => setCurrentUser(null)} className="p-2 bg-red-50 text-red-600 rounded-xl">
+                <button onClick={() => setUser(null)} className="p-2 bg-red-50 text-red-600 rounded-xl">
                   <LogOut size={20} />
                 </button>
             </div>
@@ -1551,13 +1563,7 @@ export default function App() {
           <div className="space-y-4">
             <h3 className="font-bold text-gray-700">Quick Actions</h3>
             <div className="grid grid-cols-4 gap-2">
-              {[
-                { label: 'Sale', icon: <TrendingUp />, type: 'sales', color: 'bg-green-100 text-green-700' },
-                { label: 'Estimate', icon: <FileText />, type: 'estimate', color: 'bg-yellow-100 text-yellow-700' },
-                { label: 'Purchase', icon: <ShoppingCart />, type: 'purchase', color: 'bg-blue-100 text-blue-700' },
-                { label: 'Expense', icon: <ReceiptText />, type: 'expense', color: 'bg-red-100 text-red-700' },
-                { label: 'Payment', icon: <Banknote />, type: 'payment', color: 'bg-purple-100 text-purple-700' }
-              ].map(action => (
+              {[{ label: 'Sale', icon: <TrendingUp />, type: 'sales', color: 'bg-green-100 text-green-700' }, { label: 'Estimate', icon: <FileText />, type: 'estimate', color: 'bg-yellow-100 text-yellow-700' }, { label: 'Purchase', icon: <ShoppingCart />, type: 'purchase', color: 'bg-blue-100 text-blue-700' }, { label: 'Expense', icon: <ReceiptText />, type: 'expense', color: 'bg-red-100 text-red-700' }, { label: 'Payment', icon: <Banknote />, type: 'payment', color: 'bg-purple-100 text-purple-700' }].map(action => (
                 <button key={action.label} onClick={() => { pushHistory(); setModal({ type: action.type }); }} className="flex flex-col items-center gap-2">
                   <div className={`p-4 rounded-2xl ${action.color}`}>{action.icon}</div>
                   <span className="text-xs font-medium text-gray-600">{action.label}</span>
@@ -1575,23 +1581,13 @@ export default function App() {
     const [selectedIds, setSelectedIds] = useState([]);
     
     let listData = data[collection];
-    if (type === 'item') listData = listData.map(i => ({ 
-        ...i, 
-        subText: `${itemStock[i.id] || 0} ${i.unit}`, 
-        subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600'
-    }));
+    if (type === 'item') listData = listData.map(i => ({ ...i, subText: `${itemStock[i.id] || 0} ${i.unit}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
     if (type === 'party') listData = listData.map(p => {
         const bal = partyBalances[p.id] || 0;
-        return {
-            ...p,
-            subText: bal !== 0 ? formatCurrency(Math.abs(bal)) + (bal > 0 ? ' DR' : ' CR') : 'Settled',
-            subColor: bal > 0 ? 'text-green-600' : bal < 0 ? 'text-red-600' : 'text-gray-400'
-        };
+        return { ...p, subText: bal !== 0 ? formatCurrency(Math.abs(bal)) + (bal > 0 ? ' DR' : ' CR') : 'Settled', subColor: bal > 0 ? 'text-green-600' : bal < 0 ? 'text-red-600' : 'text-gray-400' };
     });
 
-    const filtered = sortData(listData.filter(item => 
-      Object.values(item).some(val => String(val).toLowerCase().includes(search.toLowerCase()))
-    ), sort);
+    const filtered = sortData(listData.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(search.toLowerCase()))), sort);
 
     const toggleSelectAll = () => setSelectedIds(selectedIds.length === filtered.length ? [] : filtered.map(i => i.id));
     const handleBulkDelete = async () => {
@@ -1599,9 +1595,7 @@ export default function App() {
         const ids = [...selectedIds];
         setSelectedIds([]);
         setData(prev => ({ ...prev, [collection]: prev[collection].filter(item => !ids.includes(item.id)) }));
-        try { 
-            await Promise.all(ids.map(id => deleteDoc(doc(db, collection, id.toString())))); 
-        } catch (e) { console.error(e); }
+        try { await Promise.all(ids.map(id => deleteDoc(doc(db, collection, id.toString())))); } catch (e) { console.error(e); }
     };
 
     return (
@@ -1612,9 +1606,7 @@ export default function App() {
               <h1 className="text-xl font-bold">{title}</h1>
           </div>
           <div className="flex gap-2">
-              <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}>
-                  <option>A-Z</option><option>Z-A</option>
-              </select>
+              <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option>A-Z</option><option>Z-A</option></select>
               {selectedIds.length > 0 ? (
                   <button onClick={handleBulkDelete} className="p-2 bg-red-100 text-red-600 rounded-xl flex items-center gap-1 text-sm px-4 font-bold"><Trash2 size={16}/> ({selectedIds.length})</button>
               ) : (
@@ -1622,22 +1614,17 @@ export default function App() {
               )}
           </div>
         </div>
-
         <div className="relative">
           <Search className="absolute left-3 top-3 text-gray-400" size={18} />
           <input className="w-full pl-10 pr-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500" placeholder={`Search ${title}...`} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-
         <div className="space-y-2">
           {filtered.map(item => (
             <div key={item.id} className={`p-3 bg-white border rounded-2xl flex items-center gap-3 active:scale-95 transition-transform ${selectedIds.includes(item.id) ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50' : ''}`}>
               <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={selectedIds.includes(item.id)} onChange={() => setSelectedIds(prev => prev.includes(item.id) ? prev.filter(i => i!==item.id) : [...prev, item.id])} />
               <div className="flex-1" onClick={() => onRowClick ? onRowClick(item) : (pushHistory() || setModal({ type, data: item }))}>
                 <div className="flex justify-between items-start">
-                    <div>
-                        <p className="font-bold text-gray-800">{item.name}</p>
-                        <p className="text-xs text-gray-500">{item.id} • {item.category || (item.mobile ? String(item.mobile).split(',')[0] : '') || item.role}</p>
-                    </div>
+                    <div><p className="font-bold text-gray-800">{item.name}</p><p className="text-xs text-gray-500">{item.id} • {item.category || (item.mobile ? String(item.mobile).split(',')[0] : '') || item.role}</p></div>
                     {item.subText && <p className={`text-xs font-bold ${item.subColor}`}>{item.subText}</p>}
                 </div>
               </div>
@@ -1673,13 +1660,11 @@ export default function App() {
             <button onClick={() => { pushHistory(); setReportView('search'); }} className="p-2 bg-gray-100 rounded-lg text-xs font-bold flex items-center gap-1 text-gray-600"><Search size={14} /></button>
           </div>
         </div>
-
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
           {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
             <button key={t} onClick={() => setFilter(t)} className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
           ))}
         </div>
-
         <div className="space-y-3">
           {filtered.map(tx => {
             const party = data.parties.find(p => p.id === tx.partyId);
@@ -1701,12 +1686,7 @@ export default function App() {
                     <div className="flex gap-1 mt-1">
                         {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
                         {tx.type === 'estimate' && <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-yellow-100 text-yellow-700">ESTIMATE</span>}
-                        {tx.type === 'payment' && (
-                            <>
-                                <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${isIncoming ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{isIncoming ? 'IN' : 'OUT'}</span>
-                                <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-100 text-gray-600">{totals.status === 'UNUSED' ? 'UNUSED' : totals.used >= parseFloat(tx.amount)-0.1 ? 'USED' : 'PARTIAL'}</span>
-                            </>
-                        )}
+                        {tx.type === 'payment' && <><span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${isIncoming ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{isIncoming ? 'IN' : 'OUT'}</span><span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-100 text-gray-600">{totals.status === 'UNUSED' ? 'UNUSED' : totals.used >= parseFloat(tx.amount)-0.1 ? 'USED' : 'PARTIAL'}</span></>}
                     </div>
                   </div>
                 </div>
@@ -1723,26 +1703,12 @@ export default function App() {
   };
 
   const TransactionForm = ({ type, record }) => {
-    const [tx, setTx] = useState(record ? { 
-        linkedBills: [], items: [], paymentMode: 'Cash', discountType: '%', discountValue: 0, 
-        ...record 
-    } : {
-        type, date: new Date().toISOString().split('T')[0], partyId: '', items: [], discountType: '%', discountValue: 0,
-        received: 0, paid: 0, paymentMode: 'Cash', category: '', subType: type==='payment'?'in':'', amount: '', linkedBills: [], description: ''
-    });
+    const [tx, setTx] = useState(record ? { linkedBills: [], items: [], paymentMode: 'Cash', discountType: '%', discountValue: 0, ...record } : { type, date: new Date().toISOString().split('T')[0], partyId: '', items: [], discountType: '%', discountValue: 0, received: 0, paid: 0, paymentMode: 'Cash', category: '', subType: type==='payment'?'in':'', amount: '', linkedBills: [], description: '' });
     const [showLinking, setShowLinking] = useState(false);
     const totals = getTransactionTotals(tx);
-
     const unpaidBills = useMemo(() => {
-      // For Payments: Show Unpaid Sales/Purchases AND other Unused Payments (for linking/settling)
       if (!tx.partyId) return [];
-      return data.transactions.filter(t => 
-        t.partyId === tx.partyId && t.id !== tx.id && t.type !== 'estimate' &&
-        (
-             (['sales', 'purchase', 'expense'].includes(t.type) && getBillLogic(t).status !== 'PAID') ||
-             (t.type === 'payment' && getBillLogic(t).status !== 'FULLY USED')
-        )
-      );
+      return data.transactions.filter(t => t.partyId === tx.partyId && t.id !== tx.id && t.type !== 'estimate' && ( (['sales', 'purchase', 'expense'].includes(t.type) && getBillLogic(t).status !== 'PAID') || (t.type === 'payment' && getBillLogic(t).status !== 'FULLY USED') ) );
     }, [tx.partyId, data.transactions]);
 
     const updateLine = (idx, field, val) => {
@@ -1754,131 +1720,24 @@ export default function App() {
         setTx({...tx, items: newItems});
     };
 
-    const partyOptions = data.parties.map(p => {
-        const bal = partyBalances[p.id] || 0;
-        return {
-            ...p,
-            subText: bal !== 0 ? formatCurrency(Math.abs(bal)) + (bal > 0 ? ' DR' : ' CR') : 'Settled',
-            subColor: bal > 0 ? 'text-green-600' : bal < 0 ? 'text-red-600' : 'text-gray-400'
-        };
-    });
-    const itemOptions = data.items.map(i => ({ 
-        ...i, 
-        subText: `Stock: ${itemStock[i.id] || 0}`, 
-        subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600'
-    }));
-
+    const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
+    const partyOptions = data.parties.map(p => ({ ...p, subText: partyBalances[p.id] ? formatCurrency(Math.abs(partyBalances[p.id])) + (partyBalances[p.id]>0?' DR':' CR') : 'Settled', subColor: partyBalances[p.id]>0?'text-green-600':partyBalances[p.id]<0?'text-red-600':'text-gray-400' }));
     const handleLinkChange = (billId, value) => {
         const amt = parseFloat(value) || 0;
         const currentLinked = tx.linkedBills?.filter(l => l.billId !== billId).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0) || 0;
         const total = parseFloat(tx.amount || 0);
-        
-        if (currentLinked + amt > total) {
-            alert(`Total linked amount cannot exceed payment amount (${formatCurrency(total)})`);
-            return;
-        }
-        
+        if (currentLinked + amt > total) { alert(`Total linked amount cannot exceed payment amount (${formatCurrency(total)})`); return; }
         const others = tx.linkedBills?.filter(l => l.billId !== billId) || [];
-        if (amt > 0) setTx({...tx, linkedBills: [...others, { billId, amount: value }]});
-        else setTx({...tx, linkedBills: others});
+        if (amt > 0) setTx({...tx, linkedBills: [...others, { billId, amount: value }]}); else setTx({...tx, linkedBills: others});
     };
 
     return (
       <div className="space-y-4 pb-10">
-        <div className="flex justify-between items-center mb-4">
-          <p className="text-xs font-bold text-gray-400 uppercase">{tx.id || 'New ' + type}</p>
-          <input type="date" className="p-1 text-sm border-none bg-transparent font-bold text-blue-600" value={tx.date} onChange={e => setTx({...tx, date: e.target.value})} />
-        </div>
-        
-        {type === 'payment' && (
-          <div className="flex bg-gray-100 p-1 rounded-xl mb-4">
-            <button onClick={() => setTx({...tx, subType: 'in'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${tx.subType === 'in' ? 'bg-white shadow-sm text-green-600' : 'text-gray-500'}`}>Payment IN</button>
-            <button onClick={() => setTx({...tx, subType: 'out'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${tx.subType === 'out' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500'}`}>Payment OUT</button>
-          </div>
-        )}
-        
-        {type === 'expense' ? (
-            <SearchableSelect
-                label="Category"
-                options={data.categories.expense}
-                value={tx.category}
-                onChange={v => setTx({ ...tx, category: v })}
-                onAddNew={() => {
-                    const newCat = prompt("New Category Name:");
-                    if (newCat) {
-                        const isDirect = window.confirm("Is this a Direct Expense? (OK = Direct, Cancel = Indirect)");
-                        // We store the category string, logic handles type if needed later or we append to string
-                        setData(prev => ({
-                            ...prev,
-                            categories: { ...prev.categories, expense: [...prev.categories.expense, newCat] }
-                        }));
-                        setTx({ ...tx, category: newCat, expenseType: isDirect ? 'Direct' : 'Indirect' });
-                    }
-                }}
-            />
-        ) : (
-            <SearchableSelect label="Party" options={partyOptions} value={tx.partyId} onChange={v => setTx({ ...tx, partyId: v })} onAddNew={() => { pushHistory(); setModal({ type: 'party' }); }} />
-        )}
-
-        {type !== 'payment' && (
-            <div className="space-y-3">
-                 <div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items</h4><button onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0 }]})} className="text-blue-600 text-xs font-bold">+ Add Item</button></div>
-                 {tx.items.map((line, idx) => (
-                     <div key={idx} className="p-3 bg-gray-50 border rounded-xl relative space-y-2">
-                         <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
-                         <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine(idx, 'itemId', v)} onAddNew={() => { pushHistory(); setModal({ type: 'item' }); }}/>
-                         <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
-                         <div className="grid grid-cols-3 gap-2">
-                             <input type="number" className="p-2 border rounded-lg text-sm" value={line.qty} placeholder="Qty" onChange={e => updateLine(idx, 'qty', e.target.value)} />
-                             <input type="number" className="p-2 border rounded-lg text-sm" value={line.price} placeholder="Price" onChange={e => updateLine(idx, 'price', e.target.value)} />
-                             {type === 'sales' && <input type="number" className="p-2 border rounded-lg text-sm bg-yellow-50" value={line.buyPrice || 0} placeholder="Buy" onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />}
-                         </div>
-                     </div>
-                 ))}
-                 <div className="p-4 bg-gray-50 rounded-2xl space-y-3">
-                     <div className="flex items-center gap-2">
-                        <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Discount" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})}/>
-                        <select className="p-2 text-xs border rounded-lg" value={tx.discountType} onChange={e => setTx({...tx, discountType: e.target.value})}><option>%</option><option>Amt</option></select>
-                     </div>
-                     <div className="flex justify-between font-bold text-lg border-t pt-2"><span>Total</span><span>{formatCurrency(totals.final)}</span></div>
-                     
-                     <div className="grid grid-cols-2 gap-2">
-                         <input type="number" className="p-3 border rounded-xl font-bold text-green-600" placeholder="Received/Paid" value={(type==='sales'?tx.received:tx.paid)||''} onChange={e=>setTx({...tx, [type==='sales'?'received':'paid']: e.target.value})}/>
-                         <select className="p-3 border rounded-xl bg-white" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}>
-                             <option>Cash</option><option>Bank</option><option>UPI</option>
-                         </select>
-                     </div>
-                 </div>
-            </div>
-        )}
-        
-        {type === 'payment' && (
-            <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-2">
-                    <input type="number" className="w-full bg-blue-50 text-2xl font-bold p-4 rounded-xl text-blue-600" placeholder="Amount" value={tx.amount} onChange={e=>setTx({...tx, amount: e.target.value})}/>
-                    <select className="w-full bg-gray-50 p-4 rounded-xl font-bold" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}>
-                        <option>Cash</option><option>Bank</option><option>UPI</option>
-                    </select>
-                </div>
-                
-                <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl">
-                    <span className="text-xs font-bold text-gray-500">Discount:</span>
-                    <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Amt" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})}/>
-                </div>
-
-                <button onClick={() => setShowLinking(!showLinking)} className="w-full p-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg">{showLinking?"Hide":"Link Bills (Advanced)"}</button>
-                {showLinking && <div className="space-y-2 max-h-40 overflow-y-auto p-2 border rounded-xl">{unpaidBills.map(b => (
-                    <div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0">
-                        <div className="text-[10px]">
-                            <p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p>
-                            <p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillLogic(b).final)} <br/> <span className="text-red-600">Due: {formatCurrency(b.type === 'payment' ? (getBillLogic(b).amount - getBillLogic(b).used) : getBillLogic(b).pending)}</span></p>
-                        </div>
-                        <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/>
-                    </div>
-                ))}</div>}
-            </div>
-        )}
-        
+        <div className="flex justify-between items-center mb-4"><p className="text-xs font-bold text-gray-400 uppercase">{tx.id || 'New ' + type}</p><input type="date" className="p-1 text-sm border-none bg-transparent font-bold text-blue-600" value={tx.date} onChange={e => setTx({...tx, date: e.target.value})} /></div>
+        {type === 'payment' && <div className="flex bg-gray-100 p-1 rounded-xl mb-4"><button onClick={() => setTx({...tx, subType: 'in'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${tx.subType === 'in' ? 'bg-white shadow-sm text-green-600' : 'text-gray-500'}`}>Payment IN</button><button onClick={() => setTx({...tx, subType: 'out'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${tx.subType === 'out' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500'}`}>Payment OUT</button></div>}
+        {type === 'expense' ? <SearchableSelect label="Category" options={data.categories.expense} value={tx.category} onChange={v => setTx({ ...tx, category: v })} onAddNew={() => { const newCat = prompt("New Category Name:"); if (newCat) { const isDirect = window.confirm("Is this a Direct Expense? (OK = Direct, Cancel = Indirect)"); setData(prev => ({ ...prev, categories: { ...prev.categories, expense: [...prev.categories.expense, newCat] } })); setTx({ ...tx, category: newCat, expenseType: isDirect ? 'Direct' : 'Indirect' }); } }} /> : <SearchableSelect label="Party" options={partyOptions} value={tx.partyId} onChange={v => setTx({ ...tx, partyId: v })} onAddNew={() => { pushHistory(); setModal({ type: 'party' }); }} />}
+        {type !== 'payment' && <div className="space-y-3"><div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items</h4><button onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0 }]})} className="text-blue-600 text-xs font-bold">+ Add Item</button></div>{tx.items.map((line, idx) => (<div key={idx} className="p-3 bg-gray-50 border rounded-xl relative space-y-2"><button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button><SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine(idx, 'itemId', v)} onAddNew={() => { pushHistory(); setModal({ type: 'item' }); }}/><input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} /><div className="grid grid-cols-3 gap-2"><input type="number" className="p-2 border rounded-lg text-sm" value={line.qty} placeholder="Qty" onChange={e => updateLine(idx, 'qty', e.target.value)} /><input type="number" className="p-2 border rounded-lg text-sm" value={line.price} placeholder="Price" onChange={e => updateLine(idx, 'price', e.target.value)} />{type === 'sales' && <input type="number" className="p-2 border rounded-lg text-sm bg-yellow-50" value={line.buyPrice || 0} placeholder="Buy" onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />}</div></div>))}<div className="p-4 bg-gray-50 rounded-2xl space-y-3"><div className="flex items-center gap-2"><input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Discount" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})}/><select className="p-2 text-xs border rounded-lg" value={tx.discountType} onChange={e => setTx({...tx, discountType: e.target.value})}><option>%</option><option>Amt</option></select></div><div className="flex justify-between font-bold text-lg border-t pt-2"><span>Total</span><span>{formatCurrency(totals.final)}</span></div><div className="grid grid-cols-2 gap-2"><input type="number" className="p-3 border rounded-xl font-bold text-green-600" placeholder="Received/Paid" value={(type==='sales'?tx.received:tx.paid)||''} onChange={e=>setTx({...tx, [type==='sales'?'received':'paid']: e.target.value})}/><select className="p-3 border rounded-xl bg-white" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}><option>Cash</option><option>Bank</option><option>UPI</option></select></div></div></div>}
+        {type === 'payment' && <div className="space-y-4"><div className="grid grid-cols-2 gap-2"><input type="number" className="w-full bg-blue-50 text-2xl font-bold p-4 rounded-xl text-blue-600" placeholder="Amount" value={tx.amount} onChange={e=>setTx({...tx, amount: e.target.value})}/><select className="w-full bg-gray-50 p-4 rounded-xl font-bold" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}><option>Cash</option><option>Bank</option><option>UPI</option></select></div><div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl"><span className="text-xs font-bold text-gray-500">Discount:</span><input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Amt" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})}/></div><button onClick={() => setShowLinking(!showLinking)} className="w-full p-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg">{showLinking?"Hide":"Link Bills (Advanced)"}</button>{showLinking && <div className="space-y-2 max-h-40 overflow-y-auto p-2 border rounded-xl">{unpaidBills.map(b => (<div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0"><div className="text-[10px]"><p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p><p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillLogic(b).final)} <br/> <span className="text-red-600">Due: {formatCurrency(b.type === 'payment' ? (getBillLogic(b).amount - getBillLogic(b).used) : getBillLogic(b).pending)}</span></p></div><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/></div>))}</div>}</div>}
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl text-sm h-16" placeholder="Notes" value={tx.description} onChange={e => setTx({...tx, description: e.target.value})} />
         <button onClick={() => { if(!tx.partyId && type !== 'expense') return alert("Party Required"); saveRecord('transactions', {...tx, ...totals}, type === 'estimate' ? 'estimate' : 'transaction'); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
       </div>
@@ -1886,37 +1745,52 @@ export default function App() {
   };
 
   const StaffForm = ({ record }) => {
-    const [form, setForm] = useState({ 
-        name: '', mobile: '', role: 'Staff', active: true, loginId: '', password: '', 
-        ...(record || {}) 
-    });
-    
+    const [form, setForm] = useState({ name: '', mobile: '', role: 'Staff', active: true, loginId: '', password: '', ...(record || {}) });
     return (
       <div className="space-y-4">
         <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Staff Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
         <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
-        <div className="grid grid-cols-2 gap-4">
-            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Login ID" value={form.loginId} onChange={e => setForm({...form, loginId: e.target.value})} />
-            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} />
-        </div>
-        <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.role} onChange={e => setForm({...form, role: e.target.value})}>
-          <option>Admin</option>
-          <option>Staff</option>
-          <option>Manager</option>
-        </select>
+        <div className="grid grid-cols-2 gap-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Login ID" value={form.loginId} onChange={e => setForm({...form, loginId: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} /></div>
+        <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.role} onChange={e => setForm({...form, role: e.target.value})}><option>Admin</option><option>Staff</option><option>Manager</option></select>
         <button onClick={() => saveRecord('staff', form, 'staff')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Staff</button>
+      </div>
+    );
+  };
+
+  const TaskForm = ({ record }) => {
+    const [form, setForm] = useState(record ? { ...record, itemsUsed: record.itemsUsed || [], assignedStaff: record.assignedStaff || [] } : { name: '', partyId: '', description: '', status: 'To Do', dueDate: '', assignedStaff: [], itemsUsed: [] });
+    const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
+    const updateItem = (idx, field, val) => { const n = [...form.itemsUsed]; n[idx][field] = val; if(field==='itemId') { const item = data.items.find(i=>i.id===val); if(item) { n[idx].price = item.sellPrice; n[idx].buyPrice = item.buyPrice; n[idx].description = item.description || ''; } } setForm({...form, itemsUsed: n}); };
+    return (
+      <div className="space-y-4">
+        <input className="w-full p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Task Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+        <div className="p-3 bg-gray-50 rounded-xl border"><label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Assigned Staff</label><div className="flex flex-wrap gap-2 mb-2">{form.assignedStaff.map(sid => { const s = data.staff.find(st => st.id === sid); return (<span key={sid} className="bg-white border px-2 py-1 rounded-full text-xs flex items-center gap-1">{s?.name} <button onClick={() => setForm({...form, assignedStaff: form.assignedStaff.filter(id => id !== sid)})}><X size={12}/></button></span>); })}</div><select className="w-full p-2 border rounded-lg text-sm bg-white" onChange={e => { if(e.target.value && !form.assignedStaff.includes(e.target.value)) setForm({...form, assignedStaff: [...form.assignedStaff, e.target.value]}); }}><option value="">+ Add Staff</option>{data.staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+        <SearchableSelect label="Client" options={data.parties} value={form.partyId} onChange={v => setForm({...form, partyId: v})} />
+        <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-20" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+        <div className="space-y-2"><div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4><button onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="text-blue-600 text-xs font-bold">+ Add</button></div>{form.itemsUsed.map((line, idx) => (<div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2"><button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button><SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} /><input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} /><div className="flex gap-2"><input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} /><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} /><input type="number" className="w-20 p-1 border rounded text-xs bg-gray-100" placeholder="Buy" value={line.buyPrice} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} /></div></div>))}</div>
+        <div className="grid grid-cols-2 gap-4"><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /><select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.status} onChange={e => setForm({...form, status: e.target.value})}><option>To Do</option><option>In Progress</option><option>Done</option></select></div>
+        <button onClick={() => saveRecord('tasks', form, 'task')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
+      </div>
+    );
+  };
+
+  const CompanyForm = () => {
+    const [form, setForm] = useState(data.company);
+    return (
+      <div className="space-y-4">
+        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Company Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
+        <textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+        <div className="grid grid-cols-2 gap-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="FY" value={form.financialYear} onChange={e => setForm({...form, financialYear: e.target.value})} /><div className="p-3 bg-gray-100 border rounded-xl text-gray-500">Currency: ₹</div></div>
+        <button onClick={() => { saveCompanySettings(form); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Settings</button>
       </div>
     );
   };
 
   const StatementModal = () => {
       if (!statementModal) return null;
-      const [dates, setDates] = useState({ 
-          start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], 
-          end: new Date().toISOString().split('T')[0] 
-      });
+      const [dates, setDates] = useState({ start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] });
       const [withItems, setWithItems] = useState(false);
-
       return (
           <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
               <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
@@ -1925,17 +1799,14 @@ export default function App() {
                       <div><label className="text-xs font-bold text-gray-500">From Date</label><input type="date" className="w-full p-3 border rounded-xl" value={dates.start} onChange={e=>setDates({...dates, start:e.target.value})}/></div>
                       <div><label className="text-xs font-bold text-gray-500">To Date</label><input type="date" className="w-full p-3 border rounded-xl" value={dates.end} onChange={e=>setDates({...dates, end:e.target.value})}/></div>
                       <div className="flex items-center gap-2"><input type="checkbox" checked={withItems} onChange={e=>setWithItems(e.target.checked)} className="w-5 h-5"/> <label>Show Item Details</label></div>
-                      <div className="flex gap-2">
-                          <button onClick={() => setStatementModal(null)} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
-                          <button onClick={() => { printStatement(statementModal.partyId, dates.start, dates.end, withItems); setStatementModal(null); }} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Generate PDF</button>
-                      </div>
+                      <div className="flex gap-2"><button onClick={() => setStatementModal(null)} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button><button onClick={() => { printStatement(statementModal.partyId, dates.start, dates.end, withItems); setStatementModal(null); }} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Generate PDF</button></div>
                   </div>
               </div>
           </div>
       );
   };
 
-  if (!currentUser) return <LoginScreen />;
+  if (!user) return <LoginScreen />;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24 font-sans select-none">
