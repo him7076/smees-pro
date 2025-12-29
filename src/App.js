@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from "firebase/app";
-import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "firebase/auth";
 import { 
   getFirestore, 
   collection, 
@@ -8,6 +8,8 @@ import {
   setDoc, 
   deleteDoc, 
   doc, 
+  query,
+  where,
   initializeFirestore, 
   persistentLocalCache, 
   persistentMultipleTabManager 
@@ -46,11 +48,17 @@ import {
   Edit2,
   Filter,
   Link as LinkIcon,
-  ExternalLink
+  ExternalLink,
+  FileText,
+  BarChart3,
+  PieChart,
+  LogOut,
+  Map
 } from 'lucide-react';
 
-/** * SMEES Pro - Production Version 
+/** * SMEES Pro - Final Production Version 
  * Ready for Vercel Deployment
+ * Includes Custom Login, Statements, Maps, and Estimations.
  */
 
 // --- FIREBASE CONFIGURATION (Production) ---
@@ -98,7 +106,8 @@ const INITIAL_DATA = {
     sales: 100,
     purchase: 100,
     expense: 100,
-    payment: 100
+    payment: 100,
+    estimate: 100
   }
 };
 
@@ -108,11 +117,12 @@ const getNextId = (data, type, subtype = null) => {
   let prefix = type.charAt(0).toUpperCase();
   let counterKey = type;
 
-  if (type === 'transaction' && subtype) {
+  if (type === 'transaction' || type === 'estimate') {
     if (subtype === 'sales') { prefix = 'S'; counterKey = 'sales'; }
     else if (subtype === 'purchase') { prefix = 'P'; counterKey = 'purchase'; }
     else if (subtype === 'expense') { prefix = 'E'; counterKey = 'expense'; }
     else if (subtype === 'payment') { prefix = 'PAY'; counterKey = 'payment'; }
+    else if (subtype === 'estimate') { prefix = 'EST'; counterKey = 'estimate'; }
   }
 
   const counters = data.counters || INITIAL_DATA.counters; 
@@ -151,7 +161,10 @@ const getTransactionTotals = (tx) => {
   if (paid >= final && final > 0) status = 'PAID';
   else if (paid > 0) status = 'PARTIAL';
   
-  return { gross, final, paid, status, amount: tx.amount || final };
+  // For payments, the amount is explicitly entered
+  const amount = parseFloat(tx.amount || 0);
+  
+  return { gross, final, paid, status, amount: amount || final };
 };
 
 const sortData = (data, criterion) => {
@@ -260,7 +273,7 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
 };
 
 export default function App() {
-  const [user, setUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null); // Custom Login State
   const [data, setData] = useState(INITIAL_DATA);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [mastersView, setMastersView] = useState(null); 
@@ -269,31 +282,32 @@ export default function App() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [toast, setToast] = useState(null);
   const [viewDetail, setViewDetail] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [reportView, setReportView] = useState(null);
+  const [statementModal, setStatementModal] = useState(null);
   
   // Logic Update States
   const [listFilter, setListFilter] = useState('all'); 
+  const [listPaymentMode, setListPaymentMode] = useState(null); // Filter by Cash/Bank
   const [pnlFilter, setPnlFilter] = useState('All'); 
   const [pnlCustomDates, setPnlCustomDates] = useState({ start: '', end: '' });
   const [showPnlReport, setShowPnlReport] = useState(false);
   const [timerConflict, setTimerConflict] = useState(null);
   const [editingTimeLog, setEditingTimeLog] = useState(null);
 
-  // --- AUTH ---
+  // --- AUTH & DATA SYNC ---
   useEffect(() => {
-    const initAuth = async () => {
+    // We maintain anonymous auth in background for Firestore security rules
+    const initFirebaseConnection = async () => {
       await signInAnonymously(auth);
     };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-        setUser(u);
-    });
-    return () => unsubscribe();
+    initFirebaseConnection();
   }, []);
 
-  // --- FIREBASE FETCH ---
+  // Sync Data ONLY when logged in
   useEffect(() => {
-    if (!user) return;
+    if (!currentUser) return;
+    
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -315,20 +329,22 @@ export default function App() {
         setData(newData);
       } catch (error) {
         console.error("Error fetching data from Firestore: ", error);
-        showToast("Error loading data from cloud", "error");
+        showToast("Error loading data. Check internet.", "error");
       } finally {
         setLoading(false);
       }
     };
     fetchData();
-  }, [user]);
+  }, [currentUser]);
 
   // --- HISTORY HANDLING ---
   useEffect(() => {
       const handlePopState = (event) => {
           if (modal.type) setModal({ type: null, data: null });
+          else if (statementModal) setStatementModal(null);
           else if (viewDetail) setViewDetail(null);
           else if (mastersView) setMastersView(null);
+          else if (reportView) setReportView(null);
           else if (convertModal) setConvertModal(null);
           else if (showPnlReport) setShowPnlReport(false);
           else if (timerConflict) setTimerConflict(null);
@@ -336,18 +352,15 @@ export default function App() {
       };
       window.addEventListener('popstate', handlePopState);
       return () => window.removeEventListener('popstate', handlePopState);
-  }, [modal, viewDetail, mastersView, convertModal, showPnlReport, timerConflict, editingTimeLog]);
+  }, [modal, viewDetail, mastersView, reportView, convertModal, showPnlReport, timerConflict, editingTimeLog, statementModal]);
 
   const pushHistory = () => window.history.pushState({ modal: true }, '');
   const handleCloseUI = () => window.history.back();
 
-  // --- HELPERS & LOGIC ---
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
-
+  // --- HELPER CALCULATIONS ---
   const getBillLogic = (bill) => {
+    if (bill.type === 'estimate') return { ...getTransactionTotals(bill), status: 'ESTIMATE', pending: 0, paid: 0 };
+
     const basic = getTransactionTotals(bill);
     const linkedAmount = data.transactions
       .filter(t => t.type === 'payment' && t.linkedBills)
@@ -381,14 +394,21 @@ export default function App() {
       balances[p.id] = p.type === 'DR' ? parseFloat(p.openingBal || 0) : -parseFloat(p.openingBal || 0);
     });
     data.transactions.forEach(tx => {
+      if (tx.type === 'estimate') return; 
+
       const { final, paid } = getTransactionTotals(tx);
       const unpaid = final - paid;
+      
       if (tx.type === 'sales') balances[tx.partyId] = (balances[tx.partyId] || 0) + unpaid;
       if (tx.type === 'purchase') balances[tx.partyId] = (balances[tx.partyId] || 0) - unpaid;
+      
       if (tx.type === 'payment') {
         const amt = parseFloat(tx.amount || 0);
-        if (tx.subType === 'in') balances[tx.partyId] = (balances[tx.partyId] || 0) - amt;
-        else balances[tx.partyId] = (balances[tx.partyId] || 0) + amt;
+        const disc = parseFloat(tx.discountValue || 0);
+        const totalEffect = amt + disc;
+
+        if (tx.subType === 'in') balances[tx.partyId] = (balances[tx.partyId] || 0) - totalEffect;
+        else balances[tx.partyId] = (balances[tx.partyId] || 0) + totalEffect;
       }
     });
     return balances;
@@ -398,6 +418,7 @@ export default function App() {
     const stock = {};
     data.items.forEach(i => stock[i.id] = parseFloat(i.openingStock || 0));
     data.transactions.forEach(tx => {
+      if (tx.type === 'estimate') return;
       tx.items?.forEach(line => {
         if (tx.type === 'sales') stock[line.itemId] = (stock[line.itemId] || 0) - parseFloat(line.qty || 0);
         if (tx.type === 'purchase') stock[line.itemId] = (stock[line.itemId] || 0) + parseFloat(line.qty || 0);
@@ -411,18 +432,39 @@ export default function App() {
     const todaySales = data.transactions.filter(tx => tx.type === 'sales' && tx.date === today).reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
     const totalExpenses = data.transactions.filter(tx => tx.type === 'expense').reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
     const pendingTasks = data.tasks.filter(t => t.status !== 'Done').length;
-    const lowStockItems = data.items.filter(item => (itemStock[item.id] || 0) < 5);
     let totalReceivables = 0, totalPayables = 0;
-    data.transactions.forEach(tx => {
-       const { pending } = getBillLogic(tx);
-       if (tx.type === 'sales') totalReceivables += pending;
-       if (tx.type === 'purchase') totalPayables += pending;
+    
+    Object.values(partyBalances).forEach(bal => {
+        if (bal > 0) totalReceivables += bal;
+        if (bal < 0) totalPayables += Math.abs(bal);
     });
-    return { todaySales, totalExpenses, pendingTasks, lowStockItems, totalReceivables, totalPayables };
-  }, [data, itemStock]);
+
+    let cashInHand = 0, bankBalance = 0;
+    data.transactions.forEach(tx => {
+        if (tx.type === 'estimate') return;
+        const amt = parseFloat(tx.received || tx.paid || tx.amount || 0);
+        const mode = tx.paymentMode || 'Cash';
+        const isIncome = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
+        const isExpense = tx.type === 'purchase' || tx.type === 'expense' || (tx.type === 'payment' && tx.subType === 'out');
+        
+        if (isIncome) {
+            if (mode === 'Cash') cashInHand += amt; else bankBalance += amt;
+        } else if (isExpense) {
+            if (mode === 'Cash') cashInHand -= amt; else bankBalance -= amt;
+        }
+    });
+
+    return { todaySales, totalExpenses, pendingTasks, totalReceivables, totalPayables, cashInHand, bankBalance };
+  }, [data, partyBalances]);
+
+  // --- ACTIONS ---
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const saveRecord = async (collectionName, record, idType) => {
-    if (!user) return;
     let newData = { ...data };
     let syncedRecord = null;
     let isUpdate = !!record.id;
@@ -465,20 +507,7 @@ export default function App() {
     return finalId; 
   };
 
-  const saveCompanySettings = async (companyData) => {
-      if (!user) return;
-      const newData = { ...data, company: companyData };
-      setData(newData);
-      setModal({ type: null });
-      handleCloseUI();
-      try { 
-        await setDoc(doc(db, "settings", "company"), companyData); 
-        showToast("Settings saved"); 
-      } catch (e) { console.error(e); }
-  };
-
   const deleteRecord = async (collectionName, id) => {
-    if (!user) return;
     if (collectionName === 'items' && data.transactions.some(t => t.items?.some(i => i.itemId === id))) { alert("Cannot delete: Item is used."); setConfirmDelete(null); return; }
     if (collectionName === 'parties' && data.transactions.some(t => t.partyId === id)) { alert("Cannot delete: Party is used."); setConfirmDelete(null); return; }
     setData(prev => ({ ...prev, [collectionName]: prev[collectionName].filter(r => r.id !== id) }));
@@ -493,34 +522,273 @@ export default function App() {
 
   const printInvoice = (tx) => {
     const party = data.parties.find(p => p.id === tx.partyId);
-    const content = `<html><body><h1>INVOICE ${tx.id}</h1><p>Date: ${tx.date}</p><p>Party: ${party?.name}</p><p>Notes: ${tx.description || ''}</p></body></html>`; 
+    const balance = partyBalances[party?.id] || 0;
+    const totals = getTransactionTotals(tx);
+    const isEst = tx.type === 'estimate';
+    
+    const content = `
+      <html>
+        <head>
+          <title>${isEst ? 'ESTIMATE' : 'INVOICE'} ${tx.id}</title>
+          <style>
+            body { font-family: sans-serif; padding: 20px; color: #333; }
+            .header { display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
+            .company h1 { margin: 0; color: #2563eb; }
+            .invoice-details { text-align: right; }
+            .bill-to { margin-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+            th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
+            th { background: #f8fafc; font-weight: bold; color: #64748b; }
+            .totals { display: flex; justify-content: flex-end; }
+            .totals table { width: 300px; }
+            .totals td { text-align: right; }
+            .footer { margin-top: 40px; text-align: center; font-size: 12px; color: #94a3b8; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="company">
+              <h1>${data.company.name}</h1>
+              <p>${data.company.address}<br>Phone: ${data.company.mobile}</p>
+            </div>
+            <div class="invoice-details">
+              <h2 style="margin:0">${isEst ? 'ESTIMATE' : 'INVOICE'}</h2>
+              <p>#${tx.id}<br>Date: ${formatDate(tx.date)}</p>
+            </div>
+          </div>
+          
+          <div class="bill-to">
+            <p style="color:#64748b; font-size:12px; font-weight:bold; text-transform:uppercase;">Bill To</p>
+            <h3>${party?.name || 'Cash Sale'}</h3>
+            <p>${party?.address || ''}<br>${party?.mobile || ''}</p>
+          </div>
+
+          <table>
+            <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+            <tbody>
+              ${(tx.items || []).map(i => {
+                const item = data.items.find(it => it.id === i.itemId);
+                return `<tr><td><b>${item?.name || 'Item'}</b><br><small style="color:#999">${i.description || ''}</small></td><td>${i.qty}</td><td>${i.price}</td><td>${(i.qty * i.price).toFixed(2)}</td></tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+
+          <div class="totals">
+            <table>
+              <tr><td>Gross Total</td><td>${formatCurrency(totals.gross)}</td></tr>
+              ${tx.discountValue > 0 ? `<tr><td>Discount (${tx.discountType})</td><td>-${tx.discountValue}</td></tr>` : ''}
+              <tr><td style="font-weight:bold; font-size:16px;">Grand Total</td><td style="font-weight:bold; font-size:16px;">${formatCurrency(totals.final)}</td></tr>
+              ${!isEst ? `<tr><td>Received</td><td>${formatCurrency(totals.paid)}</td></tr>` : ''}
+              ${!isEst && totals.status !== 'PAID' ? `<tr><td style="color:red">Balance Due</td><td style="color:red">${formatCurrency(totals.final - totals.paid)}</td></tr>` : ''}
+              ${!isEst ? `<tr><td style="border-top:2px solid #eee; padding-top:10px;"><b>Prev Balance</b></td><td style="border-top:2px solid #eee; padding-top:10px;">${formatCurrency(balance - (totals.final - totals.paid))}</td></tr>
+              <tr><td><b>Net Payable</b></td><td><b>${formatCurrency(balance)}</b></td></tr>` : ''}
+            </table>
+          </div>
+          ${tx.description ? `<div style="margin-top:20px; background:#f8fafc; padding:10px; border-radius:8px;"><p style="margin:0; font-size:12px;"><b>Notes:</b> ${tx.description}</p></div>` : ''}
+          <div class="footer"><p>Thank you for your business!</p></div>
+        </body>
+      </html>
+    `;
     const win = window.open('', '_blank');
-    if (win) {
-      win.document.write(content);
-      win.document.close();
-      win.print();
-    }
+    if (win) { win.document.write(content); win.document.close(); win.print(); }
+  };
+
+  const printStatement = (partyId, start, end, withItems) => {
+      const party = data.parties.find(p => p.id === partyId);
+      const startDate = new Date(start);
+      const endDate = new Date(end);
+      
+      // Calculate Opening Balance
+      let openingBal = party.type === 'DR' ? parseFloat(party.openingBal || 0) : -parseFloat(party.openingBal || 0);
+      data.transactions.forEach(tx => {
+          if(tx.partyId === partyId && new Date(tx.date) < startDate && tx.type !== 'estimate') {
+               const { final, paid } = getTransactionTotals(tx);
+               const unpaid = final - paid;
+               if (tx.type === 'sales') openingBal += unpaid;
+               if (tx.type === 'purchase') openingBal -= unpaid;
+               if (tx.type === 'payment') {
+                  const amt = parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0);
+                  if (tx.subType === 'in') openingBal -= amt; else openingBal += amt;
+               }
+          }
+      });
+
+      const txs = data.transactions.filter(t => t.partyId === partyId && t.type !== 'estimate' && new Date(t.date) >= startDate && new Date(t.date) <= endDate).sort((a,b) => new Date(a.date) - new Date(b.date));
+      
+      let runningBal = openingBal;
+      const rows = txs.map(tx => {
+           let debit = 0, credit = 0;
+           const { final, paid } = getTransactionTotals(tx);
+           
+           if(tx.type === 'sales') { debit = final; credit = paid; }
+           else if(tx.type === 'purchase') { credit = final; debit = paid; }
+           else if(tx.type === 'payment') {
+               const total = parseFloat(tx.amount||0) + parseFloat(tx.discountValue||0);
+               if(tx.subType === 'in') credit = total; else debit = total;
+           }
+           runningBal = runningBal + debit - credit;
+           return `<tr>
+              <td>${formatDate(tx.date)}</td>
+              <td>${tx.type.toUpperCase()} #${tx.id} ${withItems && tx.items ? `<br><small>${tx.items.map(i=>i.description||'Item').join(', ')}</small>` : ''}</td>
+              <td>${debit > 0 ? formatCurrency(debit) : '-'}</td>
+              <td>${credit > 0 ? formatCurrency(credit) : '-'}</td>
+              <td>${formatCurrency(runningBal)}</td>
+           </tr>`;
+      }).join('');
+
+      const content = `<html>
+        <head><title>Statement - ${party.name}</title>
+        <style>body{font-family:sans-serif;padding:20px} table{width:100%;border-collapse:collapse;margin-top:20px} th,td{border:1px solid #ddd;padding:8px;text-align:left} th{background:#f0f0f0}</style>
+        </head>
+        <body>
+          <h2>Statement of Account</h2>
+          <h3>${party.name}</h3>
+          <p>From: ${formatDate(start)} To: ${formatDate(end)}</p>
+          <p><b>Opening Balance: ${formatCurrency(openingBal)}</b></p>
+          <table><thead><tr><th>Date</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead><tbody>${rows}</tbody></table>
+          <p><b>Closing Balance: ${formatCurrency(runningBal)}</b></p>
+        </body></html>`;
+      
+      const win = window.open('','_blank');
+      if(win) { win.document.write(content); win.document.close(); win.print(); }
   };
 
   // --- SUB-COMPONENTS (DEFINED INSIDE APP) ---
 
+  const PnlReportView = () => {
+    const filtered = data.transactions.filter(t => ['sales'].includes(t.type));
+    const filteredDate = filtered.filter(t => {
+        const d = new Date(t.date);
+        const now = new Date();
+        if (pnlFilter === 'Week') return (now - d) / (1000*60*60*24) <= 7;
+        if (pnlFilter === 'Month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        if (pnlFilter === 'Year') return d.getFullYear() === now.getFullYear();
+        if (pnlFilter === 'Custom' && pnlCustomDates.start && pnlCustomDates.end) {
+            return d >= new Date(pnlCustomDates.start) && d <= new Date(pnlCustomDates.end);
+        }
+        return true;
+    });
+
+    return (
+        <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
+                <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                <h2 className="font-bold text-lg">Profit & Loss Report</h2>
+                <div/>
+            </div>
+            <div className="p-4 space-y-4">
+                {filteredDate.map(tx => {
+                    let serviceP = 0, goodsP = 0;
+                    (tx.items || []).forEach(item => {
+                        const m = data.items.find(i => i.id === item.itemId);
+                        const type = m?.type || 'Goods';
+                        const buy = parseFloat(item.buyPrice || m?.buyPrice || 0);
+                        const sell = parseFloat(item.price || 0);
+                        const qty = parseFloat(item.qty || 0);
+                        if(type === 'Service') serviceP += (sell * qty);
+                        else goodsP += ((sell - buy) * qty);
+                    });
+                    const totalP = serviceP + goodsP;
+                    return (
+                        <div key={tx.id} className="p-3 border rounded-xl bg-white shadow-sm" onClick={() => setViewDetail({ type: 'transaction', id: tx.id })}>
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="font-bold text-gray-800">{tx.id} • {formatDate(tx.date)}</span>
+                                <span className="font-black text-green-600">{formatCurrency(totalP)}</span>
+                            </div>
+                            <div className="text-xs text-gray-500 flex justify-between">
+                                <span>Service: {formatCurrency(serviceP)}</span>
+                                <span>Goods: {formatCurrency(goodsP)}</span>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+  };
+
+  const LoginScreen = () => {
+    const [id, setId] = useState('');
+    const [pass, setPass] = useState('');
+    const [err, setErr] = useState('');
+
+    const handleLogin = async () => {
+        if(id === 'him23' && pass === 'Himanshu#3499sp') {
+            setCurrentUser({ name: 'Admin', role: 'admin' });
+        } else {
+            try {
+                // Ensure auth is active for rules
+                await signInAnonymously(auth);
+                const q = query(collection(db, 'staff'), where('loginId', '==', id), where('password', '==', pass));
+                const snap = await getDocs(q);
+                if(!snap.empty) {
+                    setCurrentUser(snap.docs[0].data());
+                } else {
+                    setErr("Invalid ID or Password");
+                }
+            } catch (e) {
+                console.error(e);
+                setErr("Connection Error or Invalid Credentials");
+            }
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center p-6">
+            <div className="w-full max-w-sm">
+                <div className="flex justify-center mb-8"><div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white text-3xl font-black italic">S</div></div>
+                <h1 className="text-2xl font-bold text-center mb-6">SMEES Pro Login</h1>
+                <input className="w-full p-4 mb-4 bg-gray-50 border rounded-xl" placeholder="Login ID" value={id} onChange={e=>setId(e.target.value)}/>
+                <input className="w-full p-4 mb-4 bg-gray-50 border rounded-xl" type="password" placeholder="Password" value={pass} onChange={e=>setPass(e.target.value)}/>
+                {err && <p className="text-red-500 text-sm mb-4 text-center">{err}</p>}
+                <button onClick={handleLogin} className="w-full p-4 bg-blue-600 text-white rounded-xl font-bold text-lg">Login</button>
+            </div>
+        </div>
+    );
+  };
+
   const PartyForm = ({ record }) => {
-    const [form, setForm] = useState(record || { name: '', mobile: '', address: '', type: 'customer' });
+    const [form, setForm] = useState({ 
+        name: '', mobile: '', address: '', type: 'customer', ref: '', lat: '', lng: '', 
+        ...(record || {}) 
+    });
+    
     return (
       <div className="space-y-4">
         <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Party Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
         <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Reference (Optional)" value={form.ref} onChange={e => setForm({...form, ref: e.target.value})} />
+        <div className="grid grid-cols-2 gap-4">
+            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Lat" value={form.lat} onChange={e => setForm({...form, lat: e.target.value})} />
+            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Lng" value={form.lng} onChange={e => setForm({...form, lng: e.target.value})} />
+        </div>
+        <button onClick={() => {
+             if (navigator.geolocation) {
+                 navigator.geolocation.getCurrentPosition(pos => {
+                     setForm({...form, lat: pos.coords.latitude, lng: pos.coords.longitude});
+                 });
+             }
+        }} className="w-full p-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-bold flex items-center justify-center gap-2"><MapPin size={14}/> Get Current Location</button>
         <button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Party</button>
       </div>
     );
   };
 
   const ItemForm = ({ record }) => {
-    const [form, setForm] = useState(record || { name: '', sellPrice: '', buyPrice: '', unit: 'pcs', openingStock: '0' });
+    const [form, setForm] = useState({ 
+        name: '', sellPrice: '', buyPrice: '', unit: 'pcs', openingStock: '0', type: 'Goods', 
+        ...(record || {}) 
+    });
+    
     return (
       <div className="space-y-4">
         <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Item Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+        <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
+            <option>Goods</option>
+            <option>Service</option>
+            <option>Expense Item</option>
+        </select>
         <div className="grid grid-cols-2 gap-4">
            <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Sell Price" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} />
            <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Buy Price" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} />
@@ -606,7 +874,6 @@ export default function App() {
   };
 
   const TimeLogModal = () => {
-      // 1. Hook Declarations (Unconditional)
       const [form, setForm] = useState({ start: '', end: '' });
 
       useEffect(() => {
@@ -618,9 +885,8 @@ export default function App() {
                   end: log.end ? log.end.slice(0, 16) : ''
               });
           }
-      }, [editingTimeLog]); // Re-run when modal target changes
+      }, [editingTimeLog]); 
 
-      // 2. Conditional Return (After Hooks)
       if (!editingTimeLog) return null;
 
       const { task, index } = editingTimeLog;
@@ -636,7 +902,6 @@ export default function App() {
           
           const updatedTask = { ...task, timeLogs: newLogs };
           setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
-          // Updated to use dynamic appId
           if (user) await setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
           setEditingTimeLog(null);
           handleCloseUI();
@@ -665,53 +930,86 @@ export default function App() {
       );
   };
 
-  const PnlReportView = () => {
-      const filtered = data.transactions.filter(t => ['sales'].includes(t.type));
-      const filteredDate = filtered.filter(t => {
-          const d = new Date(t.date);
-          const now = new Date();
-          if (pnlFilter === 'Week') return (now - d) / (1000*60*60*24) <= 7;
-          if (pnlFilter === 'Month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-          if (pnlFilter === 'Year') return d.getFullYear() === now.getFullYear();
-          if (pnlFilter === 'Custom' && pnlCustomDates.start && pnlCustomDates.end) {
-              return d >= new Date(pnlCustomDates.start) && d <= new Date(pnlCustomDates.end);
-          }
-          return true;
-      });
+  const ReportsModule = () => {
+      const [filter, setFilter] = useState('');
+      
+      const filteredTx = data.transactions.filter(t => 
+          JSON.stringify(t).toLowerCase().includes(filter.toLowerCase()) ||
+          data.parties.find(p => p.id === t.partyId)?.name.toLowerCase().includes(filter.toLowerCase())
+      );
 
       return (
           <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
               <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
                   <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-                  <h2 className="font-bold text-lg">Profit & Loss Report</h2>
+                  <div className="flex-1 px-4">
+                      <div className="flex items-center gap-2 bg-gray-100 p-2 rounded-xl">
+                          <Search size={16} className="text-gray-400"/>
+                          <input className="bg-transparent text-sm w-full outline-none" placeholder="Search invoices, parties, items..." value={filter} onChange={e => setFilter(e.target.value)} autoFocus />
+                      </div>
+                  </div>
+              </div>
+              
+              <div className="p-4 space-y-4">
+                  {filter ? (
+                      <div>
+                          <h3 className="font-bold mb-2">Search Results ({filteredTx.length})</h3>
+                          {filteredTx.map(tx => (
+                              <div key={tx.id} onClick={() => setViewDetail({ type: 'transaction', id: tx.id })} className="p-3 border rounded-xl mb-2 bg-white">
+                                  <div className="flex justify-between">
+                                      <span className="font-bold">{tx.id}</span>
+                                      <span>{formatDate(tx.date)}</span>
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                      {data.parties.find(p => p.id === tx.partyId)?.name} • {tx.type} • {formatCurrency(tx.amount || tx.finalTotal)}
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  ) : (
+                      <div className="grid grid-cols-2 gap-4">
+                          <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl flex flex-col items-center gap-2" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
+                              <BarChart3 className="text-blue-600"/>
+                              <span className="font-bold text-blue-900">Profit & Loss</span>
+                          </div>
+                          <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl flex flex-col items-center gap-2" onClick={() => { pushHistory(); setMastersView('parties'); }}>
+                              <FileText className="text-orange-600"/>
+                              <span className="font-bold text-orange-900">Party Statements</span>
+                          </div>
+                          <div className="p-4 bg-purple-50 border border-purple-100 rounded-2xl flex flex-col items-center gap-2" onClick={() => { pushHistory(); setMastersView('expenses'); }}>
+                              <PieChart className="text-purple-600"/>
+                              <span className="font-bold text-purple-900">Expense Report</span>
+                          </div>
+                      </div>
+                  )}
+              </div>
+          </div>
+      );
+  };
+
+  const ExpensesBreakdown = () => {
+      const expenses = data.transactions.filter(t => t.type === 'expense');
+      const byCategory = expenses.reduce((acc, curr) => {
+          const cat = curr.category || 'Uncategorized';
+          acc[cat] = (acc[cat] || 0) + parseFloat(curr.finalTotal || curr.amount || 0);
+          return acc;
+      }, {});
+
+      return (
+          <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+              <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
+                  <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                  <h2 className="font-bold text-lg">Expenses Breakdown</h2>
                   <div/>
               </div>
               <div className="p-4 space-y-4">
-                  {filteredDate.map(tx => {
-                      let serviceP = 0, goodsP = 0;
-                      (tx.items || []).forEach(item => {
-                          const m = data.items.find(i => i.id === item.itemId);
-                          const type = m?.type || 'Goods';
-                          const buy = parseFloat(item.buyPrice || m?.buyPrice || 0);
-                          const sell = parseFloat(item.price || 0);
-                          const qty = parseFloat(item.qty || 0);
-                          if(type === 'Service') serviceP += (sell * qty);
-                          else goodsP += ((sell - buy) * qty);
-                      });
-                      const totalP = serviceP + goodsP;
-                      return (
-                          <div key={tx.id} className="p-3 border rounded-xl bg-white shadow-sm" onClick={() => setViewDetail({ type: 'transaction', id: tx.id })}>
-                              <div className="flex justify-between items-center mb-2">
-                                  <span className="font-bold text-gray-800">{tx.id} • {formatDate(tx.date)}</span>
-                                  <span className="font-black text-green-600">{formatCurrency(totalP)}</span>
-                              </div>
-                              <div className="text-xs text-gray-500 flex justify-between">
-                                  <span>Service: {formatCurrency(serviceP)}</span>
-                                  <span>Goods: {formatCurrency(goodsP)}</span>
-                              </div>
-                          </div>
-                      );
-                  })}
+                  {Object.entries(byCategory).map(([cat, total]) => (
+                      <div key={cat} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border">
+                          <span className="font-bold">{cat}</span>
+                          <span className="font-bold text-red-600">{formatCurrency(total)}</span>
+                      </div>
+                  ))}
+                  {expenses.length === 0 && <p className="text-center text-gray-400 mt-10">No expenses recorded</p>}
               </div>
           </div>
       );
@@ -719,7 +1017,10 @@ export default function App() {
 
   const TaskModule = () => {
     const [sort, setSort] = useState('DateAsc');
-    const sortedTasks = sortData(data.tasks, sort);
+    const [search, setSearch] = useState('');
+    
+    const sortedTasks = sortData(data.tasks, sort).filter(t => t.name.toLowerCase().includes(search.toLowerCase()) || t.description.toLowerCase().includes(search.toLowerCase()));
+    
     const pending = sortedTasks.filter(t => t.status !== 'Done' && t.status !== 'Converted');
     const done = sortedTasks.filter(t => t.status === 'Done' || t.status === 'Converted');
 
@@ -750,6 +1051,7 @@ export default function App() {
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold">Tasks</h1>
           <div className="flex gap-2 items-center">
+             <input className="p-2 border rounded-xl text-xs w-32" placeholder="Search tasks..." value={search} onChange={e => setSearch(e.target.value)}/>
              <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}>
                   <option value="DateAsc">Due Soon</option><option value="DateDesc">Due Later</option>
                   <option value="A-Z">A-Z</option><option value="Z-A">Z-A</option>
@@ -782,50 +1084,72 @@ export default function App() {
       const party = data.parties.find(p => p.id === tx.partyId);
       const totals = getBillLogic(tx);
 
+      // Payment logic specifics
+      const isPayment = tx.type === 'payment';
+      const paymentMode = tx.paymentMode || 'Cash';
+
       let pnl = { service: 0, goods: 0, total: 0 };
-      (tx.items || []).forEach(item => {
-        const itemMaster = data.items.find(i => i.id === item.itemId);
-        const type = itemMaster?.type || 'Goods';
-        const qty = parseFloat(item.qty || 0);
-        const sell = parseFloat(item.price || 0);
-        const buy = parseFloat(item.buyPrice || itemMaster?.buyPrice || 0);
-        
-        if (type === 'Service') {
-          pnl.service += (sell * qty);
-        } else {
-          pnl.goods += ((sell - buy) * qty);
-        }
-      });
-      pnl.total = pnl.service + pnl.goods;
+      if (!isPayment) {
+          (tx.items || []).forEach(item => {
+            const itemMaster = data.items.find(i => i.id === item.itemId);
+            const type = itemMaster?.type || 'Goods';
+            const qty = parseFloat(item.qty || 0);
+            const sell = parseFloat(item.price || 0);
+            const buy = parseFloat(item.buyPrice || itemMaster?.buyPrice || 0);
+            
+            if (type === 'Service') {
+              pnl.service += (sell * qty);
+            } else {
+              pnl.goods += ((sell - buy) * qty);
+            }
+          });
+          pnl.total = pnl.service + pnl.goods;
+      }
 
       return (
         <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
           <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
             <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
             <div className="flex gap-2">
-               <button onClick={() => printInvoice(tx)} className="p-2 bg-blue-50 text-blue-600 rounded-full"><Share2 size={20}/></button>
+               <button onClick={() => printInvoice(tx)} className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg font-bold text-xs flex items-center gap-1"><Printer size={16}/> PDF</button>
                <button onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full">Edit</button>
             </div>
           </div>
           
           <div className="p-4 space-y-6">
             <div className="text-center">
-              <h1 className="text-2xl font-black text-gray-800">{formatCurrency(totals.final)}</h1>
+              <h1 className="text-2xl font-black text-gray-800">{formatCurrency(totals.amount)}</h1>
               <p className="text-xs font-bold text-gray-400 uppercase">{tx.type} • {formatDate(tx.date)}</p>
-              <div className="mt-2"><span className={`px-3 py-1 rounded-full text-xs font-black ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span></div>
+              <div className="mt-2 flex justify-center gap-2">
+                  <span className={`px-3 py-1 rounded-full text-xs font-black ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-600 uppercase">{paymentMode}</span>
+              </div>
             </div>
 
             <div className="bg-gray-50 p-4 rounded-2xl border">
-              <p className="text-xs font-bold text-gray-400 uppercase mb-1">Party</p>
-              <p className="font-bold text-lg">{party?.name || 'Unknown'}</p>
+              <p className="text-xs font-bold text-gray-400 uppercase mb-1">{isPayment ? 'Paid Via' : 'Party'}</p>
+              <p className="font-bold text-lg">{party?.name || tx.category || 'Unknown'}</p>
               <p className="text-sm text-gray-500">{party?.mobile}</p>
             </div>
+
+            {isPayment && tx.linkedBills && tx.linkedBills.length > 0 && (
+                <div className="bg-white p-4 rounded-2xl border">
+                    <h3 className="font-bold text-gray-700 mb-2 flex items-center gap-2"><LinkIcon size={16}/> Linked Invoices</h3>
+                    <div className="space-y-2">
+                        {tx.linkedBills.map((link, i) => (
+                            <div key={i} className="flex justify-between items-center p-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100" onClick={() => setViewDetail({ type: 'transaction', id: link.billId })}>
+                                <span className="text-blue-600 font-bold underline">{link.billId}</span>
+                                <span className="font-bold">{formatCurrency(link.amount)}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {tx.convertedFromTask && (
                 <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100">
                     <p className="text-xs font-bold text-purple-600 uppercase mb-1">Source Task</p>
                     <p className="text-sm font-bold text-gray-800">Task #{tx.convertedFromTask}</p>
-                    <p className="text-xs text-gray-600 mt-1">{tx.workSummary}</p>
                     <button onClick={() => { setViewDetail({ type: 'task', id: tx.convertedFromTask }); }} className="mt-2 text-xs font-bold text-white bg-purple-600 px-3 py-1 rounded-lg flex items-center gap-1">
                         <LinkIcon size={12}/> View Source Task
                     </button>
@@ -852,22 +1176,24 @@ export default function App() {
               </div>
             )}
 
-            <div className="space-y-2">
-              <h3 className="font-bold text-gray-400 text-xs uppercase">Items</h3>
-              {tx.items?.map((item, i) => {
-                 const m = data.items.find(x => x.id === item.itemId);
-                 return (
-                   <div key={i} className="flex justify-between p-3 border rounded-xl bg-white">
-                     <div className="flex-1">
-                       <p className="font-bold text-sm">{m?.name || 'Item'}</p>
-                       <p className="text-xs text-gray-500">{item.qty} x {item.price}</p>
-                       {item.description && <p className="text-xs text-gray-600 italic mt-1">{item.description}</p>}
-                     </div>
-                     <p className="font-bold text-sm">{formatCurrency(item.qty * item.price)}</p>
-                   </div>
-                 );
-              })}
-            </div>
+            {!isPayment && (
+                <div className="space-y-2">
+                  <h3 className="font-bold text-gray-400 text-xs uppercase">Items</h3>
+                  {tx.items?.map((item, i) => {
+                     const m = data.items.find(x => x.id === item.itemId);
+                     return (
+                       <div key={i} className="flex justify-between p-3 border rounded-xl bg-white">
+                         <div className="flex-1">
+                           <p className="font-bold text-sm">{m?.name || 'Item'}</p>
+                           <p className="text-xs text-gray-500">{item.qty} x {item.price}</p>
+                           {item.description && <p className="text-xs text-gray-600 italic mt-1">{item.description}</p>}
+                         </div>
+                         <p className="font-bold text-sm">{formatCurrency(item.qty * item.price)}</p>
+                       </div>
+                     );
+                  })}
+                </div>
+            )}
           </div>
         </div>
       );
@@ -911,7 +1237,6 @@ export default function App() {
         const updateTaskLogs = (logs) => {
             const updatedTask = { ...task, timeLogs: logs };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
-            // Updated to use dynamic appId
             setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
         };
 
@@ -919,7 +1244,6 @@ export default function App() {
         const updateTaskItems = (newItems) => {
             const updated = { ...task, itemsUsed: newItems };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updated : t) }));
-            // Updated to use dynamic appId
             setDoc(doc(db, "tasks", updated.id), updated);
         };
 
@@ -956,6 +1280,13 @@ export default function App() {
                              </div>
                          </div>
                     </div>
+                    
+                    {/* ACTION BUTTONS */}
+                    <div className="grid grid-cols-3 gap-2 mt-4">
+                        {party?.mobile && <a href={`tel:${String(party.mobile).split(',')[0]}`} className="p-2 bg-green-100 text-green-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1"><Phone size={14}/> Call</a>}
+                        {party?.lat && <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${party.lat},${party.lng}`)} className="p-2 bg-blue-100 text-blue-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1"><Navigation size={14}/> Map</button>}
+                    </div>
+                    {party?.address && <p className="mt-2 text-xs text-gray-500 bg-white p-2 rounded border">{party.address}</p>}
                 </div>
 
                 <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
@@ -1072,6 +1403,7 @@ export default function App() {
           <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
           <h2 className="font-bold text-lg">{record.name}</h2>
           <div className="flex gap-2">
+             {!isItem && <button onClick={() => { pushHistory(); setStatementModal({ partyId: record.id }); }} className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-lg flex items-center gap-1"><FileText size={12}/> Stmt</button>}
              <button onClick={() => { pushHistory(); setModal({ type: isItem ? 'item' : 'party', data: record }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
           </div>
         </div>
@@ -1096,11 +1428,11 @@ export default function App() {
                 <div className="p-4 bg-gray-50 rounded-2xl border space-y-1">
                    {mobiles.map((m, i) => <p key={i} className="text-sm font-bold flex items-center gap-1"><Phone size={12}/> <a href={`tel:${m}`}>{m}</a></p>)}
                    {record.address && <p className="text-xs text-gray-500 truncate">{record.address}</p>}
-                   {record.lat && record.lng && (
-                       <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${record.lat},${record.lng}`)} className="mt-2 w-full py-1 bg-blue-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1">
-                           <Navigation size={12}/> Direction
-                       </button>
-                   )}
+                   
+                   <div className="grid grid-cols-2 gap-2 mt-2">
+                        {record.lat && <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${record.lat},${record.lng}`)} className="py-2 bg-blue-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"><Navigation size={12}/> Direction</button>}
+                        {mobiles.length > 0 && <a href={`tel:${mobiles[0]}`} className="py-2 bg-green-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"><Phone size={12}/> Call</a>}
+                   </div>
                 </div>
             )}
           </div>
@@ -1158,8 +1490,15 @@ export default function App() {
 
       const navTo = (tab, filter) => {
           setListFilter(filter);
+          setListPaymentMode(null); // Clear payment mode filter
           setActiveTab(tab);
       };
+
+      const navToCashBank = (mode) => {
+          setListFilter('all');
+          setListPaymentMode(mode);
+          setActiveTab('accounting');
+      }
 
       return (
         <div className="space-y-6">
@@ -1168,38 +1507,34 @@ export default function App() {
               <h1 className="text-2xl font-bold text-gray-800">{data.company.name}</h1>
               <p className="text-sm text-gray-500">FY {data.company.financialYear}</p>
             </div>
-            <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 bg-gray-100 rounded-xl">
-              <Settings className="text-gray-600" />
-            </button>
-          </div>
-
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 rounded-2xl text-white shadow-lg cursor-pointer" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
-              <div className="flex justify-between items-center mb-2" onClick={(e) => e.stopPropagation()}>
-                  <h2 className="font-bold text-sm opacity-90">Total Profit</h2>
-                  <select className="bg-white/20 border-none text-xs rounded-lg p-1 text-white font-bold cursor-pointer outline-none" value={pnlFilter} onChange={e => setPnlFilter(e.target.value)}>
-                      <option className="text-black" value="All">All Time</option>
-                      <option className="text-black" value="Week">This Week</option>
-                      <option className="text-black" value="Month">This Month</option>
-                      <option className="text-black" value="Year">This Year</option>
-                      <option className="text-black" value="Custom">Custom</option>
-                  </select>
-              </div>
-              {pnlFilter === 'Custom' && (
-                  <div className="flex gap-2 mb-2 text-black text-xs" onClick={(e) => e.stopPropagation()}>
-                      <input type="date" className="rounded p-1" value={pnlCustomDates.start} onChange={e => setPnlCustomDates({...pnlCustomDates, start: e.target.value})}/>
-                      <input type="date" className="rounded p-1" value={pnlCustomDates.end} onChange={e => setPnlCustomDates({...pnlCustomDates, end: e.target.value})}/>
-                  </div>
-              )}
-              <p className="text-3xl font-black">{formatCurrency(pnlData)}</p>
-              <p className="text-xs opacity-70 mt-1">Net Profit (Sales - Cost) • Tap for details</p>
+            <div className="flex gap-2">
+                <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 bg-gray-100 rounded-xl">
+                  <Settings className="text-gray-600" />
+                </button>
+                <button onClick={() => setCurrentUser(null)} className="p-2 bg-red-50 text-red-600 rounded-xl">
+                  <LogOut size={20} />
+                </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div onClick={() => navTo('accounting', 'sales')} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 cursor-pointer active:scale-95 transition-transform">
+              <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-4 rounded-2xl text-white shadow-lg cursor-pointer" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
+                  <p className="text-xs opacity-80 font-bold mb-1">NET PROFIT</p>
+                  <p className="text-2xl font-black">{formatCurrency(pnlData)}</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border shadow-sm">
+                  <p className="text-xs font-bold text-gray-400 mb-1">CASH / BANK</p>
+                  <div className="flex justify-between text-sm mb-1 cursor-pointer" onClick={() => navToCashBank('Cash')}><span>Cash:</span><span className="font-bold text-green-600">{formatCurrency(stats.cashInHand)}</span></div>
+                  <div className="flex justify-between text-sm cursor-pointer" onClick={() => navToCashBank('Bank')}><span>Bank:</span><span className="font-bold text-blue-600">{formatCurrency(stats.bankBalance)}</span></div>
+              </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div onClick={() => { pushHistory(); setMastersView('parties'); }} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 cursor-pointer active:scale-95 transition-transform">
                <p className="text-xs font-bold text-emerald-600 uppercase">Receivables</p>
                <p className="text-xl font-bold text-emerald-900">{formatCurrency(stats.totalReceivables)}</p>
             </div>
-            <div onClick={() => navTo('accounting', 'purchase')} className="bg-rose-50 p-4 rounded-2xl border border-rose-100 cursor-pointer active:scale-95 transition-transform">
+            <div onClick={() => { pushHistory(); setMastersView('parties'); }} className="bg-rose-50 p-4 rounded-2xl border border-rose-100 cursor-pointer active:scale-95 transition-transform">
                <p className="text-xs font-bold text-rose-600 uppercase">Payables</p>
                <p className="text-xl font-bold text-rose-900">{formatCurrency(stats.totalPayables)}</p>
             </div>
@@ -1207,7 +1542,7 @@ export default function App() {
               <p className="text-xs font-bold text-green-600 uppercase">Today Sales</p>
               <p className="text-xl font-bold text-green-900">{formatCurrency(stats.todaySales)}</p>
             </div>
-            <div onClick={() => navTo('accounting', 'expense')} className="bg-red-50 p-4 rounded-2xl border border-red-100 cursor-pointer active:scale-95 transition-transform">
+            <div onClick={() => { pushHistory(); setActiveTab('staff'); setMastersView('expenses'); }} className="bg-red-50 p-4 rounded-2xl border border-red-100 cursor-pointer active:scale-95 transition-transform">
               <p className="text-xs font-bold text-red-600 uppercase">Expenses</p>
               <p className="text-xl font-bold text-red-900">{formatCurrency(stats.totalExpenses)}</p>
             </div>
@@ -1218,6 +1553,7 @@ export default function App() {
             <div className="grid grid-cols-4 gap-2">
               {[
                 { label: 'Sale', icon: <TrendingUp />, type: 'sales', color: 'bg-green-100 text-green-700' },
+                { label: 'Estimate', icon: <FileText />, type: 'estimate', color: 'bg-yellow-100 text-yellow-700' },
                 { label: 'Purchase', icon: <ShoppingCart />, type: 'purchase', color: 'bg-blue-100 text-blue-700' },
                 { label: 'Expense', icon: <ReceiptText />, type: 'expense', color: 'bg-red-100 text-red-700' },
                 { label: 'Payment', icon: <Banknote />, type: 'payment', color: 'bg-purple-100 text-purple-700' }
@@ -1264,7 +1600,6 @@ export default function App() {
         setSelectedIds([]);
         setData(prev => ({ ...prev, [collection]: prev[collection].filter(item => !ids.includes(item.id)) }));
         try { 
-            // Updated to use dynamic appId
             await Promise.all(ids.map(id => deleteDoc(doc(db, collection, id.toString())))); 
         } catch (e) { console.error(e); }
     };
@@ -1320,23 +1655,27 @@ export default function App() {
     const [filter, setFilter] = useState('all'); 
     useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
-    const filtered = sortData(data.transactions.filter(tx => filter === 'all' || tx.type === filter), sort);
+    let filtered = data.transactions.filter(tx => filter === 'all' || tx.type === filter);
+    if(listPaymentMode) {
+        filtered = filtered.filter(tx => (tx.paymentMode || 'Cash') === listPaymentMode && ['sales', 'purchase', 'expense', 'payment'].includes(tx.type));
+    }
+    filtered = sortData(filtered, sort);
 
     return (
       <div className="space-y-4">
         <div className="flex justify-between items-center">
-          <h1 className="text-xl font-bold">Accounting</h1>
+          <h1 className="text-xl font-bold">Accounting {listPaymentMode && `(${listPaymentMode})`}</h1>
           <div className="flex gap-2 items-center">
              <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}>
                   <option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option>
                   <option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option>
              </select>
-            <button onClick={() => window.print()} className="p-2 bg-gray-100 rounded-lg text-xs font-bold flex items-center gap-1 text-gray-600"><Share2 size={14} /> PDF</button>
+            <button onClick={() => { pushHistory(); setReportView('search'); }} className="p-2 bg-gray-100 rounded-lg text-xs font-bold flex items-center gap-1 text-gray-600"><Search size={14} /></button>
           </div>
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {['all', 'sales', 'purchase', 'expense', 'payment'].map(t => (
+          {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
             <button key={t} onClick={() => setFilter(t)} className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
           ))}
         </div>
@@ -1350,6 +1689,7 @@ export default function App() {
             if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
             if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
             if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+            if (tx.type === 'estimate') { Icon = FileText; iconColor = 'text-yellow-600'; bg = 'bg-yellow-100'; }
 
             return (
               <div key={tx.id} onClick={() => { pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
@@ -1360,6 +1700,7 @@ export default function App() {
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
                     <div className="flex gap-1 mt-1">
                         {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
+                        {tx.type === 'estimate' && <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-yellow-100 text-yellow-700">ESTIMATE</span>}
                         {tx.type === 'payment' && (
                             <>
                                 <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${isIncoming ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{isIncoming ? 'IN' : 'OUT'}</span>
@@ -1382,7 +1723,10 @@ export default function App() {
   };
 
   const TransactionForm = ({ type, record }) => {
-    const [tx, setTx] = useState(record ? { ...record, linkedBills: record.linkedBills||[], items: record.items||[] } : {
+    const [tx, setTx] = useState(record ? { 
+        linkedBills: [], items: [], paymentMode: 'Cash', discountType: '%', discountValue: 0, 
+        ...record 
+    } : {
         type, date: new Date().toISOString().split('T')[0], partyId: '', items: [], discountType: '%', discountValue: 0,
         received: 0, paid: 0, paymentMode: 'Cash', category: '', subType: type==='payment'?'in':'', amount: '', linkedBills: [], description: ''
     });
@@ -1390,9 +1734,10 @@ export default function App() {
     const totals = getTransactionTotals(tx);
 
     const unpaidBills = useMemo(() => {
+      // For Payments: Show Unpaid Sales/Purchases AND other Unused Payments (for linking/settling)
       if (!tx.partyId) return [];
       return data.transactions.filter(t => 
-        t.partyId === tx.partyId && t.id !== tx.id &&
+        t.partyId === tx.partyId && t.id !== tx.id && t.type !== 'estimate' &&
         (
              (['sales', 'purchase', 'expense'].includes(t.type) && getBillLogic(t).status !== 'PAID') ||
              (t.type === 'payment' && getBillLogic(t).status !== 'FULLY USED')
@@ -1444,6 +1789,7 @@ export default function App() {
           <p className="text-xs font-bold text-gray-400 uppercase">{tx.id || 'New ' + type}</p>
           <input type="date" className="p-1 text-sm border-none bg-transparent font-bold text-blue-600" value={tx.date} onChange={e => setTx({...tx, date: e.target.value})} />
         </div>
+        
         {type === 'payment' && (
           <div className="flex bg-gray-100 p-1 rounded-xl mb-4">
             <button onClick={() => setTx({...tx, subType: 'in'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${tx.subType === 'in' ? 'bg-white shadow-sm text-green-600' : 'text-gray-500'}`}>Payment IN</button>
@@ -1460,11 +1806,13 @@ export default function App() {
                 onAddNew={() => {
                     const newCat = prompt("New Category Name:");
                     if (newCat) {
+                        const isDirect = window.confirm("Is this a Direct Expense? (OK = Direct, Cancel = Indirect)");
+                        // We store the category string, logic handles type if needed later or we append to string
                         setData(prev => ({
                             ...prev,
                             categories: { ...prev.categories, expense: [...prev.categories.expense, newCat] }
                         }));
-                        setTx({ ...tx, category: newCat });
+                        setTx({ ...tx, category: newCat, expenseType: isDirect ? 'Direct' : 'Indirect' });
                     }
                 }}
             />
@@ -1493,31 +1841,64 @@ export default function App() {
                         <select className="p-2 text-xs border rounded-lg" value={tx.discountType} onChange={e => setTx({...tx, discountType: e.target.value})}><option>%</option><option>Amt</option></select>
                      </div>
                      <div className="flex justify-between font-bold text-lg border-t pt-2"><span>Total</span><span>{formatCurrency(totals.final)}</span></div>
-                     <div className="flex items-center gap-2"><input type="number" className="flex-1 p-3 border rounded-xl font-bold text-green-600" placeholder="Received/Paid" value={(type==='sales'?tx.received:tx.paid)||''} onChange={e=>setTx({...tx, [type==='sales'?'received':'paid']: e.target.value})}/></div>
+                     
+                     <div className="grid grid-cols-2 gap-2">
+                         <input type="number" className="p-3 border rounded-xl font-bold text-green-600" placeholder="Received/Paid" value={(type==='sales'?tx.received:tx.paid)||''} onChange={e=>setTx({...tx, [type==='sales'?'received':'paid']: e.target.value})}/>
+                         <select className="p-3 border rounded-xl bg-white" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}>
+                             <option>Cash</option><option>Bank</option><option>UPI</option>
+                         </select>
+                     </div>
                  </div>
             </div>
         )}
+        
         {type === 'payment' && (
             <div className="space-y-4">
-                <input type="number" className="w-full bg-blue-50 text-2xl font-bold p-4 rounded-xl text-blue-600" placeholder="0.00" value={tx.amount} onChange={e=>setTx({...tx, amount: e.target.value})}/>
+                <div className="grid grid-cols-2 gap-2">
+                    <input type="number" className="w-full bg-blue-50 text-2xl font-bold p-4 rounded-xl text-blue-600" placeholder="Amount" value={tx.amount} onChange={e=>setTx({...tx, amount: e.target.value})}/>
+                    <select className="w-full bg-gray-50 p-4 rounded-xl font-bold" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}>
+                        <option>Cash</option><option>Bank</option><option>UPI</option>
+                    </select>
+                </div>
+                
+                <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl">
+                    <span className="text-xs font-bold text-gray-500">Discount:</span>
+                    <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Amt" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})}/>
+                </div>
+
                 <button onClick={() => setShowLinking(!showLinking)} className="w-full p-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg">{showLinking?"Hide":"Link Bills (Advanced)"}</button>
                 {showLinking && <div className="space-y-2 max-h-40 overflow-y-auto p-2 border rounded-xl">{unpaidBills.map(b => (
-                    <div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0"><div className="text-[10px]"><p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p><p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillLogic(b).final)} • Bal: {formatCurrency(getBillLogic(b).pending)}</p></div><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/></div>
+                    <div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0">
+                        <div className="text-[10px]">
+                            <p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p>
+                            <p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillLogic(b).final)} <br/> <span className="text-red-600">Due: {formatCurrency(b.type === 'payment' ? (getBillLogic(b).amount - getBillLogic(b).used) : getBillLogic(b).pending)}</span></p>
+                        </div>
+                        <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/>
+                    </div>
                 ))}</div>}
             </div>
         )}
+        
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl text-sm h-16" placeholder="Notes" value={tx.description} onChange={e => setTx({...tx, description: e.target.value})} />
-        <button onClick={() => { if(!tx.partyId && type !== 'expense') return alert("Party Required"); saveRecord('transactions', {...tx, ...totals}, 'transaction'); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
+        <button onClick={() => { if(!tx.partyId && type !== 'expense') return alert("Party Required"); saveRecord('transactions', {...tx, ...totals}, type === 'estimate' ? 'estimate' : 'transaction'); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
       </div>
     );
   };
 
   const StaffForm = ({ record }) => {
-    const [form, setForm] = useState(record || { name: '', mobile: '', role: 'Staff', active: true });
+    const [form, setForm] = useState({ 
+        name: '', mobile: '', role: 'Staff', active: true, loginId: '', password: '', 
+        ...(record || {}) 
+    });
+    
     return (
       <div className="space-y-4">
         <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Staff Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
         <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
+        <div className="grid grid-cols-2 gap-4">
+            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Login ID" value={form.loginId} onChange={e => setForm({...form, loginId: e.target.value})} />
+            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} />
+        </div>
         <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.role} onChange={e => setForm({...form, role: e.target.value})}>
           <option>Admin</option>
           <option>Staff</option>
@@ -1528,89 +1909,33 @@ export default function App() {
     );
   };
 
-  const TaskForm = ({ record }) => {
-    const [form, setForm] = useState(record ? { ...record, itemsUsed: record.itemsUsed || [], assignedStaff: record.assignedStaff || [] } : { name: '', partyId: '', description: '', status: 'To Do', dueDate: '', assignedStaff: [], itemsUsed: [] });
-    
-    const itemOptions = data.items.map(i => ({ 
-        ...i, 
-        subText: `Stock: ${itemStock[i.id] || 0}`, 
-        subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600'
-    }));
+  const StatementModal = () => {
+      if (!statementModal) return null;
+      const [dates, setDates] = useState({ 
+          start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], 
+          end: new Date().toISOString().split('T')[0] 
+      });
+      const [withItems, setWithItems] = useState(false);
 
-    const updateItem = (idx, field, val) => {
-        const n = [...form.itemsUsed]; n[idx][field] = val;
-        if(field==='itemId') {
-            const item = data.items.find(i=>i.id===val);
-            if(item) { n[idx].price = item.sellPrice; n[idx].buyPrice = item.buyPrice; n[idx].description = item.description || ''; }
-        }
-        setForm({...form, itemsUsed: n});
-    };
-
-    return (
-      <div className="space-y-4">
-        <input className="w-full p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Task Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        
-        <div className="p-3 bg-gray-50 rounded-xl border">
-            <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Assigned Staff</label>
-            <div className="flex flex-wrap gap-2 mb-2">
-                {form.assignedStaff.map(sid => {
-                    const s = data.staff.find(st => st.id === sid);
-                    return (
-                        <span key={sid} className="bg-white border px-2 py-1 rounded-full text-xs flex items-center gap-1">
-                            {s?.name} <button onClick={() => setForm({...form, assignedStaff: form.assignedStaff.filter(id => id !== sid)})}><X size={12}/></button>
-                        </span>
-                    );
-                })}
-            </div>
-            <select className="w-full p-2 border rounded-lg text-sm bg-white" onChange={e => { if(e.target.value && !form.assignedStaff.includes(e.target.value)) setForm({...form, assignedStaff: [...form.assignedStaff, e.target.value]}); }}>
-                <option value="">+ Add Staff</option>
-                {data.staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-        </div>
-
-        <SearchableSelect label="Client" options={data.parties} value={form.partyId} onChange={v => setForm({...form, partyId: v})} />
-        <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-20" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
-        
-        <div className="space-y-2">
-            <div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4><button onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="text-blue-600 text-xs font-bold">+ Add</button></div>
-            {form.itemsUsed.map((line, idx) => (
-                <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
-                    <button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
-                    <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} />
-                    <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} />
-                    <div className="flex gap-2">
-                        <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
-                        <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
-                        <input type="number" className="w-20 p-1 border rounded text-xs bg-gray-100" placeholder="Buy" value={line.buyPrice} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} />
-                    </div>
-                </div>
-            ))}
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-           <input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} />
-           <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.status} onChange={e => setForm({...form, status: e.target.value})}><option>To Do</option><option>In Progress</option><option>Done</option></select>
-        </div>
-        <button onClick={() => saveRecord('tasks', form, 'task')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
-      </div>
-    );
+      return (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+              <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
+                  <h3 className="font-bold text-lg mb-4">Generate Statement</h3>
+                  <div className="space-y-4">
+                      <div><label className="text-xs font-bold text-gray-500">From Date</label><input type="date" className="w-full p-3 border rounded-xl" value={dates.start} onChange={e=>setDates({...dates, start:e.target.value})}/></div>
+                      <div><label className="text-xs font-bold text-gray-500">To Date</label><input type="date" className="w-full p-3 border rounded-xl" value={dates.end} onChange={e=>setDates({...dates, end:e.target.value})}/></div>
+                      <div className="flex items-center gap-2"><input type="checkbox" checked={withItems} onChange={e=>setWithItems(e.target.checked)} className="w-5 h-5"/> <label>Show Item Details</label></div>
+                      <div className="flex gap-2">
+                          <button onClick={() => setStatementModal(null)} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
+                          <button onClick={() => { printStatement(statementModal.partyId, dates.start, dates.end, withItems); setStatementModal(null); }} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Generate PDF</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      );
   };
 
-  const CompanyForm = () => {
-    const [form, setForm] = useState(data.company);
-    return (
-      <div className="space-y-4">
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Company Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
-        <textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
-        <div className="grid grid-cols-2 gap-4">
-          <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="FY" value={form.financialYear} onChange={e => setForm({...form, financialYear: e.target.value})} />
-          <div className="p-3 bg-gray-100 border rounded-xl text-gray-500">Currency: ₹</div>
-        </div>
-        <button onClick={() => { saveCompanySettings(form); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Settings</button>
-      </div>
-    );
-  };
+  if (!currentUser) return <LoginScreen />;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24 font-sans select-none">
@@ -1643,6 +1968,7 @@ export default function App() {
                         {mastersView === 'items' && <MasterList title="Items" collection="items" type="item" onRowClick={(item) => { pushHistory(); setViewDetail({type: 'item', id: item.id}); }} />}
                         {mastersView === 'parties' && <MasterList title="Parties" collection="parties" type="party" onRowClick={(item) => { pushHistory(); setViewDetail({type: 'party', id: item.id}); }} />}
                         {mastersView === 'staff' && <MasterList title="Staff" collection="staff" type="staff" />}
+                        {mastersView === 'expenses' && <ExpensesBreakdown />}
                     </div>
                 )}
               </div>
@@ -1663,7 +1989,7 @@ export default function App() {
         {modal.type === 'item' && <ItemForm record={modal.data} />}
         {modal.type === 'staff' && <StaffForm record={modal.data} />}
         {modal.type === 'task' && <TaskForm record={modal.data} />}
-        {['sales', 'purchase', 'expense', 'payment'].includes(modal.type) && <TransactionForm type={modal.type} record={modal.data} />}
+        {['sales', 'estimate', 'purchase', 'expense', 'payment'].includes(modal.type) && <TransactionForm type={modal.type} record={modal.data} />}
       </Modal>
 
       {/* 7. Timer Conflict Warning Modal */}
@@ -1701,6 +2027,9 @@ export default function App() {
       {convertModal && <ConvertTaskModal task={convertModal} />}
       {editingTimeLog && <TimeLogModal />}
       {showPnlReport && <PnlReportView />}
+      {reportView && <ReportsModule />}
+      {statementModal && <StatementModal />}
+      {mastersView === 'expenses' && <ExpensesBreakdown />}
     </div>
   );
 }
