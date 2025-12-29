@@ -38,7 +38,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 
-/** * SMEES Pro - Final Fixed Version
+/** * SMEES Pro - Final Version (Fixing Hooks & Scopes)
  * Backend: Firebase Firestore
  */
 
@@ -459,7 +459,7 @@ export default function App() {
     win.print();
   };
 
-  // --- SUB-COMPONENTS ---
+  // --- SUB-COMPONENTS (DEFINED INSIDE APP) ---
 
   const ConvertTaskModal = ({ task }) => {
       const [form, setForm] = useState({
@@ -533,14 +533,25 @@ export default function App() {
   };
 
   const TimeLogModal = () => {
+      // 1. Hook Declarations (Unconditional)
+      const [form, setForm] = useState({ start: '', end: '' });
+
+      useEffect(() => {
+          if (editingTimeLog) {
+              const { task, index } = editingTimeLog;
+              const log = task.timeLogs[index] || {};
+              setForm({
+                  start: log.start ? log.start.slice(0, 16) : '', 
+                  end: log.end ? log.end.slice(0, 16) : ''
+              });
+          }
+      }, [editingTimeLog]); // Re-run when modal target changes
+
+      // 2. Conditional Return (After Hooks)
       if (!editingTimeLog) return null;
+
       const { task, index } = editingTimeLog;
       const log = task.timeLogs[index];
-      
-      const [form, setForm] = useState({
-          start: log.start.slice(0, 16), 
-          end: log.end ? log.end.slice(0, 16) : ''
-      });
 
       const handleSave = async () => {
           const startD = new Date(form.start);
