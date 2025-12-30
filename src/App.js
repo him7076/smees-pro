@@ -899,7 +899,7 @@ export default function App() {
         reader.readAsBinaryString(file);
     };
 
-    // --- BULK PAYMENT IMPORT LOGIC (NEW - FIX #1) ---
+    // --- BULK PAYMENT IMPORT LOGIC (UPDATED: Party Name Lookup) ---
     const handlePaymentImport = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -923,6 +923,10 @@ export default function App() {
                 const headers = window.XLSX.utils.sheet_to_json(ws1, { header: 1 });
                 const links = window.XLSX.utils.sheet_to_json(ws2, { header: 1 });
                 
+                // Create Party Name Map for Lookup
+                const partyMap = {};
+                data.parties.forEach(p => partyMap[p.name.trim().toLowerCase()] = p.id);
+
                 let nextPayCounter = data.counters.transaction || 1000;
                 const batchPromises = [];
                 const newTransactions = [];
@@ -951,8 +955,15 @@ export default function App() {
                     const typeStr = (row[3] || '').toLowerCase(); // Col D
                     const totalAmount = parseFloat(row[4] || 0); // Col E
                     const mode = row[5] || 'Cash'; // Col F
-                    const partyId = row[7] || ''; // Col H
+                    const partyName = row[7] || ''; // Col H (NAME now)
                     const desc = row[8] || ''; // Col I
+
+                    // Lookup Party ID
+                    const partyId = partyMap[partyName.trim().toLowerCase()];
+                    if (!partyId) {
+                        console.warn(`Payment Import: Party not found "${partyName}" for Ref ${refNum}. Skipping.`);
+                        continue;
+                    }
 
                     let subType = 'in';
                     if (typeStr.includes('out')) subType = 'out';
@@ -972,7 +983,7 @@ export default function App() {
                         type: 'payment',
                         subType,
                         date: parseDate(rawDate),
-                        partyId,
+                        partyId, // User looked up ID
                         amount: totalAmount,
                         paymentMode: mode,
                         linkedBills,
