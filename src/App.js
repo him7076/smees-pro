@@ -839,10 +839,11 @@ export default function App() {
                 const itemRows = window.XLSX.utils.sheet_to_json(ws2, { header: 1 });
                 
                 const partyMap = {};
-                data.parties.forEach(p => partyMap[p.name.trim().toLowerCase()] = p.id);
+                // SAFETY: Convert name to string before trimming to avoid crashes
+                data.parties.forEach(p => { if(p.name) partyMap[String(p.name).trim().toLowerCase()] = p.id; });
 
                 const itemMap = {};
-                data.items.forEach(i => itemMap[i.name.trim().toLowerCase()] = i.id);
+                data.items.forEach(i => { if(i.name) itemMap[String(i.name).trim().toLowerCase()] = i.id; });
                 
                 const validTransactions = [];
                 const newItemsToSave = [];
@@ -866,8 +867,9 @@ export default function App() {
                     if (!voucher) continue;
                     
                     const rawDate = row[0];
-                    const partyName = row[3];
-                    const typeStr = (row[4] || 'Sales').toLowerCase();
+                    // SAFETY: Convert to string
+                    const partyName = String(row[3] || '');
+                    const typeStr = String(row[4] || 'Sales').toLowerCase();
                     const desc = row[6] || '';
                     const category = row[7] || '';
                     
@@ -879,7 +881,7 @@ export default function App() {
                     
                     let partyId = '';
                     if (type !== 'expense') {
-                        partyId = partyMap[(partyName || '').trim().toLowerCase()];
+                        partyId = partyMap[partyName.trim().toLowerCase()];
                         if (!partyId) {
                             console.warn(`Party not found: ${partyName}, skipping voucher ${voucher}`);
                             continue;
@@ -891,7 +893,7 @@ export default function App() {
                     const relatedItems = [];
 
                     for (const r of specificItemRows) {
-                         const itemName = (r[2] || '').trim(); // Col C
+                         const itemName = String(r[2] || '').trim(); // Col C
                          if(!itemName) continue;
 
                          let itemId = itemMap[itemName.toLowerCase()];
@@ -1017,7 +1019,8 @@ export default function App() {
                 
                 // Create Party Name Map for Lookup
                 const partyMap = {};
-                data.parties.forEach(p => partyMap[p.name.trim().toLowerCase()] = p.id);
+                // SAFETY: Convert to string
+                data.parties.forEach(p => { if(p.name) partyMap[String(p.name).trim().toLowerCase()] = p.id; });
 
                 let nextPayCounter = data.counters.transaction || 1000;
                 const batchPromises = [];
@@ -1044,11 +1047,11 @@ export default function App() {
                     if (!refNum) continue;
 
                     const rawDate = row[1]; // Col B
-                    const typeStr = (row[3] || '').toLowerCase(); // Col D
+                    const typeStr = String(row[3] || '').toLowerCase(); // Col D - SAFETY
                     const totalAmount = parseFloat(row[4] || 0); // Col E
                     const mode = row[5] || 'Cash'; // Col F
-                    const partyName = row[7] || ''; // Col H (NAME now)
-                    const desc = row[8] || ''; // Col I
+                    const partyName = String(row[7] || ''); // Col H (NAME now) - SAFETY
+                    const desc = String(row[8] || ''); // Col I - SAFETY
 
                     // Lookup Party ID
                     const partyId = partyMap[partyName.trim().toLowerCase()];
