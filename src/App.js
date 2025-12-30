@@ -237,7 +237,7 @@ export default function App() {
 
   useEffect(() => {
     const script = document.createElement("script");
-    script.src = "https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js";
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
     script.async = true;
     document.body.appendChild(script);
     signInAnonymously(auth);
@@ -347,14 +347,44 @@ export default function App() {
     const pendingTasks = data.tasks.filter(t => t.status !== 'Done').length;
     let totalReceivables = 0, totalPayables = 0;
     Object.values(partyBalances).forEach(bal => { if (bal > 0) totalReceivables += bal; if (bal < 0) totalPayables += Math.abs(bal); });
+    
+    // FIX BUG 2: Correct Cash/Bank Logic
     let cashInHand = 0, bankBalance = 0;
     data.transactions.forEach(tx => {
         if (tx.type === 'estimate') return;
-        const amt = parseFloat(tx.received || tx.paid || tx.amount || 0);
-        const isCash = (tx.paymentMode || 'Cash') === 'Cash';
-        const isIncome = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
-        if (isIncome) isCash ? cashInHand += amt : bankBalance += amt;
-        else isCash ? cashInHand -= amt : bankBalance -= amt;
+        
+        let amt = 0;
+        let isIncome = false;
+        let affectCashBank = false;
+
+        // Specific logic per type
+        if (tx.type === 'sales') {
+            amt = parseFloat(tx.received || 0);
+            isIncome = true;
+            affectCashBank = amt > 0;
+        } else if (tx.type === 'purchase') {
+            amt = parseFloat(tx.paid || 0);
+            isIncome = false;
+            affectCashBank = amt > 0;
+        } else if (tx.type === 'expense') {
+            // Expense form uses 'paid' field or just assumes paid if simple
+            amt = parseFloat(tx.paid || 0);
+            isIncome = false;
+            affectCashBank = amt > 0;
+        } else if (tx.type === 'payment') {
+            amt = parseFloat(tx.amount || 0);
+            isIncome = tx.subType === 'in';
+            affectCashBank = amt > 0;
+        }
+
+        if (affectCashBank) {
+            const isCash = (tx.paymentMode || 'Cash') === 'Cash';
+            if (isIncome) {
+                isCash ? cashInHand += amt : bankBalance += amt;
+            } else {
+                isCash ? cashInHand -= amt : bankBalance -= amt;
+            }
+        }
     });
     return { todaySales, totalExpenses, pendingTasks, totalReceivables, totalPayables, cashInHand, bankBalance };
   }, [data, partyBalances]);
@@ -617,6 +647,7 @@ export default function App() {
               <p className="text-xs font-bold text-green-600 uppercase">Today Sales</p>
               <p className="text-xl font-bold text-green-900">{formatCurrency(stats.todaySales)}</p>
             </div>
+            {/* FIX #3: Make Expenses Card Clickable */}
             <div onClick={() => { pushHistory(); setMastersView('expenses'); }} className="bg-red-50 p-4 rounded-2xl border border-red-100 cursor-pointer active:scale-95 transition-transform">
               <p className="text-xs font-bold text-red-600 uppercase">Expenses</p>
               <p className="text-xl font-bold text-red-900">{formatCurrency(stats.totalExpenses)}</p>
@@ -651,7 +682,6 @@ export default function App() {
            const bal = partyBalances[p.id] || 0;
            return { ...p, subText: bal !== 0 ? formatCurrency(Math.abs(bal)) + (bal > 0 ? ' DR' : ' CR') : 'Settled', subColor: bal > 0 ? 'text-green-600' : bal < 0 ? 'text-red-600' : 'text-gray-400', balance: bal };
         });
-        // FIX #3: Dashboard Filter Logic
         if (partyFilter === 'receivable') listData = listData.filter(p => p.balance > 0);
         if (partyFilter === 'payable') listData = listData.filter(p => p.balance < 0);
     }
@@ -668,6 +698,12 @@ export default function App() {
     const handleImport = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+
+        if (!window.XLSX) {
+            alert("Excel library is still loading. Please try again in a few seconds.");
+            return;
+        }
+
         const reader = new FileReader();
         reader.onload = async (evt) => {
             const bstr = evt.target.result;
@@ -776,10 +812,16 @@ export default function App() {
     if (categoryFilter) filtered = filtered.filter(tx => tx.category === categoryFilter);
     filtered = sortData(filtered, sort);
 
-    // --- BULK TRANSACTION IMPORT LOGIC ---
+    // --- BULK TRANSACTION IMPORT LOGIC (FIX #1: Counter Update & FIX #2: ID Logic) ---
     const handleTransactionImport = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+
+        if (!window.XLSX) {
+            alert("Excel library is still loading. Please try again in a few seconds.");
+            return;
+        }
+
         setLoading(true);
         
         const reader = new FileReader();
@@ -798,10 +840,14 @@ export default function App() {
                 
                 const partyMap = {};
                 data.parties.forEach(p => partyMap[p.name.trim().toLowerCase()] = p.id);
+
+                const itemMap = {};
+                data.items.forEach(i => itemMap[i.name.trim().toLowerCase()] = i.id);
                 
                 const validTransactions = [];
+                const newItemsToSave = [];
                 const batchPromises = [];
-                let nextTxCounter = data.counters.transaction || 1000;
+                let nextItemCounter = data.counters.item || 100;
                 
                 const parseDate = (val) => {
                     if (val instanceof Date) return val.toISOString().split('T')[0];
@@ -840,20 +886,47 @@ export default function App() {
                         }
                     }
                     
-                    const relatedItems = itemRows.filter(r => r[1] == voucher).map(r => ({
-                        itemId: r[2] || '', 
-                        description: r[3] || '',
-                        qty: parseFloat(r[4] || 0),
-                        buyPrice: parseFloat(r[5] || 0),
-                        price: parseFloat(r[8] || 0)
-                    })).filter(item => item.qty > 0 || item.price > 0);
-                    
-                    const gross = relatedItems.reduce((acc, it) => acc + (it.qty * it.price), 0);
+                    // Process Items
+                    const specificItemRows = itemRows.filter(r => r[1] == voucher);
+                    const relatedItems = [];
+
+                    for (const r of specificItemRows) {
+                         const itemName = (r[2] || '').trim(); // Col C
+                         if(!itemName) continue;
+
+                         let itemId = itemMap[itemName.toLowerCase()];
+                         if(!itemId) {
+                              const existingNew = newItemsToSave.find(ni => ni.name.toLowerCase() === itemName.toLowerCase());
+                              if(existingNew) {
+                                  itemId = existingNew.id;
+                              } else {
+                                  itemId = `I-${nextItemCounter}`;
+                                  nextItemCounter++;
+                                  const newItem = {
+                                      id: itemId, name: itemName, category: 'General', type: 'Goods', 
+                                      sellPrice: parseFloat(r[8]||0), buyPrice: parseFloat(r[5]||0), 
+                                      unit: 'pcs', openingStock: 0 
+                                  };
+                                  newItemsToSave.push(cleanData(newItem));
+                                  itemMap[itemName.toLowerCase()] = itemId; 
+                                  batchPromises.push(setDoc(doc(db, "items", itemId), cleanData(newItem)));
+                              }
+                         }
+
+                         relatedItems.push({
+                              itemId,
+                              description: r[3] || '',
+                              qty: parseFloat(r[4] || 0),
+                              buyPrice: parseFloat(r[5] || 0),
+                              price: parseFloat(r[8] || 0) // Unit Price
+                         });
+                    }
+
+                    const validItems = relatedItems.filter(item => item.qty > 0 || item.price > 0);
+                    const gross = validItems.reduce((acc, it) => acc + (it.qty * it.price), 0);
                     const final = gross; 
                     
-                    const prefix = type === 'sales' ? 'S' : type === 'purchase' ? 'P' : type === 'expense' ? 'E' : 'TX';
-                    const newId = `${prefix}-${nextTxCounter}`;
-                    nextTxCounter++;
+                    const newId = voucher.toString();
                     
                     const newTx = {
                         id: newId,
@@ -861,7 +934,7 @@ export default function App() {
                         type,
                         partyId,
                         category: type === 'expense' ? category : '',
-                        items: relatedItems,
+                        items: validItems,
                         amount: final,
                         grossTotal: gross,
                         finalTotal: final,
@@ -875,8 +948,20 @@ export default function App() {
                     validTransactions.push(cleanData(newTx));
                     batchPromises.push(setDoc(doc(db, "transactions", newId), cleanData(newTx)));
                 }
+
+                // FIX #1: Update ID Counter based on imported data
+                let maxTxNum = data.counters.transaction || 1000;
+                validTransactions.forEach(tx => {
+                    const parts = tx.id.split('-');
+                    if (parts.length > 1) {
+                        const num = parseInt(parts[1]);
+                        if (!isNaN(num) && num >= maxTxNum) {
+                            maxTxNum = num + 1;
+                        }
+                    }
+                });
                 
-                const newCounters = { ...data.counters, transaction: nextTxCounter };
+                const newCounters = { ...data.counters, transaction: maxTxNum, item: nextItemCounter };
                 batchPromises.push(setDoc(doc(db, "settings", "counters"), newCounters));
                 
                 await Promise.all(batchPromises);
@@ -884,6 +969,7 @@ export default function App() {
                 setData(prev => ({
                     ...prev,
                     transactions: [...prev.transactions, ...validTransactions],
+                    items: [...prev.items, ...newItemsToSave],
                     counters: newCounters
                 }));
                 
@@ -899,10 +985,16 @@ export default function App() {
         reader.readAsBinaryString(file);
     };
 
-    // --- BULK PAYMENT IMPORT LOGIC (UPDATED: Party Name Lookup) ---
+    // --- BULK PAYMENT IMPORT LOGIC ---
     const handlePaymentImport = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+
+        if (!window.XLSX) {
+            alert("Excel library is still loading. Please try again in a few seconds.");
+            return;
+        }
+
         setLoading(true);
         
         const reader = new FileReader();
@@ -1079,9 +1171,27 @@ export default function App() {
     );
   };
 
+  // FIX #3: Expenses Breakdown with Date Filters
   const ExpensesBreakdown = () => {
-      const expenses = data.transactions.filter(t => t.type === 'expense');
-      const byCategory = expenses.reduce((acc, curr) => {
+      const [eFilter, setEFilter] = useState('Monthly');
+      const [eDates, setEDates] = useState({ start: '', end: '' });
+
+      const filteredExpenses = data.transactions.filter(t => {
+          if (t.type !== 'expense') return false;
+          const d = new Date(t.date);
+          const now = new Date();
+          if (eFilter === 'Today') return d.toDateString() === now.toDateString();
+          if (eFilter === 'Weekly') {
+              const start = new Date(now); start.setDate(now.getDate() - now.getDay()); start.setHours(0,0,0,0);
+              return d >= start;
+          }
+          if (eFilter === 'Monthly') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+          if (eFilter === 'Yearly') return d.getFullYear() === now.getFullYear();
+          if (eFilter === 'Custom' && eDates.start && eDates.end) return d >= new Date(eDates.start) && d <= new Date(eDates.end);
+          return true; // All
+      });
+
+      const byCategory = filteredExpenses.reduce((acc, curr) => {
           const cat = curr.category || 'Uncategorized';
           acc[cat] = (acc[cat] || 0) + parseFloat(curr.finalTotal || curr.amount || 0);
           return acc;
@@ -1092,12 +1202,29 @@ export default function App() {
               <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
                   <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
                   <h2 className="font-bold text-lg">Expenses Breakdown</h2>
-                  <div/>
+                  
+                  {/* Date Filter Dropdown */}
+                  <select value={eFilter} onChange={(e)=>setEFilter(e.target.value)} className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none">
+                      <option value="All">All Time</option>
+                      <option value="Today">Today</option>
+                      <option value="Weekly">Weekly</option>
+                      <option value="Monthly">Month</option>
+                      <option value="Yearly">Year</option>
+                      <option value="Custom">Custom</option>
+                  </select>
               </div>
+              
+              {eFilter === 'Custom' && (
+                  <div className="flex gap-2 p-2 bg-gray-50 justify-center border-b">
+                      <input type="date" className="p-1 rounded border text-xs" value={eDates.start} onChange={e=>setEDates({...eDates, start:e.target.value})} />
+                      <input type="date" className="p-1 rounded border text-xs" value={eDates.end} onChange={e=>setEDates({...eDates, end:e.target.value})} />
+                  </div>
+              )}
+
               <div className="p-4 space-y-4">
-                  {/* FIX #4: Show All Button */}
+                  {/* Show All Button */}
                   <div onClick={() => { setListFilter('expense'); setCategoryFilter(null); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-center items-center p-3 bg-blue-50 rounded-xl border border-blue-200 cursor-pointer mb-2 text-blue-700 font-bold text-sm">
-                      Show All Expenses
+                      Show All Expenses List
                   </div>
                   {Object.entries(byCategory).map(([cat, total]) => (
                       <div key={cat} onClick={() => { setListFilter('expense'); setCategoryFilter(cat); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border cursor-pointer hover:bg-gray-100">
@@ -1105,7 +1232,7 @@ export default function App() {
                           <span className="font-bold text-red-600">{formatCurrency(total)}</span>
                       </div>
                   ))}
-                  {expenses.length === 0 && <p className="text-center text-gray-400 mt-10">No expenses recorded</p>}
+                  {filteredExpenses.length === 0 && <p className="text-center text-gray-400 mt-10">No expenses recorded for this period</p>}
               </div>
           </div>
       );
@@ -1545,7 +1672,8 @@ export default function App() {
         {type !== 'payment' && <div className="space-y-3"><div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items</h4><button onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0 }]})} className="text-blue-600 text-xs font-bold">+ Add Item</button></div>{tx.items.map((line, idx) => (<div key={idx} className="p-3 bg-gray-50 border rounded-xl relative space-y-2"><button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button><SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine(idx, 'itemId', v)} onAddNew={() => { pushHistory(); setModal({ type: 'item' }); }}/><input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} /><div className="grid grid-cols-3 gap-2"><input type="number" className="p-2 border rounded-lg text-sm" value={line.qty} placeholder="Qty" onChange={e => updateLine(idx, 'qty', e.target.value)} /><input type="number" className="p-2 border rounded-lg text-sm" value={line.price} placeholder="Price" onChange={e => updateLine(idx, 'price', e.target.value)} />{type === 'sales' && <input type="number" className="p-2 border rounded-lg text-sm bg-yellow-50" value={line.buyPrice || 0} placeholder="Buy" onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />}</div></div>))}<div className="p-4 bg-gray-50 rounded-2xl space-y-3"><div className="flex items-center gap-2"><input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Discount" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})}/><select className="p-2 text-xs border rounded-lg" value={tx.discountType} onChange={e => setTx({...tx, discountType: e.target.value})}><option>%</option><option>Amt</option></select></div><div className="flex justify-between font-bold text-lg border-t pt-2"><span>Total</span><span>{formatCurrency(totals.final)}</span></div><div className="grid grid-cols-2 gap-2"><input type="number" className="p-3 border rounded-xl font-bold text-green-600" placeholder="Received/Paid" value={(type==='sales'?tx.received:tx.paid)||''} onChange={e=>setTx({...tx, [type==='sales'?'received':'paid']: e.target.value})}/><select className="p-3 border rounded-xl bg-white" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}><option>Cash</option><option>Bank</option><option>UPI</option></select></div></div></div>}
         {type === 'payment' && <div className="space-y-4"><div className="grid grid-cols-2 gap-2"><input type="number" className="w-full bg-blue-50 text-2xl font-bold p-4 rounded-xl text-blue-600" placeholder="Amount" value={tx.amount} onChange={e=>setTx({...tx, amount: e.target.value})}/><select className="w-full bg-gray-50 p-4 rounded-xl font-bold" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}><option>Cash</option><option>Bank</option><option>UPI</option></select></div><div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl"><span className="text-xs font-bold text-gray-500">Discount:</span><input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Amt" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})}/></div><button onClick={() => setShowLinking(!showLinking)} className="w-full p-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg">{showLinking?"Hide":"Link Bills (Advanced)"}</button>{showLinking && <div className="space-y-2 max-h-40 overflow-y-auto p-2 border rounded-xl">{unpaidBills.map(b => (<div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0"><div className="text-[10px]"><p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p><p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillLogic(b).final)} <br/> <span className="text-red-600">Due: {formatCurrency(b.type === 'payment' ? (getBillLogic(b).amount - getBillLogic(b).used) : getBillLogic(b).pending)}</span></p></div><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/></div>))}</div>}</div>}
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl text-sm h-16" placeholder="Notes" value={tx.description} onChange={e => setTx({...tx, description: e.target.value})} />
-        <button onClick={() => { if(!tx.partyId && type !== 'expense') return alert("Party Required"); saveRecord('transactions', {...tx, ...totals}, type === 'estimate' ? 'estimate' : 'transaction'); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
+        {/* FIX #3: Pass tx.type to get correct ID prefix */}
+        <button onClick={() => { if(!tx.partyId && type !== 'expense') return alert("Party Required"); saveRecord('transactions', {...tx, ...totals}, tx.type); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
       </div>
     );
   };
