@@ -365,6 +365,14 @@ export default function App() {
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 3000); };
 
+  const cleanData = (obj) => {
+    const newObj = { ...obj };
+    Object.keys(newObj).forEach(key => {
+        if (newObj[key] === undefined) newObj[key] = "";
+    });
+    return newObj;
+  };
+
   const saveRecord = async (collectionName, record, idType) => {
     if (!user) return;
     let newData = { ...data };
