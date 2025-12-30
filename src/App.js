@@ -62,10 +62,6 @@ import {
   MessageCircle
 } from 'lucide-react';
 
-/** * SMEES Pro - Final Production Version
- * Merged UI (Code A) + Logic (Code B) + 12 Critical Fixes
- */
-
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
   apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
@@ -237,7 +233,7 @@ export default function App() {
   const [showPnlReport, setShowPnlReport] = useState(false);
   const [timerConflict, setTimerConflict] = useState(null);
   const [editingTimeLog, setEditingTimeLog] = useState(null);
-  const [manualAttModal, setManualAttModal] = useState(null); // stores staffId for manual entry or obj for edit
+  const [manualAttModal, setManualAttModal] = useState(null); 
 
   useEffect(() => {
     const script = document.createElement("script");
@@ -418,6 +414,102 @@ export default function App() {
 
   // --- SUB-COMPONENTS ---
 
+  // Extracted Component to avoid conditional hook call
+  const StaffDetailView = ({ staff }) => {
+     const [sTab, setSTab] = useState('attendance');
+     
+     const attToday = data.attendance.find(a => a.staffId === staff.id && a.date === new Date().toISOString().split('T')[0]) || {};
+     const attHistory = data.attendance.filter(a => a.staffId === staff.id).sort((a,b) => new Date(b.date) - new Date(a.date));
+     const workLogs = data.tasks.flatMap(t => (t.timeLogs || []).filter(l => l.staffId === staff.id).map(l => ({ ...l, taskName: t.name, type: 'task' }))).sort((a,b) => new Date(b.start) - new Date(a.start));
+
+     const handleAttendance = async (type) => {
+        if (!user) return;
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const existingDoc = data.attendance.find(a => a.staffId === staff.id && a.date === todayStr);
+        let attRecord = existingDoc || { staffId: staff.id, date: todayStr, checkIn: '', checkOut: '', lunchStart: '', lunchEnd: '', status: 'Present', id: `ATT-${staff.id}-${todayStr}` };
+        if (type === 'checkIn') attRecord.checkIn = timeStr;
+        if (type === 'checkOut') attRecord.checkOut = timeStr;
+        if (type === 'lunchStart') attRecord.lunchStart = timeStr;
+        if (type === 'lunchEnd') attRecord.lunchEnd = timeStr;
+        const newAtt = [...data.attendance.filter(a => a.id !== attRecord.id), attRecord];
+        setData(prev => ({ ...prev, attendance: newAtt }));
+        await setDoc(doc(db, "attendance", attRecord.id), attRecord);
+        showToast(`${type} Recorded`);
+    };
+
+    const deleteAtt = async (id) => {
+        if(!window.confirm("Delete this attendance record?")) return;
+        await deleteDoc(doc(db, "attendance", id));
+        setData(prev => ({...prev, attendance: prev.attendance.filter(a => a.id !== id)}));
+    }
+    
+    const editAtt = (record) => {
+        pushHistory();
+        setManualAttModal({ ...record, isEdit: true });
+    }
+
+     return (
+         <div className="p-4 space-y-6">
+            <div className="p-4 bg-gray-50 rounded-2xl border">
+                <div className="flex justify-between items-center mb-2"><p className="font-bold text-lg text-gray-800">{staff.role}</p><span className={`px-2 py-1 rounded text-xs font-bold ${staff.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{staff.active ? 'Active' : 'Inactive'}</span></div>
+                <p className="text-sm text-gray-500 flex items-center gap-2"><Phone size={14}/> {staff.mobile}</p>
+            </div>
+
+            <div className="flex bg-gray-100 p-1 rounded-xl">
+                <button onClick={()=>setSTab('attendance')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${sTab==='attendance' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Attendance</button>
+                <button onClick={()=>setSTab('work')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${sTab==='work' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Work Logs</button>
+            </div>
+
+            {sTab === 'attendance' && (
+                <div className="space-y-4">
+                     <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                        <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2"><UserCheck size={18}/> Actions (Today)</h3>
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                            <button onClick={() => handleAttendance('checkIn')} disabled={!!attToday.checkIn} className="p-3 bg-green-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 disabled:bg-gray-400">Check In <br/> <span className="text-xs font-normal">{attToday.checkIn || '--:--'}</span></button>
+                            <button onClick={() => handleAttendance('checkOut')} className="p-3 bg-red-600 text-white rounded-xl font-bold text-sm">Check Out <br/> <span className="text-xs font-normal">{attToday.checkOut || '--:--'}</span></button>
+                            <button onClick={() => handleAttendance('lunchStart')} disabled={!!attToday.lunchStart} className="p-2 bg-yellow-100 text-yellow-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50"><Coffee size={14}/> Start Lunch <br/>{attToday.lunchStart}</button>
+                            <button onClick={() => handleAttendance('lunchEnd')} disabled={!!attToday.lunchEnd} className="p-2 bg-yellow-100 text-yellow-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50"><Briefcase size={14}/> End Lunch <br/>{attToday.lunchEnd}</button>
+                        </div>
+                    </div>
+                    
+                    {user.role === 'admin' && (
+                        <button onClick={() => { pushHistory(); setManualAttModal({ staffId: staff.id }); }} className="w-full p-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 font-bold text-xs flex items-center justify-center gap-2 hover:bg-gray-50">+ Add/Edit Attendance (Admin)</button>
+                    )}
+
+                    <div className="space-y-2">
+                        {attHistory.map(item => (
+                            <div key={item.id} className="p-3 border rounded-xl bg-white text-xs relative">
+                                {user.role === 'admin' && (
+                                    <div className="absolute top-2 right-2 flex gap-2">
+                                        <button onClick={() => editAtt(item)} className="text-blue-500"><Edit2 size={14}/></button>
+                                        <button onClick={() => deleteAtt(item.id)} className="text-red-500"><Trash2 size={14}/></button>
+                                    </div>
+                                )}
+                                <div className="flex justify-between font-bold text-gray-800 mb-1"><span>{formatDate(item.date)}</span></div>
+                                <div className="flex justify-between text-gray-600"><span>In: {item.checkIn || '-'}</span><span>Out: {item.checkOut || '-'}</span></div>
+                                {item.lunchStart && <div className="text-gray-400 mt-1">Lunch: {item.lunchStart} - {item.lunchEnd}</div>}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {sTab === 'work' && (
+                <div className="space-y-2">
+                    {workLogs.map((item, idx) => (
+                        <div key={idx} className="p-3 border rounded-xl bg-white text-xs">
+                            <div className="flex justify-between font-bold text-gray-800 mb-1"><span>Task: {item.taskName}</span><span>{new Date(item.start).toLocaleDateString()}</span></div>
+                            <div className="flex justify-between text-gray-500"><span>{formatTime(item.start)} - {item.end ? formatTime(item.end) : 'Active'}</span><span className="font-bold">{item.duration}m</span></div>
+                        </div>
+                    ))}
+                </div>
+            )}
+         </div>
+     );
+  };
+
   const Dashboard = () => {
       const pnlData = useMemo(() => {
           const now = new Date();
@@ -539,7 +631,6 @@ export default function App() {
                 let id = '';
                 
                 if (type === 'party') {
-                    // Get next ID locally for batch
                     const num = nextCounters.party || 1000;
                     id = `P-${num}`;
                     nextCounters.party = num + 1;
@@ -557,11 +648,9 @@ export default function App() {
                 }
             }
             
-            // Save counters
             batchPromises.push(setDoc(doc(db, "settings", "counters"), nextCounters));
             
             await Promise.all(batchPromises);
-            // Update State ONCE
             setData(prev => ({ 
                 ...prev, 
                 [collection]: [...prev[collection], ...newRecords],
@@ -1333,19 +1422,32 @@ export default function App() {
       return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Edit Time Log</h3><div className="space-y-3"><input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.start} onChange={e => setForm({...form, start: e.target.value})}/><input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.end} onChange={e => setForm({...form, end: e.target.value})}/><div className="flex gap-3"><button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button><button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl">Save</button></div></div></div></div>;
   };
   const StatementModal = () => {
-      if (!statementModal) return null;
       const [dates, setDates] = useState({ start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] });
       const [withItems, setWithItems] = useState(false);
+      
+      if (!statementModal) return null;
       return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Statement</h3><div className="space-y-4"><input type="date" className="w-full p-3 border rounded-xl" value={dates.start} onChange={e=>setDates({...dates, start:e.target.value})}/><input type="date" className="w-full p-3 border rounded-xl" value={dates.end} onChange={e=>setDates({...dates, end:e.target.value})}/><div className="flex gap-2"><button onClick={() => setStatementModal(null)} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button></div></div></div></div>;
   };
   
   // FIX #6: Manual Attendance Modal with support for editing (Fix #4)
   const ManualAttendanceModal = () => {
-      if (!manualAttModal) return null;
-      // If editing existing record, pre-fill. Else default to today/standard hours
-      const initial = manualAttModal.isEdit ? manualAttModal : { date: new Date().toISOString().split('T')[0], checkIn: '09:00', checkOut: '18:00', lunchStart: '13:00', lunchEnd: '14:00' };
+      const [form, setForm] = useState({ date: '', in: '', out: '', lStart: '', lEnd: '' });
       
-      const [form, setForm] = useState({ date: initial.date, in: initial.checkIn || '', out: initial.checkOut || '', lStart: initial.lunchStart || '', lEnd: initial.lunchEnd || '' });
+      // Effect to sync state when modal opens
+      useEffect(() => {
+          if (manualAttModal) {
+              const initial = manualAttModal.isEdit ? manualAttModal : { date: new Date().toISOString().split('T')[0], checkIn: '09:00', checkOut: '18:00', lunchStart: '13:00', lunchEnd: '14:00' };
+              setForm({
+                  date: initial.date,
+                  in: initial.checkIn || '09:00',
+                  out: initial.checkOut || '18:00',
+                  lStart: initial.lunchStart || '',
+                  lEnd: initial.lunchEnd || ''
+              });
+          }
+      }, [manualAttModal]);
+
+      if (!manualAttModal) return null;
       
       const handleSave = async () => {
           const staffId = manualAttModal.staffId || manualAttModal.id.split('-')[1]; // Extract ID if editing
