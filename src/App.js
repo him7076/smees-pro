@@ -405,10 +405,22 @@ export default function App() {
 
   const deleteRecord = async (collectionName, id) => {
     if (!user) return;
+    // Check for usage in other records if deleting items or parties
     if (collectionName === 'items' && data.transactions.some(t => t.items?.some(i => i.itemId === id))) { alert("Item is used."); setConfirmDelete(null); return; }
     if (collectionName === 'parties' && data.transactions.some(t => t.partyId === id)) { alert("Party is used."); setConfirmDelete(null); return; }
+    
+    // Optimistic update
     setData(prev => ({ ...prev, [collectionName]: prev[collectionName].filter(r => r.id !== id) }));
-    setConfirmDelete(null); setModal({ type: null, data: null }); handleCloseUI(); showToast("Deleted");
+    
+    // Close any related UI
+    setConfirmDelete(null); 
+    setModal({ type: null, data: null }); 
+    if(viewDetail?.id === id) {
+        setViewDetail(null);
+        handleCloseUI(); // Only go back if viewing the deleted item
+    }
+    
+    showToast("Deleted");
     try { await deleteDoc(doc(db, collectionName, id.toString())); } catch (e) { console.error(e); }
   };
 
@@ -592,7 +604,7 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {/* FIX #1: Clickable Receivable & Payable Cards */}
+            {/* FIX #3: Dashboard Navigation Logic */}
             <div onClick={() => { pushHistory(); setMastersView('parties'); setPartyFilter('receivable'); }} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 cursor-pointer active:scale-95 transition-transform">
                <p className="text-xs font-bold text-emerald-600 uppercase">Receivables</p>
                <p className="text-xl font-bold text-emerald-900">{formatCurrency(stats.totalReceivables)}</p>
@@ -639,7 +651,7 @@ export default function App() {
            const bal = partyBalances[p.id] || 0;
            return { ...p, subText: bal !== 0 ? formatCurrency(Math.abs(bal)) + (bal > 0 ? ' DR' : ' CR') : 'Settled', subColor: bal > 0 ? 'text-green-600' : bal < 0 ? 'text-red-600' : 'text-gray-400', balance: bal };
         });
-        // FIX #1: Ensure logic is correct
+        // FIX #3: Dashboard Filter Logic
         if (partyFilter === 'receivable') listData = listData.filter(p => p.balance > 0);
         if (partyFilter === 'payable') listData = listData.filter(p => p.balance < 0);
     }
@@ -887,17 +899,132 @@ export default function App() {
         reader.readAsBinaryString(file);
     };
 
+    // --- BULK PAYMENT IMPORT LOGIC (NEW - FIX #1) ---
+    const handlePaymentImport = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setLoading(true);
+        
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            try {
+                const bstr = evt.target.result;
+                const wb = window.XLSX.read(bstr, { type: 'binary', cellDates: true });
+                
+                if (wb.SheetNames.length < 2) { 
+                    alert("Excel must have at least 2 sheets (Header, Links)"); 
+                    setLoading(false); 
+                    return; 
+                }
+                
+                const ws1 = wb.Sheets[wb.SheetNames[0]]; // Header
+                const ws2 = wb.Sheets[wb.SheetNames[1]]; // Links
+                
+                const headers = window.XLSX.utils.sheet_to_json(ws1, { header: 1 });
+                const links = window.XLSX.utils.sheet_to_json(ws2, { header: 1 });
+                
+                let nextPayCounter = data.counters.transaction || 1000;
+                const batchPromises = [];
+                const newTransactions = [];
+
+                const parseDate = (val) => {
+                    if (val instanceof Date) return val.toISOString().split('T')[0];
+                    if (typeof val === 'string') {
+                         if(val.includes('/')) {
+                             const parts = val.split('/');
+                             if(parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                         }
+                         return val;
+                    }
+                    return new Date().toISOString().split('T')[0];
+                };
+
+                // Loop Sheet 1 (Skip header row 0)
+                for(let i=1; i<headers.length; i++) {
+                    const row = headers[i];
+                    if(!row || row.length === 0) continue;
+
+                    const refNum = row[13]; // Col N
+                    if (!refNum) continue;
+
+                    const rawDate = row[1]; // Col B
+                    const typeStr = (row[3] || '').toLowerCase(); // Col D
+                    const totalAmount = parseFloat(row[4] || 0); // Col E
+                    const mode = row[5] || 'Cash'; // Col F
+                    const partyId = row[7] || ''; // Col H
+                    const desc = row[8] || ''; // Col I
+
+                    let subType = 'in';
+                    if (typeStr.includes('out')) subType = 'out';
+
+                    // Find links in Sheet 2
+                    const linkedBills = links.filter(l => l[0] == refNum).map(l => ({
+                        billId: l[1], // Col B
+                        amount: parseFloat(l[2] || 0) // Col C
+                    })).filter(l => l.billId && l.amount !== 0);
+
+                    // Generate ID
+                    const finalId = `PAY-${nextPayCounter}`;
+                    nextPayCounter++;
+
+                    const newTx = {
+                        id: finalId,
+                        type: 'payment',
+                        subType,
+                        date: parseDate(rawDate),
+                        partyId,
+                        amount: totalAmount,
+                        paymentMode: mode,
+                        linkedBills,
+                        description: desc || `Imported ${refNum}`,
+                        createdAt: new Date().toISOString(),
+                        externalRef: refNum
+                    };
+
+                    newTransactions.push(cleanData(newTx));
+                    batchPromises.push(setDoc(doc(db, "transactions", finalId), cleanData(newTx)));
+                }
+                
+                const newCounters = { ...data.counters, transaction: nextPayCounter };
+                batchPromises.push(setDoc(doc(db, "settings", "counters"), newCounters));
+                
+                await Promise.all(batchPromises);
+                
+                setData(prev => ({
+                    ...prev,
+                    transactions: [...prev.transactions, ...newTransactions],
+                    counters: newCounters
+                }));
+                
+                setLoading(false);
+                alert(`Imported ${newTransactions.length} payment transactions successfully!`);
+                
+            } catch (err) {
+                console.error(err);
+                setLoading(false);
+                alert("Error importing payments. Check console.");
+            }
+        };
+        reader.readAsBinaryString(file);
+    };
+
     return (
       <div className="space-y-4">
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold">Accounting {categoryFilter && `(${categoryFilter})`}</h1>
           <div className="flex gap-2 items-center">
-             {/* IMPORT BUTTON - ONLY FOR ADMIN */}
+             {/* IMPORT BUTTONS - ONLY FOR ADMIN */}
              {user.role === 'admin' && (
-                 <label className="p-2 bg-purple-50 text-purple-700 rounded-xl cursor-pointer border border-purple-100 hover:bg-purple-100 flex items-center gap-1 text-xs font-bold">
-                     <Upload size={14}/> Import
-                     <input type="file" hidden accept=".xlsx, .xls" onChange={handleTransactionImport} />
-                 </label>
+                 <>
+                     <label className="p-2 bg-purple-50 text-purple-700 rounded-xl cursor-pointer border border-purple-100 hover:bg-purple-100 flex items-center gap-1 text-xs font-bold">
+                         <Upload size={14}/> Import
+                         <input type="file" hidden accept=".xlsx, .xls" onChange={handleTransactionImport} />
+                     </label>
+                     <label className="p-2 bg-blue-50 text-blue-700 rounded-xl cursor-pointer border border-blue-100 hover:bg-blue-100 flex items-center gap-1 text-xs font-bold">
+                         <Upload size={14}/> Pay Import
+                         <input type="file" hidden accept=".xlsx, .xls" onChange={handlePaymentImport} />
+                     </label>
+                 </>
              )}
              <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option><option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option></select>
           </div>
@@ -957,6 +1084,10 @@ export default function App() {
                   <div/>
               </div>
               <div className="p-4 space-y-4">
+                  {/* FIX #4: Show All Button */}
+                  <div onClick={() => { setListFilter('expense'); setCategoryFilter(null); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-center items-center p-3 bg-blue-50 rounded-xl border border-blue-200 cursor-pointer mb-2 text-blue-700 font-bold text-sm">
+                      Show All Expenses
+                  </div>
                   {Object.entries(byCategory).map(([cat, total]) => (
                       <div key={cat} onClick={() => { setListFilter('expense'); setCategoryFilter(cat); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border cursor-pointer hover:bg-gray-100">
                           <span className="font-bold">{cat}</span>
@@ -1059,7 +1190,13 @@ export default function App() {
             <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
             <div className="flex gap-2">
                <button onClick={printInvoice} className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg font-bold text-xs flex items-center gap-1"><Printer size={16}/> PDF</button>
-               {checkPermission(user, 'canEditTasks') && <button onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full">Edit</button>}
+               {/* FIX #2: Delete Transaction Button */}
+               {checkPermission(user, 'canEditTasks') && (
+                   <>
+                       <button onClick={() => { if(window.confirm('Delete this transaction?')) deleteRecord('transactions', tx.id); }} className="p-2 bg-red-50 text-red-600 rounded-lg"><Trash2 size={16}/></button>
+                       <button onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full">Edit</button>
+                   </>
+               )}
             </div>
           </div>
           <div className="p-4 space-y-6">
