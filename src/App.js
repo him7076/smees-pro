@@ -764,11 +764,141 @@ export default function App() {
     if (categoryFilter) filtered = filtered.filter(tx => tx.category === categoryFilter);
     filtered = sortData(filtered, sort);
 
+    // --- BULK TRANSACTION IMPORT LOGIC ---
+    const handleTransactionImport = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setLoading(true);
+        
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            try {
+                const bstr = evt.target.result;
+                const wb = window.XLSX.read(bstr, { type: 'binary', cellDates: true });
+                
+                if (wb.SheetNames.length < 2) { alert("Excel must have at least 2 sheets (Transactions, Items)"); setLoading(false); return; }
+                
+                const ws1 = wb.Sheets[wb.SheetNames[0]]; // Transactions
+                const ws2 = wb.Sheets[wb.SheetNames[1]]; // Items
+                
+                const txRows = window.XLSX.utils.sheet_to_json(ws1, { header: 1 });
+                const itemRows = window.XLSX.utils.sheet_to_json(ws2, { header: 1 });
+                
+                const partyMap = {};
+                data.parties.forEach(p => partyMap[p.name.trim().toLowerCase()] = p.id);
+                
+                const validTransactions = [];
+                const batchPromises = [];
+                let nextTxCounter = data.counters.transaction || 1000;
+                
+                const parseDate = (val) => {
+                    if (val instanceof Date) return val.toISOString().split('T')[0];
+                    if (typeof val === 'string' && val.includes('/')) {
+                        const parts = val.split('/');
+                        return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                    }
+                    return new Date().toISOString().split('T')[0];
+                };
+
+                for (let i = 1; i < txRows.length; i++) {
+                    const row = txRows[i];
+                    if (!row || row.length === 0) continue;
+                    
+                    const voucher = row[1];
+                    if (!voucher) continue;
+                    
+                    const rawDate = row[0];
+                    const partyName = row[3];
+                    const typeStr = (row[4] || 'Sales').toLowerCase();
+                    const desc = row[6] || '';
+                    const category = row[7] || '';
+                    
+                    let type = 'sales';
+                    if (typeStr.includes('purchase')) type = 'purchase';
+                    else if (typeStr.includes('expense')) type = 'expense';
+                    else if (typeStr.includes('payment')) type = 'payment';
+                    else if (typeStr.includes('estimate')) type = 'estimate';
+                    
+                    let partyId = '';
+                    if (type !== 'expense') {
+                        partyId = partyMap[(partyName || '').trim().toLowerCase()];
+                        if (!partyId) {
+                            console.warn(`Party not found: ${partyName}, skipping voucher ${voucher}`);
+                            continue;
+                        }
+                    }
+                    
+                    const relatedItems = itemRows.filter(r => r[1] == voucher).map(r => ({
+                        itemId: r[2] || '', 
+                        description: r[3] || '',
+                        qty: parseFloat(r[4] || 0),
+                        buyPrice: parseFloat(r[5] || 0),
+                        price: parseFloat(r[8] || 0)
+                    })).filter(item => item.qty > 0 || item.price > 0);
+                    
+                    const gross = relatedItems.reduce((acc, it) => acc + (it.qty * it.price), 0);
+                    const final = gross; 
+                    
+                    const prefix = type === 'sales' ? 'S' : type === 'purchase' ? 'P' : type === 'expense' ? 'E' : 'TX';
+                    const newId = `${prefix}-${nextTxCounter}`;
+                    nextTxCounter++;
+                    
+                    const newTx = {
+                        id: newId,
+                        date: parseDate(rawDate),
+                        type,
+                        partyId,
+                        category: type === 'expense' ? category : '',
+                        items: relatedItems,
+                        amount: final,
+                        grossTotal: gross,
+                        finalTotal: final,
+                        received: 0, 
+                        paid: 0,
+                        paymentMode: 'Cash',
+                        description: desc,
+                        createdAt: new Date().toISOString()
+                    };
+                    
+                    validTransactions.push(cleanData(newTx));
+                    batchPromises.push(setDoc(doc(db, "transactions", newId), cleanData(newTx)));
+                }
+                
+                const newCounters = { ...data.counters, transaction: nextTxCounter };
+                batchPromises.push(setDoc(doc(db, "settings", "counters"), newCounters));
+                
+                await Promise.all(batchPromises);
+                
+                setData(prev => ({
+                    ...prev,
+                    transactions: [...prev.transactions, ...validTransactions],
+                    counters: newCounters
+                }));
+                
+                setLoading(false);
+                alert(`Imported ${validTransactions.length} transactions successfully!`);
+                
+            } catch (err) {
+                console.error(err);
+                setLoading(false);
+                alert("Error importing file. Check console.");
+            }
+        };
+        reader.readAsBinaryString(file);
+    };
+
     return (
       <div className="space-y-4">
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-bold">Accounting {categoryFilter && `(${categoryFilter})`}</h1>
           <div className="flex gap-2 items-center">
+             {/* IMPORT BUTTON - ONLY FOR ADMIN */}
+             {user.role === 'admin' && (
+                 <label className="p-2 bg-purple-50 text-purple-700 rounded-xl cursor-pointer border border-purple-100 hover:bg-purple-100 flex items-center gap-1 text-xs font-bold">
+                     <Upload size={14}/> Import
+                     <input type="file" hidden accept=".xlsx, .xls" onChange={handleTransactionImport} />
+                 </label>
+             )}
              <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option><option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option></select>
           </div>
         </div>
