@@ -222,13 +222,13 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [reportView, setReportView] = useState(null);
   const [statementModal, setStatementModal] = useState(null);
-  
+   
   // Logic & Filter States
   const [listFilter, setListFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState(null);
   const [partyFilter, setPartyFilter] = useState(null);
   const [listPaymentMode, setListPaymentMode] = useState(null);
-  const [pnlFilter, setPnlFilter] = useState('All');
+  const [pnlFilter, setPnlFilter] = useState('Monthly'); // Default
   const [pnlCustomDates, setPnlCustomDates] = useState({ start: '', end: '' });
   const [showPnlReport, setShowPnlReport] = useState(false);
   const [timerConflict, setTimerConflict] = useState(null);
@@ -414,7 +414,6 @@ export default function App() {
 
   // --- SUB-COMPONENTS ---
 
-  // Extracted Component to avoid conditional hook call
   const StaffDetailView = ({ staff }) => {
      const [sTab, setSTab] = useState('attendance');
      
@@ -511,9 +510,34 @@ export default function App() {
   };
 
   const Dashboard = () => {
+      // FIX #2: Net Profit Filters
       const pnlData = useMemo(() => {
           const now = new Date();
-          let filteredTx = data.transactions.filter(t => ['sales'].includes(t.type) && new Date(t.date).getMonth() === now.getMonth());
+          let filteredTx = data.transactions.filter(t => ['sales'].includes(t.type));
+          
+          filteredTx = filteredTx.filter(t => {
+              const d = new Date(t.date);
+              const tDate = d.toDateString();
+              const nDate = now.toDateString();
+              
+              if (pnlFilter === 'Today') return tDate === nDate;
+              if (pnlFilter === 'Weekly') {
+                  const startOfWeek = new Date(now);
+                  startOfWeek.setDate(now.getDate() - now.getDay());
+                  startOfWeek.setHours(0,0,0,0);
+                  return d >= startOfWeek;
+              }
+              if (pnlFilter === 'Monthly') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+              if (pnlFilter === 'Yearly') return d.getFullYear() === now.getFullYear();
+              if (pnlFilter === 'Custom' && pnlCustomDates.start && pnlCustomDates.end) {
+                  const s = new Date(pnlCustomDates.start);
+                  const e = new Date(pnlCustomDates.end);
+                  e.setHours(23,59,59,999);
+                  return d >= s && d <= e;
+              }
+              return true; // 'All' or default
+          });
+
           let profit = 0;
           filteredTx.forEach(tx => {
              (tx.items || []).forEach(item => {
@@ -526,7 +550,7 @@ export default function App() {
              });
           });
           return profit;
-      }, [data.transactions]);
+      }, [data.transactions, pnlFilter, pnlCustomDates]);
 
       return (
         <div className="space-y-6">
@@ -540,8 +564,25 @@ export default function App() {
 
           <div className="grid grid-cols-2 gap-4">
               <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-4 rounded-2xl text-white shadow-lg cursor-pointer" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
-                  <p className="text-xs opacity-80 font-bold mb-1">NET PROFIT (MONTH)</p>
-                  <p className="text-2xl font-black">{formatCurrency(pnlData)}</p>
+                  <div className="flex justify-between items-start">
+                    <div>
+                        <p className="text-xs opacity-80 font-bold mb-1">NET PROFIT</p>
+                        <p className="text-2xl font-black">{formatCurrency(pnlData)}</p>
+                    </div>
+                    <select onClick={(e)=>e.stopPropagation()} value={pnlFilter} onChange={(e)=>setPnlFilter(e.target.value)} className="bg-blue-900/50 text-xs border-none rounded p-1 outline-none text-white max-w-[80px]">
+                        <option value="Today">Today</option>
+                        <option value="Weekly">Weekly</option>
+                        <option value="Monthly">Month</option>
+                        <option value="Yearly">Year</option>
+                        <option value="Custom">Custom</option>
+                    </select>
+                  </div>
+                  {pnlFilter === 'Custom' && (
+                    <div onClick={(e)=>e.stopPropagation()} className="flex gap-1 mt-2">
+                        <input type="date" className="text-black text-[10px] p-1 rounded w-full" value={pnlCustomDates.start} onChange={e=>setPnlCustomDates({...pnlCustomDates, start:e.target.value})} />
+                        <input type="date" className="text-black text-[10px] p-1 rounded w-full" value={pnlCustomDates.end} onChange={e=>setPnlCustomDates({...pnlCustomDates, end:e.target.value})} />
+                    </div>
+                  )}
               </div>
               <div className="bg-white p-4 rounded-2xl border shadow-sm">
                   <p className="text-xs font-bold text-gray-400 mb-1">CASH / BANK</p>
@@ -551,6 +592,7 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
+            {/* FIX #1: Clickable Receivable & Payable Cards */}
             <div onClick={() => { pushHistory(); setMastersView('parties'); setPartyFilter('receivable'); }} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 cursor-pointer active:scale-95 transition-transform">
                <p className="text-xs font-bold text-emerald-600 uppercase">Receivables</p>
                <p className="text-xl font-bold text-emerald-900">{formatCurrency(stats.totalReceivables)}</p>
@@ -597,6 +639,7 @@ export default function App() {
            const bal = partyBalances[p.id] || 0;
            return { ...p, subText: bal !== 0 ? formatCurrency(Math.abs(bal)) + (bal > 0 ? ' DR' : ' CR') : 'Settled', subColor: bal > 0 ? 'text-green-600' : bal < 0 ? 'text-red-600' : 'text-gray-400', balance: bal };
         });
+        // FIX #1: Ensure logic is correct
         if (partyFilter === 'receivable') listData = listData.filter(p => p.balance > 0);
         if (partyFilter === 'payable') listData = listData.filter(p => p.balance < 0);
     }
@@ -609,7 +652,7 @@ export default function App() {
 
     const filtered = sortData(listData.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(search.toLowerCase()))), sort);
 
-    // --- IMPORT LOGIC (FIX #10) ---
+    // --- IMPORT LOGIC ---
     const handleImport = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -997,7 +1040,7 @@ export default function App() {
                     <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
                     <p className="text-sm text-gray-600 my-4">{task.description}</p>
                     
-                    {/* Client Info (Fix #9) */}
+                    {/* Client Info */}
                     {party && (
                         <div className="mt-4 pt-4 border-t border-gray-200 space-y-2">
                              <p className="text-xs font-bold text-gray-400 uppercase">Client Details</p>
@@ -1011,7 +1054,7 @@ export default function App() {
                     )}
                 </div>
                 
-                {/* ITEMS SECTION (FIX #2) */}
+                {/* ITEMS SECTION */}
                 <div>
                    <div className="flex justify-between items-center mb-2">
                        <h3 className="font-bold flex items-center gap-2 text-gray-700"><ShoppingCart size={18}/> Items Used</h3>
@@ -1045,7 +1088,7 @@ export default function App() {
                    </div>
                 </div>
 
-                {/* CONVERT OR VIEW INVOICE (Fix #9) */}
+                {/* CONVERT OR VIEW INVOICE */}
                 {task.generatedSaleId ? (
                     <div className="pt-4 border-t">
                         <button onClick={() => setViewDetail({ type: 'transaction', id: task.generatedSaleId })} className="w-full py-3 bg-green-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-200">
@@ -1067,6 +1110,31 @@ export default function App() {
                         <h3 className="font-bold flex items-center gap-2 text-blue-800"><Clock size={18}/> Time Logs</h3>
                         <span className="text-xs font-black bg-white px-2 py-1 rounded text-blue-600">{totalTime} mins</span>
                     </div>
+                    
+                    {/* FIX #3: Time Logs List */}
+                    <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
+                        {(task.timeLogs || []).map((log, idx) => (
+                            <div key={idx} className="bg-white p-2 rounded-lg border flex justify-between items-center text-xs">
+                                <div>
+                                    <p className="font-bold">{log.staffName}</p>
+                                    <p className="text-gray-500">{formatTime(log.start)} - {log.end ? formatTime(log.end) : 'Running'}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="font-bold">{log.duration}m</span>
+                                    {checkPermission(user, 'canEditTasks') && (
+                                        <>
+                                            <button onClick={() => openEditTimeLog(idx)} className="p-1 bg-gray-100 rounded text-blue-600"><Edit2 size={12}/></button>
+                                            <button onClick={() => {
+                                                const newLogs = task.timeLogs.filter((_, i) => i !== idx);
+                                                updateTaskLogs(newLogs);
+                                            }} className="p-1 bg-gray-100 rounded text-red-600"><Trash2 size={12}/></button>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
                     <div className="flex flex-col gap-2 mb-4">
                         {data.staff.filter(s => task.assignedStaff?.includes(s.id) || user.role === 'admin').map(s => {
                             const isRunning = task.timeLogs?.some(l => l.staffId === s.id && !l.end);
@@ -1081,109 +1149,11 @@ export default function App() {
         );
     }
 
-    // --- STAFF DETAIL (New Features: Tabs, Manual Entry, Edit/Delete) ---
+    // --- STAFF DETAIL ---
     if (viewDetail.type === 'staff') {
         const staff = data.staff.find(s => s.id === viewDetail.id);
         if (!staff) return null;
         
-        // Use a Wrapper Component to handle internal tab state correctly
-        const StaffDetailContent = () => {
-             const [sTab, setSTab] = useState('attendance');
-             const attToday = data.attendance.find(a => a.staffId === staff.id && a.date === new Date().toISOString().split('T')[0]) || {};
-             const attHistory = data.attendance.filter(a => a.staffId === staff.id).sort((a,b) => new Date(b.date) - new Date(a.date));
-             const workLogs = data.tasks.flatMap(t => (t.timeLogs || []).filter(l => l.staffId === staff.id).map(l => ({ ...l, taskName: t.name, type: 'task' }))).sort((a,b) => new Date(b.start) - new Date(a.start));
-
-             const handleAttendance = async (type) => {
-                if (!user) return;
-                const now = new Date();
-                const todayStr = now.toISOString().split('T')[0];
-                const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
-                const existingDoc = data.attendance.find(a => a.staffId === staff.id && a.date === todayStr);
-                let attRecord = existingDoc || { staffId: staff.id, date: todayStr, checkIn: '', checkOut: '', lunchStart: '', lunchEnd: '', status: 'Present', id: `ATT-${staff.id}-${todayStr}` };
-                if (type === 'checkIn') attRecord.checkIn = timeStr;
-                if (type === 'checkOut') attRecord.checkOut = timeStr;
-                if (type === 'lunchStart') attRecord.lunchStart = timeStr;
-                if (type === 'lunchEnd') attRecord.lunchEnd = timeStr;
-                const newAtt = [...data.attendance.filter(a => a.id !== attRecord.id), attRecord];
-                setData(prev => ({ ...prev, attendance: newAtt }));
-                await setDoc(doc(db, "attendance", attRecord.id), attRecord);
-                showToast(`${type} Recorded`);
-            };
-
-            const deleteAtt = async (id) => {
-                if(!window.confirm("Delete this attendance record?")) return;
-                await deleteDoc(doc(db, "attendance", id));
-                setData(prev => ({...prev, attendance: prev.attendance.filter(a => a.id !== id)}));
-            }
-            
-            // Fix #4 & #6: Edit Logic -> Reuse Manual Modal
-            const editAtt = (record) => {
-                pushHistory();
-                setManualAttModal({ ...record, isEdit: true });
-            }
-
-             return (
-                 <div className="p-4 space-y-6">
-                    <div className="p-4 bg-gray-50 rounded-2xl border">
-                        <div className="flex justify-between items-center mb-2"><p className="font-bold text-lg text-gray-800">{staff.role}</p><span className={`px-2 py-1 rounded text-xs font-bold ${staff.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{staff.active ? 'Active' : 'Inactive'}</span></div>
-                        <p className="text-sm text-gray-500 flex items-center gap-2"><Phone size={14}/> {staff.mobile}</p>
-                    </div>
-
-                    {/* Fix #5: Tabs */}
-                    <div className="flex bg-gray-100 p-1 rounded-xl">
-                        <button onClick={()=>setSTab('attendance')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${sTab==='attendance' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Attendance</button>
-                        <button onClick={()=>setSTab('work')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${sTab==='work' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Work Logs</button>
-                    </div>
-
-                    {sTab === 'attendance' && (
-                        <div className="space-y-4">
-                             <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                                <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2"><UserCheck size={18}/> Actions (Today)</h3>
-                                <div className="grid grid-cols-2 gap-2 mb-3">
-                                    <button onClick={() => handleAttendance('checkIn')} disabled={!!attToday.checkIn} className="p-3 bg-green-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 disabled:bg-gray-400">Check In <br/> <span className="text-xs font-normal">{attToday.checkIn || '--:--'}</span></button>
-                                    <button onClick={() => handleAttendance('checkOut')} className="p-3 bg-red-600 text-white rounded-xl font-bold text-sm">Check Out <br/> <span className="text-xs font-normal">{attToday.checkOut || '--:--'}</span></button>
-                                    <button onClick={() => handleAttendance('lunchStart')} disabled={!!attToday.lunchStart} className="p-2 bg-yellow-100 text-yellow-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50"><Coffee size={14}/> Start Lunch <br/>{attToday.lunchStart}</button>
-                                    <button onClick={() => handleAttendance('lunchEnd')} disabled={!!attToday.lunchEnd} className="p-2 bg-yellow-100 text-yellow-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50"><Briefcase size={14}/> End Lunch <br/>{attToday.lunchEnd}</button>
-                                </div>
-                            </div>
-                            
-                            {/* Fix #6: Manual Entry Button */}
-                            {user.role === 'admin' && (
-                                <button onClick={() => { pushHistory(); setManualAttModal({ staffId: staff.id }); }} className="w-full p-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 font-bold text-xs flex items-center justify-center gap-2 hover:bg-gray-50">+ Add/Edit Attendance (Admin)</button>
-                            )}
-
-                            <div className="space-y-2">
-                                {attHistory.map(item => (
-                                    <div key={item.id} className="p-3 border rounded-xl bg-white text-xs relative">
-                                        {user.role === 'admin' && (
-                                            <div className="absolute top-2 right-2 flex gap-2">
-                                                <button onClick={() => editAtt(item)} className="text-blue-500"><Edit2 size={14}/></button>
-                                                <button onClick={() => deleteAtt(item.id)} className="text-red-500"><Trash2 size={14}/></button>
-                                            </div>
-                                        )}
-                                        <div className="flex justify-between font-bold text-gray-800 mb-1"><span>{formatDate(item.date)}</span></div>
-                                        <div className="flex justify-between text-gray-600"><span>In: {item.checkIn || '-'}</span><span>Out: {item.checkOut || '-'}</span></div>
-                                        {item.lunchStart && <div className="text-gray-400 mt-1">Lunch: {item.lunchStart} - {item.lunchEnd}</div>}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {sTab === 'work' && (
-                        <div className="space-y-2">
-                            {workLogs.map((item, idx) => (
-                                <div key={idx} className="p-3 border rounded-xl bg-white text-xs">
-                                    <div className="flex justify-between font-bold text-gray-800 mb-1"><span>Task: {item.taskName}</span><span>{new Date(item.start).toLocaleDateString()}</span></div>
-                                    <div className="flex justify-between text-gray-500"><span>{formatTime(item.start)} - {item.end ? formatTime(item.end) : 'Active'}</span><span className="font-bold">{item.duration}m</span></div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                 </div>
-             );
-        };
-
         return (
             <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
                 <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
@@ -1191,7 +1161,7 @@ export default function App() {
                     <h2 className="font-bold text-lg">{staff.name}</h2>
                     {user.role === 'admin' && <button onClick={() => { pushHistory(); setModal({ type: 'staff', data: staff }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>}
                 </div>
-                <StaffDetailContent />
+                <StaffDetailView staff={staff} />
             </div>
         );
     }
@@ -1259,7 +1229,7 @@ export default function App() {
     );
   };
 
-  // 2. Forms (Restored from Code A)
+  // 2. Forms
   const TransactionForm = ({ type, record }) => {
     const [tx, setTx] = useState(record ? { linkedBills: [], items: [], paymentMode: 'Cash', discountType: '%', discountValue: 0, ...record } : { type, date: new Date().toISOString().split('T')[0], partyId: '', items: [], discountType: '%', discountValue: 0, received: 0, paid: 0, paymentMode: 'Cash', category: '', subType: type==='payment'?'in':'', amount: '', linkedBills: [], description: '' });
     const [showLinking, setShowLinking] = useState(false);
@@ -1364,12 +1334,39 @@ export default function App() {
     );
   };
 
+  // FIX #4: Party Form Missing Fields
   const PartyForm = ({ record }) => {
-    const [form, setForm] = useState({ name: '', mobile: '', address: '', type: 'customer', ref: '', lat: '', lng: '', email: '', ...(record || {}) });
-    return <div className="space-y-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Email (Optional)" value={form.email} onChange={e => setForm({...form, email: e.target.value})} /><button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button></div>;
+    const [form, setForm] = useState({ 
+        name: '', mobile: '', email: '', 
+        address: '', lat: '', lng: '', reference: '', 
+        openingBal: '', type: 'DR', // type maps to opening balance type (DR/CR)
+        ...(record || {}) 
+    });
+    return (
+        <div className="space-y-4">
+            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+            <div className="grid grid-cols-2 gap-4">
+                 <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
+                 <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Ref By" value={form.reference} onChange={e => setForm({...form, reference: e.target.value})} />
+            </div>
+            <textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+            <div className="grid grid-cols-2 gap-4">
+                 <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Latitude" value={form.lat} onChange={e => setForm({...form, lat: e.target.value})} />
+                 <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Longitude" value={form.lng} onChange={e => setForm({...form, lng: e.target.value})} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+                 <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Opening Bal" value={form.openingBal} onChange={e => setForm({...form, openingBal: e.target.value})} />
+                 <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
+                     <option value="DR">Debit (To Collect)</option>
+                     <option value="CR">Credit (To Pay)</option>
+                 </select>
+            </div>
+            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Email (Optional)" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
+            <button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
+        </div>
+    );
   };
   
-  // FIX #3: Item Master Form restored
   const ItemForm = ({ record }) => {
     const [form, setForm] = useState({ name: '', sellPrice: '', buyPrice: '', unit: 'pcs', openingStock: '0', type: 'Goods', ...(record || {}) });
     return (
@@ -1383,7 +1380,6 @@ export default function App() {
     );
   };
   
-  // FIX #7: Company Settings
   const CompanyForm = ({ record }) => {
     const [form, setForm] = useState(data.company);
     return <div className="space-y-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Company Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} /><textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} /><button onClick={() => { setData({...data, company: form}); setModal({type:null}); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Settings</button></div>;
@@ -1407,7 +1403,7 @@ export default function App() {
   };
   const TimeLogModal = () => {
       const [form, setForm] = useState({ start: '', end: '' });
-      useEffect(() => { if (editingTimeLog) { const { task, index } = editingTimeLog; const log = task.timeLogs[index] || {}; setForm({ start: log.start ? log.start.slice(0, 16) : '', end: log.end ? log.end.slice(0, 16) : '' }); } }, [editingTimeLog]); 
+      useEffect(() => { if (editingTimeLog) { const { task, index } = editingTimeLog; const log = task.timeLogs[index] || {}; setForm({ start: log.start ? log.start.slice(0, 16) : '', end: log.end ? log.end.slice(0, 16) : '' }); } }, [editingTimeLog]); 
       if (!editingTimeLog) return null;
       const { task, index } = editingTimeLog;
       const handleSave = async () => {
@@ -1429,7 +1425,6 @@ export default function App() {
       return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Statement</h3><div className="space-y-4"><input type="date" className="w-full p-3 border rounded-xl" value={dates.start} onChange={e=>setDates({...dates, start:e.target.value})}/><input type="date" className="w-full p-3 border rounded-xl" value={dates.end} onChange={e=>setDates({...dates, end:e.target.value})}/><div className="flex gap-2"><button onClick={() => setStatementModal(null)} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button></div></div></div></div>;
   };
   
-  // FIX #6: Manual Attendance Modal with support for editing (Fix #4)
   const ManualAttendanceModal = () => {
       const [form, setForm] = useState({ date: '', in: '', out: '', lStart: '', lEnd: '' });
       
