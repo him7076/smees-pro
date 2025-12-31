@@ -1466,6 +1466,13 @@ export default function App() {
   const TransactionForm = ({ type, record }) => {
     const [tx, setTx] = useState(record ? { linkedBills: [], items: [], paymentMode: 'Cash', discountType: '%', discountValue: 0, ...record } : { type, date: new Date().toISOString().split('T')[0], partyId: '', items: [], discountType: '%', discountValue: 0, received: 0, paid: 0, paymentMode: 'Cash', category: '', subType: type==='payment'?'in':'', amount: '', linkedBills: [], description: '' });
     const [showLinking, setShowLinking] = useState(false);
+    
+    // REQ 1: Calculate Voucher ID logic
+    const currentVoucherId = useMemo(() => {
+        if (record?.id) return record.id;
+        return getNextId(data, type).id;
+    }, [data, type, record]);
+
     const totals = getTransactionTotals(tx);
     const unpaidBills = useMemo(() => {
       if (!tx.partyId) return [];
@@ -1501,21 +1508,28 @@ export default function App() {
     return (
       <div className="space-y-4">
         <div className="flex justify-between items-center">
-            <h2 className="text-xl font-bold capitalize">{type}</h2>
+            {/* REQ 1: Display Voucher ID */}
+            <div>
+                <h2 className="text-xl font-bold capitalize">{type}</h2>
+                <p className="text-xs font-bold text-gray-500">Voucher: #{currentVoucherId}</p>
+            </div>
             <div className="text-right">
                 <p className="text-xs font-bold text-gray-400">Total</p>
                 <p className="text-xl font-black text-blue-600">{formatCurrency(totals.final)}</p>
             </div>
         </div>
         
-        <div className="grid grid-cols-2 gap-4">
-             <input type="date" className="w-full p-3 bg-gray-50 border rounded-xl font-bold" value={tx.date} onChange={e => setTx({...tx, date: e.target.value})} />
-             {/* FIX: Allow category select for expense */}
-             {type === 'expense' ? (
-                 <SearchableSelect options={data.categories.expense} value={tx.category} onChange={v => setTx({...tx, category: v})} onAddNew={() => { const newCat = prompt("New Category:"); if(newCat) setData(prev => ({...prev, categories: {...prev.categories, expense: [...prev.categories.expense, newCat]}})); }} placeholder="Category" />
-             ) : (
-                 <SearchableSelect label="Party" options={partyOptions} value={tx.partyId} onChange={v => setTx({...tx, partyId: v})} onAddNew={() => { pushHistory(); setModal({ type: 'party' }); }} />
-             )}
+        {/* REQ 2: Flex layout for Date (33%) and Party (Flex-1) */}
+        <div className="flex gap-3">
+             <input type="date" className="w-1/3 p-3 bg-gray-50 border rounded-xl font-bold text-sm h-[50px]" value={tx.date} onChange={e => setTx({...tx, date: e.target.value})} />
+             <div className="flex-1">
+                 {/* FIX: Allow category select for expense */}
+                 {type === 'expense' ? (
+                     <SearchableSelect options={data.categories.expense} value={tx.category} onChange={v => setTx({...tx, category: v})} onAddNew={() => { const newCat = prompt("New Category:"); if(newCat) setData(prev => ({...prev, categories: {...prev.categories, expense: [...prev.categories.expense, newCat]}})); }} placeholder="Category" />
+                 ) : (
+                     <SearchableSelect options={partyOptions} value={tx.partyId} onChange={v => setTx({...tx, partyId: v})} onAddNew={() => { pushHistory(); setModal({ type: 'party' }); }} placeholder="Select Party..." />
+                 )}
+             </div>
         </div>
 
         {/* ITEMS SECTION */}
