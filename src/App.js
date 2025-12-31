@@ -59,7 +59,9 @@ import {
   Coffee,
   LogIn,
   Save,
-  MessageCircle
+  MessageCircle,
+  Sparkles,
+  BrainCircuit
 } from 'lucide-react';
 
 // --- FIREBASE CONFIGURATION ---
@@ -92,6 +94,37 @@ const INITIAL_DATA = {
     item: ["Electronics", "Grocery", "General", "Furniture", "Pharmacy"]
   },
   counters: { party: 100, item: 100, staff: 100, transaction: 1000, task: 500 }
+};
+
+// --- GEMINI API HELPER ---
+const callGemini = async (prompt) => {
+  const apiKey = ""; // API key provided by environment at runtime
+  let attempt = 0;
+  const maxRetries = 5;
+  const delays = [1000, 2000, 4000, 8000, 16000];
+
+  while (attempt < maxRetries) {
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
+      });
+      
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || "I couldn't generate a response.";
+    } catch (error) {
+      attempt++;
+      if (attempt >= maxRetries) {
+        console.error("Gemini API Error:", error);
+        throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, delays[attempt - 1]));
+    }
+  }
 };
 
 // --- HELPER FUNCTIONS ---
@@ -542,6 +575,9 @@ export default function App() {
 
   const Dashboard = () => {
       // FIX #2: Net Profit Filters
+      const [aiInsight, setAiInsight] = useState("");
+      const [loadingInsight, setLoadingInsight] = useState(false);
+
       const pnlData = useMemo(() => {
           const now = new Date();
           let filteredTx = data.transactions.filter(t => ['sales'].includes(t.type));
@@ -583,6 +619,26 @@ export default function App() {
           return profit;
       }, [data.transactions, pnlFilter, pnlCustomDates]);
 
+      // ✨ FEATURE: AI Business Insight
+      const generateInsight = async () => {
+          setLoadingInsight(true);
+          const prompt = `You are a financial advisor for a small business. Here is the current status: 
+          Today's Sales: ${formatCurrency(stats.todaySales)}, 
+          Total Expenses: ${formatCurrency(stats.totalExpenses)}, 
+          Cash in Hand: ${formatCurrency(stats.cashInHand)}, 
+          Bank: ${formatCurrency(stats.bankBalance)}, 
+          Net Profit (${pnlFilter}): ${formatCurrency(pnlData)}. 
+          Give 3 bullet points of concise, friendly advice or observation based on this data. Do not use markdown formatting like bold, just plain text with emojis.`;
+          
+          try {
+             const result = await callGemini(prompt);
+             setAiInsight(result);
+          } catch (e) {
+             setAiInsight("Failed to generate insight.");
+          }
+          setLoadingInsight(false);
+      };
+
       return (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
@@ -591,6 +647,19 @@ export default function App() {
                 <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 bg-gray-100 rounded-xl"><Settings className="text-gray-600" /></button>
                 <button onClick={() => setUser(null)} className="p-2 bg-red-50 text-red-600 rounded-xl"><LogOut size={20} /></button>
             </div>
+          </div>
+
+          {/* AI Insight Section */}
+          <div className="bg-gradient-to-r from-purple-500 to-indigo-600 p-4 rounded-2xl text-white shadow-lg">
+             <div className="flex justify-between items-center mb-2">
+                 <h3 className="font-bold flex items-center gap-2"><Sparkles size={16}/> Smart Insights</h3>
+                 <button onClick={generateInsight} disabled={loadingInsight} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full text-xs font-bold transition-all">
+                     {loadingInsight ? "Thinking..." : "Refresh"}
+                 </button>
+             </div>
+             <div className="text-sm bg-black/20 p-3 rounded-xl min-h-[60px]">
+                 {aiInsight ? aiInsight.split('\n').map((line, i) => <p key={i} className="mb-1">{line}</p>) : <p className="opacity-70 italic">Click refresh to get AI-powered business advice...</p>}
+             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -793,15 +862,31 @@ export default function App() {
 
   const TransactionList = () => {
     const [sort, setSort] = useState('DateDesc');
-    const [filter, setFilter] = useState('all'); 
+    const [filter, setFilter] = useState('all');
+    // FIX #4: Transaction List Search
+    const [search, setSearch] = useState('');
+
     useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
     let filtered = data.transactions.filter(tx => filter === 'all' || tx.type === filter);
     if(listPaymentMode) filtered = filtered.filter(tx => (tx.paymentMode || 'Cash') === listPaymentMode);
     if (categoryFilter) filtered = filtered.filter(tx => tx.category === categoryFilter);
+
+    // Filter by search term
+    if (search) {
+        const lower = search.toLowerCase();
+        filtered = filtered.filter(tx => {
+            const pName = data.parties.find(p => p.id === tx.partyId)?.name || '';
+            return tx.id.toLowerCase().includes(lower) || 
+                   pName.toLowerCase().includes(lower) || 
+                   (tx.description || '').toLowerCase().includes(lower) ||
+                   String(tx.amount || '').includes(lower);
+        });
+    }
+
     filtered = sortData(filtered, sort);
 
-    // --- BULK TRANSACTION IMPORT LOGIC (FIX #1: Counter Update & FIX #2: ID Logic) ---
+    // --- BULK TRANSACTION IMPORT LOGIC ---
     const handleTransactionImport = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -828,7 +913,6 @@ export default function App() {
                 const itemRows = window.XLSX.utils.sheet_to_json(ws2, { header: 1 });
                 
                 const partyMap = {};
-                // SAFETY: Convert name to string before trimming to avoid crashes
                 data.parties.forEach(p => { if(p.name) partyMap[String(p.name).trim().toLowerCase()] = p.id; });
 
                 const itemMap = {};
@@ -856,7 +940,6 @@ export default function App() {
                     if (!voucher) continue;
                     
                     const rawDate = row[0];
-                    // SAFETY: Convert to string
                     const partyName = String(row[3] || '');
                     const typeStr = String(row[4] || 'Sales').toLowerCase();
                     const desc = row[6] || '';
@@ -870,14 +953,13 @@ export default function App() {
                     
                     let partyId = '';
                     if (type !== 'expense') {
-                        partyId = partyMap[(partyName || '').trim().toLowerCase()];
+                        partyId = partyMap[partyName.trim().toLowerCase()];
                         if (!partyId) {
                             console.warn(`Party not found: ${partyName}, skipping voucher ${voucher}`);
                             continue;
                         }
                     }
                     
-                    // Process Items
                     const specificItemRows = itemRows.filter(r => r[1] == voucher);
                     const relatedItems = [];
 
@@ -940,10 +1022,9 @@ export default function App() {
                     batchPromises.push(setDoc(doc(db, "transactions", newId), cleanData(newTx)));
                 }
 
-                // FIX #1: Update ID Counter based on imported data
                 let maxTxNum = data.counters.transaction || 1000;
                 validTransactions.forEach(tx => {
-                    const parts = tx.id.split(/[-:]/); // Handle multiple ID formats
+                    const parts = tx.id.split(/[-:]/);
                     if (parts.length > 1) {
                         const num = parseInt(parts[parts.length - 1]);
                         if (!isNaN(num) && num >= maxTxNum) {
@@ -1034,24 +1115,22 @@ export default function App() {
                     const row = headers[i];
                     if(!row || row.length === 0) continue;
 
-                    const rawId = row[0]; // Col A (Index 0): Raw Payment ID
+                    const rawId = row[0]; // Col A
                     if (!rawId) continue;
 
-                    // Parse numeric ID for counter logic
                     const numId = parseInt(rawId);
                     if (!isNaN(numId) && numId > maxImportedId) {
                         maxImportedId = numId;
                     }
 
-                    const rawDate = row[1]; // Col B (Index 1)
-                    const typeStr = String(row[3] || '').toLowerCase(); // Col D (Index 3)
-                    const totalAmount = parseFloat(row[4] || 0); // Col E (Index 4)
-                    const mode = row[5] || 'Cash'; // Col F (Index 5)
-                    const partyName = String(row[6] || ''); // Col G (Index 6)
-                    const desc = String(row[8] || ''); // Col I (Index 8)
-                    const discount = parseFloat(row[14] || 0); // Col O (Index 14)
+                    const rawDate = row[1]; // Col B
+                    const typeStr = String(row[3] || '').toLowerCase(); // Col D
+                    const totalAmount = parseFloat(row[4] || 0); // Col E
+                    const mode = row[5] || 'Cash'; // Col F
+                    const partyName = String(row[6] || ''); // Col G
+                    const desc = String(row[8] || ''); // Col I
+                    const discount = parseFloat(row[14] || 0); // Col O
 
-                    // Lookup Party ID
                     const partyId = partyMap[partyName.trim().toLowerCase()];
                     if (!partyId) {
                         console.warn(`Payment Import: Party not found "${partyName}" for ID ${rawId}. Skipping.`);
@@ -1069,15 +1148,13 @@ export default function App() {
                         idPrefix = 'Payment In';
                     }
 
-                    // Construct Firestore ID: Payment In:239
                     const finalId = `${idPrefix}:${rawId}`;
 
-                    // Find links in Sheet 2 where Col A matches Raw ID
                     const linkedBills = links
-                        .filter(l => l[0] == rawId) // Loose equality match for string/number
+                        .filter(l => l[0] == rawId)
                         .map(l => ({
-                            billId: l[1], // Col B (Index 1)
-                            amount: parseFloat(l[2] || 0) // Col C (Index 2)
+                            billId: l[1], // Col B
+                            amount: parseFloat(l[2] || 0) // Col C
                         }))
                         .filter(l => l.billId && l.amount !== 0);
 
@@ -1101,7 +1178,6 @@ export default function App() {
                     batchPromises.push(setDoc(doc(db, "transactions", finalId), cleanData(newTx)));
                 }
                 
-                // Update counter if import pushed it higher
                 const currentCounter = data.counters.transaction || 1000;
                 let finalCounter = currentCounter;
                 
@@ -1149,6 +1225,8 @@ export default function App() {
                      </label>
                  </>
              )}
+             {/* FIX #4: Search Input */}
+             <input className="p-2 border rounded-xl text-xs w-24 bg-gray-50" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} />
              <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option><option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option></select>
           </div>
         </div>
@@ -1167,6 +1245,19 @@ export default function App() {
             if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
             if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
             
+            // FIX #5: Payment Status Tags
+            let statusTag = null;
+            if(['sales', 'purchase', 'expense'].includes(tx.type)) {
+                 statusTag = <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>;
+            } else if (tx.type === 'payment') {
+                 const used = tx.linkedBills?.reduce((s, l) => s + (parseFloat(l.amount)||0), 0) || 0;
+                 const total = parseFloat(tx.amount || 0);
+                 const unused = total - used;
+                 if (used === 0) statusTag = <span className="text-[8px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full font-black">UNUSED</span>;
+                 else if (unused > 0.1) statusTag = <span className="text-[8px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-black">PARTIAL: {formatCurrency(unused)}</span>;
+                 else statusTag = <span className="text-[8px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-black">FULLY USED</span>;
+            }
+
             return (
               <div key={tx.id} onClick={() => { pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
                 <div className="flex gap-4 items-center">
@@ -1175,7 +1266,7 @@ export default function App() {
                     <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
                     <div className="flex gap-1 mt-1">
-                        {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
+                        {statusTag}
                     </div>
                   </div>
                 </div>
@@ -1386,7 +1477,9 @@ export default function App() {
                 </div>
               </div>
             )}
-             {!isPayment && (
+             
+            {/* FIX #2: Feature - Invoice Detail View (Show Payments) */}
+            {!isPayment && (
                 <div className="space-y-2">
                   <h3 className="font-bold text-gray-400 text-xs uppercase">Items</h3>
                   {tx.items?.map((item, i) => {
@@ -1398,8 +1491,41 @@ export default function App() {
                         </div>
                       );
                   })}
+                  {/* Related Payments Section */}
+                  <div className="mt-4">
+                      <h3 className="font-bold text-gray-700 mb-2">Related Payments</h3>
+                      {data.transactions.filter(t => t.type === 'payment' && t.linkedBills?.some(l => l.billId === tx.id)).map(pay => (
+                          <div key={pay.id} onClick={() => setViewDetail({ type: 'transaction', id: pay.id })} className="p-3 border rounded-xl bg-purple-50 flex justify-between items-center mb-2 cursor-pointer">
+                              <div>
+                                  <p className="font-bold text-sm text-purple-900">{pay.id}</p>
+                                  <p className="text-xs text-purple-700">{formatDate(pay.date)}</p>
+                              </div>
+                              <span className="font-bold text-purple-700">{formatCurrency(pay.linkedBills.find(l => l.billId === tx.id).amount)}</span>
+                          </div>
+                      ))}
+                  </div>
                 </div>
             )}
+
+            {/* FIX #3: Feature - Payment Detail View (Show Invoices) */}
+            {isPayment && (
+                <div className="mt-4">
+                    <h3 className="font-bold text-gray-700 mb-2">Paid Invoices</h3>
+                    {tx.linkedBills?.map(link => {
+                        const bill = data.transactions.find(t => t.id === link.billId);
+                        return (
+                            <div key={link.billId} onClick={() => bill ? setViewDetail({ type: 'transaction', id: bill.id }) : null} className="p-3 border rounded-xl bg-gray-50 flex justify-between items-center mb-2 cursor-pointer">
+                                <div>
+                                    <p className="font-bold text-sm text-gray-800">{link.billId}</p>
+                                    <p className="text-xs text-gray-500">Total: {bill ? formatCurrency(bill.amount || bill.finalTotal) : '?'}</p>
+                                </div>
+                                <span className="font-bold text-green-600">{formatCurrency(link.amount)}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
           </div>
         </div>
       );
@@ -1456,6 +1582,20 @@ export default function App() {
               <div className="flex gap-2">
                    <button onClick={shareTask} className="p-2 bg-green-100 text-green-700 rounded-lg"><MessageCircle size={20}/></button>
                    {checkPermission(user, 'canEditTasks') && <button onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>}
+                   
+                   {/* ✨ AI Task Assistant */}
+                   <button onClick={async () => {
+                       const prompt = `Write a professional, concise description for a task named '${task.name}' for client '${party?.name || 'unknown'}'. Include a bullet list of 3 standard sub-steps or checklist items for this type of task.`;
+                       try {
+                           const aiText = await callGemini(prompt);
+                           const updated = { ...task, description: aiText };
+                           setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updated : t) }));
+                           await setDoc(doc(db, "tasks", task.id), updated);
+                           alert("✨ AI Description Generated!");
+                       } catch (e) {
+                           alert("AI Error: " + e.message);
+                       }
+                   }} className="p-2 bg-purple-100 text-purple-700 rounded-lg flex items-center gap-1 font-bold text-xs"><BrainCircuit size={16}/> AI Draft</button>
               </div>
             </div>
             
@@ -1463,7 +1603,7 @@ export default function App() {
                 <div className="bg-gray-50 p-4 rounded-2xl border">
                     <h1 className="text-xl font-black text-gray-800 mb-2">{task.name}</h1>
                     <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
-                    <p className="text-sm text-gray-600 my-4">{task.description}</p>
+                    <p className="text-sm text-gray-600 my-4 whitespace-pre-line">{task.description}</p>
                     
                     {/* Client Info */}
                     {party && (
@@ -1659,10 +1799,23 @@ export default function App() {
     const [tx, setTx] = useState(record ? { linkedBills: [], items: [], paymentMode: 'Cash', discountType: '%', discountValue: 0, ...record } : { type, date: new Date().toISOString().split('T')[0], partyId: '', items: [], discountType: '%', discountValue: 0, received: 0, paid: 0, paymentMode: 'Cash', category: '', subType: type==='payment'?'in':'', amount: '', linkedBills: [], description: '' });
     const [showLinking, setShowLinking] = useState(false);
     const totals = getTransactionTotals(tx);
+    // FIX #1: Fixed logic to allow seeing linked bills when editing
     const unpaidBills = useMemo(() => {
       if (!tx.partyId) return [];
-      return data.transactions.filter(t => t.partyId === tx.partyId && t.id !== tx.id && t.type !== 'estimate' && ( (['sales', 'purchase', 'expense'].includes(t.type) && getBillLogic(t).status !== 'PAID') || (t.type === 'payment' && getBillLogic(t).status !== 'FULLY USED') ) );
-    }, [tx.partyId, data.transactions]);
+      return data.transactions.filter(t => {
+          if (t.partyId !== tx.partyId) return false;
+          if (t.id === tx.id) return false;
+          if (t.type === 'estimate') return false;
+          
+          const isLinked = tx.linkedBills?.some(l => l.billId === t.id);
+          if (isLinked) return true;
+
+          const logic = getBillLogic(t);
+          if (['sales', 'purchase', 'expense'].includes(t.type)) return logic.status !== 'PAID';
+          if (t.type === 'payment') return logic.status !== 'FULLY USED';
+          return false;
+      });
+    }, [tx.partyId, data.transactions, tx.linkedBills, tx.id]);
 
     const updateLine = (idx, field, val) => {
         const newItems = [...tx.items]; newItems[idx][field] = val;
