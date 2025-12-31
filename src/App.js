@@ -736,13 +736,13 @@ export default function App() {
 
           <div className="grid grid-cols-2 gap-4">
             {/* Receivables Card - Click to filter Party Master */}
-            <div onClick={() => { pushHistory(); setMastersView('parties'); setPartyFilter('receivable'); }} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 cursor-pointer active:scale-95 transition-transform">
+            <div onClick={() => { pushHistory(); setActiveTab('masters'); setMastersView('parties'); setPartyFilter('receivable'); }} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 cursor-pointer active:scale-95 transition-transform">
                <p className="text-xs font-bold text-emerald-600 uppercase">Receivables</p>
                <p className="text-xl font-bold text-emerald-900">{formatCurrency(stats.totalReceivables)}</p>
             </div>
             
             {/* Payables Card - Click to filter Party Master */}
-            <div onClick={() => { pushHistory(); setMastersView('parties'); setPartyFilter('payable'); }} className="bg-rose-50 p-4 rounded-2xl border border-rose-100 cursor-pointer active:scale-95 transition-transform">
+            <div onClick={() => { pushHistory(); setActiveTab('masters'); setMastersView('parties'); setPartyFilter('payable'); }} className="bg-rose-50 p-4 rounded-2xl border border-rose-100 cursor-pointer active:scale-95 transition-transform">
                <p className="text-xs font-bold text-rose-600 uppercase">Payables</p>
                <p className="text-xl font-bold text-rose-900">{formatCurrency(stats.totalPayables)}</p>
             </div>
@@ -754,7 +754,7 @@ export default function App() {
             </div>
             
             {/* Expenses Card - Click to open Expenses Breakdown */}
-            <div onClick={() => { pushHistory(); setMastersView('expenses'); }} className="bg-red-50 p-4 rounded-2xl border border-red-100 cursor-pointer active:scale-95 transition-transform">
+            <div onClick={() => { pushHistory(); setActiveTab('masters'); setMastersView('expenses'); }} className="bg-red-50 p-4 rounded-2xl border border-red-100 cursor-pointer active:scale-95 transition-transform">
               <p className="text-xs font-bold text-red-600 uppercase">Expenses</p>
               <p className="text-xl font-bold text-red-900">{formatCurrency(stats.totalExpenses)}</p>
             </div>
@@ -1927,7 +1927,11 @@ export default function App() {
                         <button onClick={() => { pushHistory(); setMastersView('items'); }} className="p-6 bg-blue-50 border border-blue-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-blue-100"><Package size={32} className="text-blue-600"/><span className="font-bold text-blue-800">Items</span></button>
                         <button onClick={() => { pushHistory(); setMastersView('parties'); }} className="p-6 bg-emerald-50 border border-emerald-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-emerald-100"><Users size={32} className="text-emerald-600"/><span className="font-bold text-emerald-800">Parties</span></button>
                         
-                        {/* MOVED IMPORT BUTTONS */}
+                        {/* NEW: Cash & Bank Adjustment Buttons */}
+                        <button onClick={() => { pushHistory(); setAdjustCashModal({ type: 'Cash' }); }} className="p-6 bg-green-50 border border-green-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-green-100"><Banknote size={32} className="text-green-600"/><span className="font-bold text-green-800">Cash</span></button>
+                        <button onClick={() => { pushHistory(); setAdjustCashModal({ type: 'Bank' }); }} className="p-6 bg-cyan-50 border border-cyan-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-cyan-100"><Briefcase size={32} className="text-cyan-600"/><span className="font-bold text-cyan-800">Bank</span></button>
+
+                        {/* IMPORT BUTTONS */}
                         {user.role === 'admin' && (
                             <>
                                 <label className="p-6 bg-purple-50 border border-purple-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-purple-100 cursor-pointer">
