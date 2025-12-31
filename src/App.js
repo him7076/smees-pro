@@ -348,7 +348,7 @@ export default function App() {
     let totalReceivables = 0, totalPayables = 0;
     Object.values(partyBalances).forEach(bal => { if (bal > 0) totalReceivables += bal; if (bal < 0) totalPayables += Math.abs(bal); });
     
-    // FIX BUG 2: Correct Cash/Bank Logic
+    // FIX BUG 2: Correct Cash/Bank Logic (Strictly based on paid/received)
     let cashInHand = 0, bankBalance = 0;
     data.transactions.forEach(tx => {
         if (tx.type === 'estimate') return;
@@ -357,7 +357,7 @@ export default function App() {
         let isIncome = false;
         let affectCashBank = false;
 
-        // Specific logic per type
+        // Specific logic per type - only count what is ACTUALLY paid/received
         if (tx.type === 'sales') {
             amt = parseFloat(tx.received || 0);
             isIncome = true;
@@ -367,11 +367,12 @@ export default function App() {
             isIncome = false;
             affectCashBank = amt > 0;
         } else if (tx.type === 'expense') {
-            // Expense form uses 'paid' field or just assumes paid if simple
+            // Expenses: Use 'paid' field (default for expense form)
             amt = parseFloat(tx.paid || 0);
             isIncome = false;
             affectCashBank = amt > 0;
         } else if (tx.type === 'payment') {
+            // Payments are pure cash flow
             amt = parseFloat(tx.amount || 0);
             isIncome = tx.subType === 'in';
             affectCashBank = amt > 0;
@@ -435,22 +436,10 @@ export default function App() {
 
   const deleteRecord = async (collectionName, id) => {
     if (!user) return;
-    // Check for usage in other records if deleting items or parties
     if (collectionName === 'items' && data.transactions.some(t => t.items?.some(i => i.itemId === id))) { alert("Item is used."); setConfirmDelete(null); return; }
     if (collectionName === 'parties' && data.transactions.some(t => t.partyId === id)) { alert("Party is used."); setConfirmDelete(null); return; }
-    
-    // Optimistic update
     setData(prev => ({ ...prev, [collectionName]: prev[collectionName].filter(r => r.id !== id) }));
-    
-    // Close any related UI
-    setConfirmDelete(null); 
-    setModal({ type: null, data: null }); 
-    if(viewDetail?.id === id) {
-        setViewDetail(null);
-        handleCloseUI(); // Only go back if viewing the deleted item
-    }
-    
-    showToast("Deleted");
+    setConfirmDelete(null); setModal({ type: null, data: null }); handleCloseUI(); showToast("Deleted");
     try { await deleteDoc(doc(db, collectionName, id.toString())); } catch (e) { console.error(e); }
   };
 
@@ -742,8 +731,8 @@ export default function App() {
             batchPromises.push(setDoc(doc(db, "settings", "counters"), nextCounters));
             
             await Promise.all(batchPromises);
-            setData(prev => ({ 
-                ...prev, 
+            setData(prev => ({ 
+                ...prev, 
                 [collection]: [...prev[collection], ...newRecords],
                 counters: nextCounters
             }));
@@ -881,7 +870,7 @@ export default function App() {
                     
                     let partyId = '';
                     if (type !== 'expense') {
-                        partyId = partyMap[partyName.trim().toLowerCase()];
+                        partyId = partyMap[(partyName || '').trim().toLowerCase()];
                         if (!partyId) {
                             console.warn(`Party not found: ${partyName}, skipping voucher ${voucher}`);
                             continue;
@@ -954,9 +943,9 @@ export default function App() {
                 // FIX #1: Update ID Counter based on imported data
                 let maxTxNum = data.counters.transaction || 1000;
                 validTransactions.forEach(tx => {
-                    const parts = tx.id.split('-');
+                    const parts = tx.id.split(/[-:]/); // Handle multiple ID formats
                     if (parts.length > 1) {
-                        const num = parseInt(parts[1]);
+                        const num = parseInt(parts[parts.length - 1]);
                         if (!isNaN(num) && num >= maxTxNum) {
                             maxTxNum = num + 1;
                         }
@@ -987,7 +976,7 @@ export default function App() {
         reader.readAsBinaryString(file);
     };
 
-    // --- BULK PAYMENT IMPORT LOGIC ---
+    // --- BULK PAYMENT IMPORT LOGIC (FIXED) ---
     const handlePaymentImport = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -1014,15 +1003,17 @@ export default function App() {
                 const ws1 = wb.Sheets[wb.SheetNames[0]]; // Header
                 const ws2 = wb.Sheets[wb.SheetNames[1]]; // Links
                 
+                // Use { header: 1 } to get arrays of rows
                 const headers = window.XLSX.utils.sheet_to_json(ws1, { header: 1 });
                 const links = window.XLSX.utils.sheet_to_json(ws2, { header: 1 });
                 
                 // Create Party Name Map for Lookup
                 const partyMap = {};
-                // SAFETY: Convert to string
                 data.parties.forEach(p => { if(p.name) partyMap[String(p.name).trim().toLowerCase()] = p.id; });
 
                 let nextPayCounter = data.counters.transaction || 1000;
+                let maxImportedId = 0; // For updating counter logic
+                
                 const batchPromises = [];
                 const newTransactions = [];
 
@@ -1043,63 +1034,89 @@ export default function App() {
                     const row = headers[i];
                     if(!row || row.length === 0) continue;
 
-                    const refNum = row[13]; // Col N
-                    if (!refNum) continue;
+                    const rawId = row[0]; // Col A (Index 0): Raw Payment ID
+                    if (!rawId) continue;
 
-                    const rawDate = row[1]; // Col B
-                    const typeStr = String(row[3] || '').toLowerCase(); // Col D - SAFETY
-                    const totalAmount = parseFloat(row[4] || 0); // Col E
-                    const mode = row[5] || 'Cash'; // Col F
-                    const partyName = String(row[7] || ''); // Col H (NAME now) - SAFETY
-                    const desc = String(row[8] || ''); // Col I - SAFETY
+                    // Parse numeric ID for counter logic
+                    const numId = parseInt(rawId);
+                    if (!isNaN(numId) && numId > maxImportedId) {
+                        maxImportedId = numId;
+                    }
+
+                    const rawDate = row[1]; // Col B (Index 1)
+                    const typeStr = String(row[3] || '').toLowerCase(); // Col D (Index 3)
+                    const totalAmount = parseFloat(row[4] || 0); // Col E (Index 4)
+                    const mode = row[5] || 'Cash'; // Col F (Index 5)
+                    const partyName = String(row[6] || ''); // Col G (Index 6)
+                    const desc = String(row[8] || ''); // Col I (Index 8)
+                    const discount = parseFloat(row[14] || 0); // Col O (Index 14)
 
                     // Lookup Party ID
                     const partyId = partyMap[partyName.trim().toLowerCase()];
                     if (!partyId) {
-                        console.warn(`Payment Import: Party not found "${partyName}" for Ref ${refNum}. Skipping.`);
+                        console.warn(`Payment Import: Party not found "${partyName}" for ID ${rawId}. Skipping.`);
                         continue;
                     }
 
                     let subType = 'in';
-                    if (typeStr.includes('out')) subType = 'out';
+                    let idPrefix = 'Payment In';
+                    
+                    if (typeStr.includes('out')) {
+                        subType = 'out';
+                        idPrefix = 'Payment Out';
+                    } else if (typeStr.includes('in')) {
+                        subType = 'in';
+                        idPrefix = 'Payment In';
+                    }
 
-                    // Find links in Sheet 2
-                    const linkedBills = links.filter(l => l[0] == refNum).map(l => ({
-                        billId: l[1], // Col B
-                        amount: parseFloat(l[2] || 0) // Col C
-                    })).filter(l => l.billId && l.amount !== 0);
+                    // Construct Firestore ID: Payment In:239
+                    const finalId = `${idPrefix}:${rawId}`;
 
-                    // Generate ID
-                    const finalId = `PAY-${nextPayCounter}`;
-                    nextPayCounter++;
+                    // Find links in Sheet 2 where Col A matches Raw ID
+                    const linkedBills = links
+                        .filter(l => l[0] == rawId) // Loose equality match for string/number
+                        .map(l => ({
+                            billId: l[1], // Col B (Index 1)
+                            amount: parseFloat(l[2] || 0) // Col C (Index 2)
+                        }))
+                        .filter(l => l.billId && l.amount !== 0);
 
                     const newTx = {
                         id: finalId,
                         type: 'payment',
                         subType,
                         date: parseDate(rawDate),
-                        partyId, // User looked up ID
+                        partyId, 
                         amount: totalAmount,
                         paymentMode: mode,
+                        discountValue: discount,
+                        discountType: 'Amt',
                         linkedBills,
-                        description: desc || `Imported ${refNum}`,
+                        description: desc,
                         createdAt: new Date().toISOString(),
-                        externalRef: refNum
+                        externalRef: rawId
                     };
 
                     newTransactions.push(cleanData(newTx));
                     batchPromises.push(setDoc(doc(db, "transactions", finalId), cleanData(newTx)));
                 }
                 
-                const newCounters = { ...data.counters, transaction: nextPayCounter };
-                batchPromises.push(setDoc(doc(db, "settings", "counters"), newCounters));
+                // Update counter if import pushed it higher
+                const currentCounter = data.counters.transaction || 1000;
+                let finalCounter = currentCounter;
+                
+                if (maxImportedId >= currentCounter) {
+                   finalCounter = maxImportedId + 1;
+                   const newCounters = { ...data.counters, transaction: finalCounter };
+                   batchPromises.push(setDoc(doc(db, "settings", "counters"), newCounters));
+                }
                 
                 await Promise.all(batchPromises);
                 
                 setData(prev => ({
                     ...prev,
                     transactions: [...prev.transactions, ...newTransactions],
-                    counters: newCounters
+                    counters: { ...prev.counters, transaction: finalCounter }
                 }));
                 
                 setLoading(false);
@@ -1673,7 +1690,38 @@ export default function App() {
         {type === 'payment' && <div className="flex bg-gray-100 p-1 rounded-xl mb-4"><button onClick={() => setTx({...tx, subType: 'in'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${tx.subType === 'in' ? 'bg-white shadow-sm text-green-600' : 'text-gray-500'}`}>Payment IN</button><button onClick={() => setTx({...tx, subType: 'out'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${tx.subType === 'out' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500'}`}>Payment OUT</button></div>}
         {type === 'expense' ? <SearchableSelect label="Category" options={data.categories.expense} value={tx.category} onChange={v => setTx({ ...tx, category: v })} onAddNew={() => { const newCat = prompt("New Category Name:"); if (newCat) { const isDirect = window.confirm("Is this a Direct Expense? (OK = Direct, Cancel = Indirect)"); setData(prev => ({ ...prev, categories: { ...prev.categories, expense: [...prev.categories.expense, newCat] } })); setTx({ ...tx, category: newCat, expenseType: isDirect ? 'Direct' : 'Indirect' }); } }} /> : <SearchableSelect label="Party" options={partyOptions} value={tx.partyId} onChange={v => setTx({ ...tx, partyId: v })} onAddNew={() => { pushHistory(); setModal({ type: 'party' }); }} />}
         {type !== 'payment' && <div className="space-y-3"><div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items</h4><button onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0 }]})} className="text-blue-600 text-xs font-bold">+ Add Item</button></div>{tx.items.map((line, idx) => (<div key={idx} className="p-3 bg-gray-50 border rounded-xl relative space-y-2"><button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button><SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine(idx, 'itemId', v)} onAddNew={() => { pushHistory(); setModal({ type: 'item' }); }}/><input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} /><div className="grid grid-cols-3 gap-2"><input type="number" className="p-2 border rounded-lg text-sm" value={line.qty} placeholder="Qty" onChange={e => updateLine(idx, 'qty', e.target.value)} /><input type="number" className="p-2 border rounded-lg text-sm" value={line.price} placeholder="Price" onChange={e => updateLine(idx, 'price', e.target.value)} />{type === 'sales' && <input type="number" className="p-2 border rounded-lg text-sm bg-yellow-50" value={line.buyPrice || 0} placeholder="Buy" onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />}</div></div>))}<div className="p-4 bg-gray-50 rounded-2xl space-y-3"><div className="flex items-center gap-2"><input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Discount" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})}/><select className="p-2 text-xs border rounded-lg" value={tx.discountType} onChange={e => setTx({...tx, discountType: e.target.value})}><option>%</option><option>Amt</option></select></div><div className="flex justify-between font-bold text-lg border-t pt-2"><span>Total</span><span>{formatCurrency(totals.final)}</span></div><div className="grid grid-cols-2 gap-2"><input type="number" className="p-3 border rounded-xl font-bold text-green-600" placeholder="Received/Paid" value={(type==='sales'?tx.received:tx.paid)||''} onChange={e=>setTx({...tx, [type==='sales'?'received':'paid']: e.target.value})}/><select className="p-3 border rounded-xl bg-white" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}><option>Cash</option><option>Bank</option><option>UPI</option></select></div></div></div>}
-        {type === 'payment' && <div className="space-y-4"><div className="grid grid-cols-2 gap-2"><input type="number" className="w-full bg-blue-50 text-2xl font-bold p-4 rounded-xl text-blue-600" placeholder="Amount" value={tx.amount} onChange={e=>setTx({...tx, amount: e.target.value})}/><select className="w-full bg-gray-50 p-4 rounded-xl font-bold" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}><option>Cash</option><option>Bank</option><option>UPI</option></select></div><div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl"><span className="text-xs font-bold text-gray-500">Discount:</span><input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Amt" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})}/></div><button onClick={() => setShowLinking(!showLinking)} className="w-full p-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg">{showLinking?"Hide":"Link Bills (Advanced)"}</button>{showLinking && <div className="space-y-2 max-h-40 overflow-y-auto p-2 border rounded-xl">{unpaidBills.map(b => (<div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0"><div className="text-[10px]"><p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p><p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillLogic(b).final)} <br/> <span className="text-red-600">Due: {formatCurrency(b.type === 'payment' ? (getBillLogic(b).amount - getBillLogic(b).used) : getBillLogic(b).pending)}</span></p></div><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/></div>))}</div>}</div>}
+        {type === 'payment' && (
+            <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                    <input type="number" className="w-full bg-blue-50 text-2xl font-bold p-4 rounded-xl text-blue-600" placeholder="Amount" value={tx.amount} onChange={e=>setTx({...tx, amount: e.target.value})}/>
+                    <select className="w-full bg-gray-50 p-4 rounded-xl font-bold" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}>
+                        <option>Cash</option><option>Bank</option><option>UPI</option>
+                    </select>
+                </div>
+                <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl">
+                    <span className="text-xs font-bold text-gray-500">Discount:</span>
+                    <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Amt" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})}/>
+                </div>
+                <button onClick={() => setShowLinking(!showLinking)} className="w-full p-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg">{showLinking?"Hide":"Link Bills (Advanced)"}</button>
+                {showLinking && (
+                    <div className="space-y-2 max-h-40 overflow-y-auto p-2 border rounded-xl">
+                        {unpaidBills.map(b => (
+                            <div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0">
+                                <div className="text-[10px]">
+                                    <p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p>
+                                    <p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillLogic(b).final)} <br/> 
+                                    <span className="text-red-600">
+                                        Due: {formatCurrency(b.type === 'payment' ? (getBillLogic(b).amount - getBillLogic(b).used) : getBillLogic(b).pending)}
+                                    </span>
+                                    </p>
+                                </div>
+                                <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        )}
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl text-sm h-16" placeholder="Notes" value={tx.description} onChange={e => setTx({...tx, description: e.target.value})} />
         {/* FIX #3: Pass tx.type to get correct ID prefix */}
         <button onClick={() => { if(!tx.partyId && type !== 'expense') return alert("Party Required"); saveRecord('transactions', {...tx, ...totals}, tx.type); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
@@ -1874,7 +1922,7 @@ export default function App() {
           setManualAttModal(false); handleCloseUI(); showToast(manualAttModal.isEdit ? "Updated" : "Added");
       };
       
-      return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">{manualAttModal.isEdit ? 'Edit' : 'Manual'} Attendance</h3><div className="space-y-4"><input type="date" disabled={manualAttModal.isEdit} className="w-full p-3 border rounded-xl" value={form.date} onChange={e=>setForm({...form, date: e.target.value})} /><div className="grid grid-cols-2 gap-4"><input type="time" className="w-full p-3 border rounded-xl" value={form.in} onChange={e=>setForm({...form, in: e.target.value})} /><input type="time" className="w-full p-3 border rounded-xl" value={form.out} onChange={e=>setForm({...form, out: e.target.value})} /></div><div className="grid grid-cols-2 gap-4"><input type="time" className="w-full p-3 border rounded-xl bg-yellow-50" placeholder="Lunch Start" value={form.lStart} onChange={e=>setForm({...form, lStart: e.target.value})} /><input type="time" className="w-full p-3 border rounded-xl bg-yellow-50" placeholder="Lunch End" value={form.lEnd} onChange={e=>setForm({...form, lEnd: e.target.value})} /></div><button onClick={handleSave} className="w-full p-3 bg-blue-600 text-white rounded-xl font-bold">Save Entry</button></div></div></div>;
+      return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">{manualAttModal.isEdit ? 'Edit' : 'Manual'} Attendance</h3><div className="space-y-4"><input type="date" disabled={manualAttModal.isEdit} className="w-full p-3 border rounded-xl" value={form.date} onChange={e=>setForm({...form, date: e.target.value})} /><div className="grid grid-cols-2 gap-4"><input type="time" className="w-full p-3 border rounded-xl" value={form.in} onChange={e=>setForm({...form, in: e.target.value})} /><input type="time" className="w-full p-3 border rounded-xl" value={form.out} onChange={e=>setForm({...form, out: e.target.value})} /></div><div className="grid grid-cols-2 gap-4"><input type="time" className="w-full p-3 border rounded-xl bg-yellow-50" placeholder="Lunch Start" value={form.lStart} onChange={e=>setForm({...form, lStart: e.target.value})} /><input type="time" className="w-full p-3 border rounded-xl" placeholder="Lunch End" value={form.lEnd} onChange={e=>setForm({...form, lEnd: e.target.value})} /></div><button onClick={handleSave} className="w-full p-3 bg-blue-600 text-white rounded-xl font-bold">Save Entry</button></div></div></div>;
   }
 
   const LoginScreen = () => {
