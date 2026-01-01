@@ -211,7 +211,11 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
 };
 
 export default function App() {
-  const [user, setUser] = useState(null);
+  // REQ 1: Persistent User State
+  const [user, setUser] = useState(() => {
+    const savedUser = localStorage.getItem('smees_user');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
   const [data, setData] = useState(INITIAL_DATA);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [mastersView, setMastersView] = useState(null);
@@ -701,7 +705,8 @@ export default function App() {
             <div><h1 className="text-2xl font-bold text-gray-800">{data.company.name}</h1><p className="text-sm text-gray-500">FY {data.company.financialYear}</p></div>
             <div className="flex gap-2">
                 <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 bg-gray-100 rounded-xl"><Settings className="text-gray-600" /></button>
-                <button onClick={() => setUser(null)} className="p-2 bg-red-50 text-red-600 rounded-xl"><LogOut size={20} /></button>
+                {/* REQ 3: Logout Logic (Clear LocalStorage) */}
+                <button onClick={() => { localStorage.removeItem('smees_user'); setUser(null); }} className="p-2 bg-red-50 text-red-600 rounded-xl"><LogOut size={20} /></button>
             </div>
           </div>
 
@@ -2061,9 +2066,12 @@ export default function App() {
     const [pass, setPass] = useState('');
     const [err, setErr] = useState('');
 
+    // REQ 2: Save Session on Login
     const handleLogin = async () => {
         if(id === 'him23' && pass === 'Himanshu#3499sp') {
-            setUser({ name: 'Admin', role: 'admin', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true } });
+            const adminUser = { name: 'Admin', role: 'admin', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true } };
+            setUser(adminUser);
+            localStorage.setItem('smees_user', JSON.stringify(adminUser));
         } else {
             try {
                 await signInAnonymously(auth);
@@ -2072,7 +2080,9 @@ export default function App() {
                 if(!snap.empty) {
                     const userData = snap.docs[0].data();
                     const defaults = { canViewAccounts: false, canViewMasters: false, canViewTasks: true, canEditTasks: false, canViewDashboard: true };
-                    setUser({ ...userData, permissions: { ...defaults, ...userData.permissions } });
+                    const staffUser = { ...userData, permissions: { ...defaults, ...userData.permissions } };
+                    setUser(staffUser);
+                    localStorage.setItem('smees_user', JSON.stringify(staffUser));
                 } else {
                     setErr("Invalid ID or Password");
                 }
