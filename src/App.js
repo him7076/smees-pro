@@ -1204,6 +1204,13 @@ export default function App() {
         const party = data.parties.find(p => p.id === task.partyId);
         
         const openEditTimeLog = (idx) => { pushHistory(); setEditingTimeLog({ task, index: idx }); };
+
+        // Helper for Items dropdown
+        const itemOptions = data.items.map(i => ({ 
+            ...i, 
+            subText: `Stock: ${itemStock[i.id] || 0}`, 
+            subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' 
+        }));
         
         const toggleTimer = (staffId) => {
             if (!user) return;
@@ -1273,18 +1280,30 @@ export default function App() {
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updated : t) }));
             setDoc(doc(db, "tasks", updated.id), updated);
         };
-        
-        // REQ 3: Enhanced WhatsApp Share
+
+        const addItem = (itemId) => {
+             const item = data.items.find(i => i.id === itemId);
+             if (!item) return;
+             const newItem = { itemId, qty: 1, price: item.sellPrice || 0, buyPrice: item.buyPrice || 0, description: item.description || '' };
+             updateTaskItems([...(task.itemsUsed || []), newItem]);
+        };
+
+        const updateLineItem = (idx, field, val) => {
+             const newItems = [...(task.itemsUsed || [])];
+             newItems[idx][field] = val;
+             updateTaskItems(newItems);
+        };
+
+        // REQ 2: Fixed WhatsApp Share Link
         const shareTask = () => {
-            const link = `https://smeespro.app/task/${task.id}`;
+            const link = `${window.location.origin}?taskId=${task.id}`;
             const text = `*Task Details*\nID: ${task.id}\nTask: ${task.name}\nClient: ${party?.name || 'N/A'} (${party?.mobile || ''})\nStatus: ${task.status}\n\nLink: ${link}`;
             window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
         };
 
-        // REQ 2: Correct Staff Visibility Logic
         const visibleStaff = data.staff.filter(s => {
-            if (user.role === 'admin') return true; // Admin sees everyone
-            return s.id === user.id; // Staff sees only themselves
+            if (user.role === 'admin') return true; 
+            return s.id === user.id; 
         });
 
         return (
@@ -1303,6 +1322,21 @@ export default function App() {
                     <h1 className="text-xl font-black text-gray-800 mb-2">{task.name}</h1>
                     <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
                     <p className="text-sm text-gray-600 my-4">{task.description}</p>
+
+                    {/* REQ 1: Client Details UI */}
+                    {party && (
+                        <div className="bg-white p-3 rounded-xl border mb-4 space-y-1">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <p className="text-xs font-bold text-gray-400 uppercase">Client</p>
+                                    <p className="font-bold text-gray-800">{party.name}</p>
+                                </div>
+                                {party.lat && <a href={`https://www.google.com/maps?q=${party.lat},${party.lng}`} target="_blank" rel="noreferrer" className="p-2 bg-blue-50 text-blue-600 rounded-lg"><MapPin size={16}/></a>}
+                            </div>
+                            <a href={`tel:${party.mobile}`} className="text-sm font-bold text-blue-600 flex items-center gap-1"><Phone size={14}/> {party.mobile}</a>
+                            {party.address && <p className="text-xs text-gray-500">{party.address}</p>}
+                        </div>
+                    )}
                     
                     {/* Time Logs List */}
                     <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
@@ -1333,6 +1367,35 @@ export default function App() {
                             );
                         })}
                     </div>
+                </div>
+
+                {/* REQ 1: Items Used Section */}
+                <div className="bg-gray-50 p-4 rounded-2xl border">
+                    <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><Package size={18}/> Items / Parts Used</h3>
+                    <div className="space-y-2 mb-4">
+                        {(task.itemsUsed || []).map((line, idx) => (
+                             <div key={idx} className="p-2 border rounded-xl bg-white relative space-y-2">
+                                <button onClick={() => { const n = [...task.itemsUsed]; n.splice(idx, 1); updateTaskItems(n); }} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
+                                <div className="flex justify-between text-xs font-bold">
+                                    <span>{data.items.find(i=>i.id===line.itemId)?.name || 'Unknown Item'}</span>
+                                    <span>{formatCurrency(line.qty * line.price)}</span>
+                                </div>
+                                <div className="flex gap-2">
+                                    <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateLineItem(idx, 'qty', e.target.value)} />
+                                    <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Price" value={line.price} onChange={e => updateLineItem(idx, 'price', e.target.value)} />
+                                    <input className="flex-1 p-1 border rounded text-xs" placeholder="Desc" value={line.description || ''} onChange={e => updateLineItem(idx, 'description', e.target.value)} />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    {task.status !== 'Converted' && (
+                        <SearchableSelect 
+                            placeholder="+ Add Item to Task" 
+                            options={itemOptions} 
+                            value="" 
+                            onChange={v => addItem(v)} 
+                        />
+                    )}
                 </div>
             </div>
           </div>
