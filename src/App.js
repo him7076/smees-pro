@@ -1204,6 +1204,7 @@ export default function App() {
         const party = data.parties.find(p => p.id === task.partyId);
         
         const openEditTimeLog = (idx) => { pushHistory(); setEditingTimeLog({ task, index: idx }); };
+        
         const toggleTimer = (staffId) => {
             if (!user) return;
             const now = new Date().toISOString();
@@ -1212,60 +1213,79 @@ export default function App() {
 
             if (activeLogIndex >= 0) {
                 // STOP TIMER (No location needed)
-                const start = new Date(newLogs[activeLogIndex].start); const end = new Date(now);
+                const start = new Date(newLogs[activeLogIndex].start); 
+                const end = new Date(now);
                 const duration = ((end - start) / 1000 / 60).toFixed(0); 
                 newLogs[activeLogIndex] = { ...newLogs[activeLogIndex], end: now, duration };
                 updateTaskLogs(newLogs);
             } else {
-                // START TIMER (Capture Location)
+                // START TIMER
+                // 1. Check for conflicts
                 const activeTask = data.tasks.find(t => t.timeLogs && t.timeLogs.some(l => l.staffId === staffId && !l.end));
-                if (activeTask && activeTask.id !== task.id) { pushHistory(); setTimerConflict({ staffId, activeTaskId: activeTask.id, targetTaskId: task.id }); return; }
+                if (activeTask && activeTask.id !== task.id) { 
+                    pushHistory(); 
+                    setTimerConflict({ staffId, activeTaskId: activeTask.id, targetTaskId: task.id }); 
+                    return; 
+                }
                 
                 const staff = data.staff.find(s => s.id === staffId);
-
-                const startWithLocation = (loc) => {
-                    newLogs.push({ 
+                
+                // 2. Define helper to save log with or without location
+                const saveLog = (locData) => {
+                     newLogs.push({ 
                         staffId, 
                         staffName: staff?.name, 
                         start: now, 
                         end: null, 
                         duration: 0,
-                        location: loc // Save {lat, lng} if available
+                        location: locData // Saves { lat, lng } or null
                     });
                     updateTaskLogs(newLogs);
                 };
 
+                // 3. Robust Geolocation Capture
                 if (navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(
-                        (pos) => startWithLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-                        (err) => { 
-                            console.error("Location access denied or failed", err); 
-                            startWithLocation(null); // Proceed without location
+                        (pos) => {
+                            const { latitude, longitude } = pos.coords;
+                            saveLog({ lat: latitude, lng: longitude });
                         },
-                        { enableHighAccuracy: true, timeout: 5000 }
+                        (err) => {
+                            console.error("Location Error:", err);
+                            saveLog(null); // Proceed even if location fails
+                        },
+                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                     );
                 } else {
-                    startWithLocation(null); // Geolocation not supported
+                    saveLog(null);
                 }
             }
         };
+
         const updateTaskLogs = (logs) => {
             const updatedTask = { ...task, timeLogs: logs };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
             setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
         };
+        
         const updateTaskItems = (newItems) => {
             const updated = { ...task, itemsUsed: newItems };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updated : t) }));
             setDoc(doc(db, "tasks", updated.id), updated);
         };
-        const totalTime = (task.timeLogs || []).reduce((acc, log) => acc + (parseFloat(log.duration) || 0), 0);
         
-        // WhatsApp Share
+        // REQ 3: Enhanced WhatsApp Share
         const shareTask = () => {
-            const text = `*Task Update: ${task.name}*\nClient: ${party?.name}\nStatus: ${task.status}\nDesc: ${task.description}\n\nView details in SMEES Pro.`;
+            const link = `https://smeespro.app/task/${task.id}`;
+            const text = `*Task Details*\nID: ${task.id}\nTask: ${task.name}\nClient: ${party?.name || 'N/A'} (${party?.mobile || ''})\nStatus: ${task.status}\n\nLink: ${link}`;
             window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-        }
+        };
+
+        // REQ 2: Correct Staff Visibility Logic
+        const visibleStaff = data.staff.filter(s => {
+            if (user.role === 'admin') return true; // Admin sees everyone
+            return s.id === user.id; // Staff sees only themselves
+        });
 
         return (
           <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
@@ -1284,7 +1304,7 @@ export default function App() {
                     <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
                     <p className="text-sm text-gray-600 my-4">{task.description}</p>
                     
-                    {/* FIX #3: Time Logs List - Updated to be clickable rows */}
+                    {/* Time Logs List */}
                     <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
                         {(task.timeLogs || []).map((log, idx) => (
                             <div 
@@ -1304,14 +1324,9 @@ export default function App() {
                         ))}
                     </div>
 
+                    {/* Staff Timer Controls */}
                     <div className="flex flex-col gap-2 mb-4">
-                        {data.staff.filter(s => {
-                            const canSee = task.assignedStaff?.includes(s.id) || user.role === 'admin';
-                            if (!canSee) return false;
-                            // RESTRICTION: Non-admins only see themselves
-                            if (user.role !== 'admin' && s.id !== user.id) return false;
-                            return true;
-                        }).map(s => {
+                        {visibleStaff.map(s => {
                             const isRunning = task.timeLogs?.some(l => l.staffId === s.id && !l.end);
                             return (
                                 <div key={s.id} className="flex justify-between items-center bg-white p-2 rounded-xl border"><span className="text-sm font-bold text-gray-700">{s.name}</span><button onClick={() => toggleTimer(s.id)} className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 ${isRunning ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{isRunning ? <><Square size={10} fill="currentColor"/> STOP</> : <><Play size={10} fill="currentColor"/> START</>}</button></div>
