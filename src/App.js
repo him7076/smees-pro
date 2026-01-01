@@ -60,7 +60,8 @@ import {
   LogIn,
   Save,
   MessageCircle,
-  MoreHorizontal
+  MoreHorizontal,
+  RefreshCw // Added missing import
 } from 'lucide-react';
 
 // --- FIREBASE CONFIGURATION ---
