@@ -236,6 +236,8 @@ export default function App() {
   const [editingTimeLog, setEditingTimeLog] = useState(null);
   const [manualAttModal, setManualAttModal] = useState(null); 
   const [adjustCashModal, setAdjustCashModal] = useState(null);
+  // NEW: State for selected time log detail
+  const [selectedTimeLog, setSelectedTimeLog] = useState(null);
 
   useEffect(() => {
     const script = document.createElement("script");
@@ -281,10 +283,11 @@ export default function App() {
           else if (editingTimeLog) setEditingTimeLog(null);
           else if (manualAttModal) setManualAttModal(null);
           else if (adjustCashModal) setAdjustCashModal(null);
+          else if (selectedTimeLog) setSelectedTimeLog(null); // Handle Back Button
       };
       window.addEventListener('popstate', handlePopState);
       return () => window.removeEventListener('popstate', handlePopState);
-  }, [modal, viewDetail, mastersView, reportView, convertModal, showPnlReport, timerConflict, editingTimeLog, statementModal, manualAttModal, adjustCashModal]);
+  }, [modal, viewDetail, mastersView, reportView, convertModal, showPnlReport, timerConflict, editingTimeLog, statementModal, manualAttModal, adjustCashModal, selectedTimeLog]);
 
   const pushHistory = () => window.history.pushState({ modal: true }, '');
   const handleCloseUI = () => window.history.back();
@@ -550,7 +553,12 @@ export default function App() {
      
      const attToday = data.attendance.find(a => a.staffId === staff.id && a.date === new Date().toISOString().split('T')[0]) || {};
      const attHistory = data.attendance.filter(a => a.staffId === staff.id).sort((a,b) => new Date(b.date) - new Date(a.date));
-     const workLogs = data.tasks.flatMap(t => (t.timeLogs || []).filter(l => l.staffId === staff.id).map(l => ({ ...l, taskName: t.name, type: 'task' }))).sort((a,b) => new Date(b.start) - new Date(a.start));
+     
+     // UPDATED: Include taskId and originalIndex to enable editing/viewing details
+     const workLogs = data.tasks.flatMap(t => 
+        (t.timeLogs || []).map((l, i) => ({ ...l, taskId: t.id, originalIndex: i, taskName: t.name }))
+        .filter(l => l.staffId === staff.id)
+     ).sort((a,b) => new Date(b.start) - new Date(a.start));
 
      const handleAttendance = async (type) => {
         if (!user) return;
@@ -629,7 +637,11 @@ export default function App() {
             {sTab === 'work' && (
                 <div className="space-y-2">
                     {workLogs.map((item, idx) => (
-                        <div key={idx} className="p-3 border rounded-xl bg-white text-xs">
+                        <div 
+                            key={idx} 
+                            onClick={() => { pushHistory(); setSelectedTimeLog({ task: data.tasks.find(t => t.id === item.taskId), index: item.originalIndex }); }}
+                            className="p-3 border rounded-xl bg-white text-xs cursor-pointer hover:bg-blue-50 transition-colors"
+                        >
                             <div className="flex justify-between font-bold text-gray-800 mb-1"><span>Task: {item.taskName}</span><span>{new Date(item.start).toLocaleDateString()}</span></div>
                             <div className="flex justify-between text-gray-500"><span>{formatTime(item.start)} - {item.end ? formatTime(item.end) : 'Active'}</span><span className="font-bold">{item.duration}m</span></div>
                         </div>
@@ -1272,103 +1284,34 @@ export default function App() {
                     <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
                     <p className="text-sm text-gray-600 my-4">{task.description}</p>
                     
-                    {/* Client Info */}
-                    {party && (
-                        <div className="mt-4 pt-4 border-t border-gray-200 space-y-2">
-                             <p className="text-xs font-bold text-gray-400 uppercase">Client Details</p>
-                             <p className="font-bold text-gray-800">{party.name}</p>
-                             <div className="flex gap-3">
-                                 <a href={`tel:${party.mobile}`} className="flex items-center gap-1 text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded"><Phone size={12}/> {party.mobile}</a>
-                                 {party.lat && <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${party.lat},${party.lng}`)} className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded"><Navigation size={12}/> Direction</button>}
-                             </div>
-                             {party.address && <p className="text-xs text-gray-500">{party.address}</p>}
-                        </div>
-                    )}
-                </div>
-                
-                {/* ITEMS SECTION */}
-                <div>
-                   <div className="flex justify-between items-center mb-2">
-                       <h3 className="font-bold flex items-center gap-2 text-gray-700"><ShoppingCart size={18}/> Items Used</h3>
-                       {task.status !== 'Converted' && (
-                           <div className="w-40">
-                               <SearchableSelect placeholder="+ Add Item" options={data.items} value="" onChange={(val) => {
-                                   if(val) {
-                                      const item = data.items.find(i=>i.id===val);
-                                      updateTaskItems([...(task.itemsUsed || []), { itemId: val, qty: 1, price: item?.sellPrice || 0, buyPrice: item?.buyPrice || 0, description: '' }]);
-                                   }
-                               }} />
-                           </div>
-                       )}
-                   </div>
-                   <div className="space-y-2">
-                       {(task.itemsUsed || []).map((item, idx) => {
-                           const itemDetails = data.items.find(i => i.id === item.itemId);
-                           return (
-                               <div key={idx} className="p-3 border rounded-xl bg-white space-y-2 text-sm">
-                                   <div className="flex justify-between">
-                                       <p className="font-bold">{itemDetails?.name}</p>
-                                       <button onClick={() => updateTaskItems(task.itemsUsed.filter((_, i) => i !== idx))} className="text-red-500"><Trash2 size={14}/></button>
-                                   </div>
-                                   <div className="flex gap-2">
-                                       <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={item.qty} onChange={e => { const n = [...task.itemsUsed]; n[idx].qty = e.target.value; updateTaskItems(n); }} />
-                                       <span className="text-xs self-center">x {item.price}</span>
-                                   </div>
-                               </div>
-                           );
-                       })}
-                   </div>
-                </div>
-
-                {/* CONVERT OR VIEW INVOICE */}
-                {task.generatedSaleId ? (
-                    <div className="pt-4 border-t">
-                        <button onClick={() => setViewDetail({ type: 'transaction', id: task.generatedSaleId })} className="w-full py-3 bg-green-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-200">
-                            <ReceiptText size={18} /> View Invoice #{task.generatedSaleId}
-                        </button>
-                    </div>
-                ) : (
-                    task.status !== 'Converted' && (
-                        <div className="pt-4 border-t">
-                            <button onClick={() => { pushHistory(); setConvertModal(task); }} className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-purple-200">
-                                <ReceiptText size={18}/> Convert to Sale
-                            </button>
-                        </div>
-                    )
-                )}
-
-                <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                    <div className="flex justify-between items-center mb-3">
-                        <h3 className="font-bold flex items-center gap-2 text-blue-800"><Clock size={18}/> Time Logs</h3>
-                        <span className="text-xs font-black bg-white px-2 py-1 rounded text-blue-600">{totalTime} mins</span>
-                    </div>
-                    
-                    {/* FIX #3: Time Logs List */}
+                    {/* FIX #3: Time Logs List - Updated to be clickable rows */}
                     <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
                         {(task.timeLogs || []).map((log, idx) => (
-                            <div key={idx} className="bg-white p-2 rounded-lg border flex justify-between items-center text-xs">
+                            <div 
+                                key={idx} 
+                                onClick={() => { pushHistory(); setSelectedTimeLog({ task, index: idx }); }}
+                                className="bg-white p-3 rounded-lg border flex justify-between items-center text-xs cursor-pointer hover:bg-gray-50 active:scale-95 transition-all"
+                            >
                                 <div>
                                     <p className="font-bold">{log.staffName}</p>
                                     <p className="text-gray-500">{formatTime(log.start)} - {log.end ? formatTime(log.end) : 'Running'}</p>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <span className="font-bold">{log.duration}m</span>
-                                    {checkPermission(user, 'canEditTasks') && (
-                                        <>
-                                            <button onClick={() => openEditTimeLog(idx)} className="p-1 bg-gray-100 rounded text-blue-600"><Edit2 size={12}/></button>
-                                            <button onClick={() => {
-                                                const newLogs = task.timeLogs.filter((_, i) => i !== idx);
-                                                updateTaskLogs(newLogs);
-                                            }} className="p-1 bg-gray-100 rounded text-red-600"><Trash2 size={12}/></button>
-                                        </>
-                                    )}
+                                    <span className="font-bold bg-gray-100 px-2 py-1 rounded">{log.duration}m</span>
+                                    <ChevronRight size={14} className="text-gray-400"/>
                                 </div>
                             </div>
                         ))}
                     </div>
 
                     <div className="flex flex-col gap-2 mb-4">
-                        {data.staff.filter(s => task.assignedStaff?.includes(s.id) || user.role === 'admin').map(s => {
+                        {data.staff.filter(s => {
+                            const canSee = task.assignedStaff?.includes(s.id) || user.role === 'admin';
+                            if (!canSee) return false;
+                            // RESTRICTION: Non-admins only see themselves
+                            if (user.role !== 'admin' && s.id !== user.id) return false;
+                            return true;
+                        }).map(s => {
                             const isRunning = task.timeLogs?.some(l => l.staffId === s.id && !l.end);
                             return (
                                 <div key={s.id} className="flex justify-between items-center bg-white p-2 rounded-xl border"><span className="text-sm font-bold text-gray-700">{s.name}</span><button onClick={() => toggleTimer(s.id)} className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 ${isRunning ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{isRunning ? <><Square size={10} fill="currentColor"/> STOP</> : <><Play size={10} fill="currentColor"/> START</>}</button></div>
@@ -1844,6 +1787,91 @@ export default function App() {
       };
       return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Edit Time Log</h3><div className="space-y-3"><input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.start} onChange={e => setForm({...form, start: e.target.value})}/><input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.end} onChange={e => setForm({...form, end: e.target.value})}/><div className="flex gap-3"><button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button><button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl">Save</button></div></div></div></div>;
   };
+
+  // NEW: Detail Modal for Time Logs
+  const TimeLogDetailsModal = () => {
+      if (!selectedTimeLog) return null;
+      // Get fresh data
+      const { task: staleTask, index } = selectedTimeLog;
+      const task = data.tasks.find(t => t.id === staleTask.id);
+      if (!task || !task.timeLogs[index]) return null;
+      
+      const log = task.timeLogs[index];
+
+      const handleDelete = async () => {
+          if(!window.confirm("Permanently delete this time log?")) return;
+          const newLogs = task.timeLogs.filter((_, i) => i !== index);
+          const updatedTask = { ...task, timeLogs: newLogs };
+          setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
+          await setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
+          setSelectedTimeLog(null); handleCloseUI(); showToast("Log Deleted");
+      };
+
+      const handleEdit = () => {
+          setSelectedTimeLog(null); // Close detail
+          setEditingTimeLog({ task, index }); // Open edit (history state already handled by detail view)
+      };
+
+      return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl">
+                <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                    <div>
+                        <h3 className="font-bold text-lg text-gray-800">{log.staffName}</h3>
+                        <p className="text-xs text-gray-500 font-bold uppercase">{formatDate(log.start)}</p>
+                    </div>
+                    <button onClick={handleCloseUI} className="p-2 bg-white rounded-full border hover:bg-gray-100"><X size={18}/></button>
+                </div>
+                
+                <div className="p-6 space-y-6">
+                    <div className="grid grid-cols-2 gap-4 text-center">
+                        <div className="p-3 bg-blue-50 rounded-2xl border border-blue-100">
+                            <p className="text-[10px] font-bold text-blue-500 uppercase">Start Time</p>
+                            <p className="text-xl font-black text-blue-900">{formatTime(log.start)}</p>
+                        </div>
+                        <div className="p-3 bg-purple-50 rounded-2xl border border-purple-100">
+                            <p className="text-[10px] font-bold text-purple-500 uppercase">End Time</p>
+                            <p className="text-xl font-black text-purple-900">{log.end ? formatTime(log.end) : 'Now'}</p>
+                        </div>
+                    </div>
+
+                    <div className="text-center">
+                        <p className="text-sm text-gray-500 mb-1">Total Duration</p>
+                        <p className="text-4xl font-black text-gray-800">{log.duration}<span className="text-lg text-gray-400 font-bold ml-1">mins</span></p>
+                    </div>
+
+                    <div className="p-4 border border-dashed rounded-2xl bg-gray-50 text-center space-y-2">
+                        <div className="flex items-center justify-center gap-2 text-gray-600 font-bold text-sm">
+                            <MapPin size={16}/>
+                            {log.location ? "Location Captured" : "No Location Data"}
+                        </div>
+                        {log.location && (
+                            <>
+                                <p className="text-xs text-gray-400">{Number(log.location.lat).toFixed(5)}, {Number(log.location.lng).toFixed(5)}</p>
+                                <a 
+                                    href={`https://www.google.com/maps?q=${log.location.lat},${log.location.lng}`} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer" 
+                                    className="block w-full py-2 mt-2 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 transition-colors"
+                                >
+                                    📍 View on Google Maps
+                                </a>
+                            </>
+                        )}
+                    </div>
+                </div>
+
+                {checkPermission(user, 'canEditTasks') && (
+                    <div className="p-4 bg-gray-50 border-t grid grid-cols-2 gap-3">
+                        <button onClick={handleEdit} className="p-3 bg-white border border-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-50 flex items-center justify-center gap-2"><Edit2 size={16}/> Edit</button>
+                        <button onClick={handleDelete} className="p-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 flex items-center justify-center gap-2"><Trash2 size={16}/> Delete</button>
+                    </div>
+                )}
+            </div>
+        </div>
+      );
+  };
+
   const StatementModal = () => {
       const [dates, setDates] = useState({ start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] });
       const [withItems, setWithItems] = useState(false);
@@ -2075,6 +2103,7 @@ export default function App() {
       {statementModal && <StatementModal />}
       {manualAttModal && <ManualAttendanceModal />}
       {adjustCashModal && <CashAdjustmentModal />}
+      {selectedTimeLog && <TimeLogDetailsModal />}
     </div>
   );
 }
