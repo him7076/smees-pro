@@ -211,12 +211,15 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
 };
 
 export default function App() {
-  // REQ 1: Persistent User State
+  // REQ 1: Persistent Data State (Load from LocalStorage)
   const [user, setUser] = useState(() => {
     const savedUser = localStorage.getItem('smees_user');
     return savedUser ? JSON.parse(savedUser) : null;
   });
-  const [data, setData] = useState(INITIAL_DATA);
+  const [data, setData] = useState(() => {
+    const savedData = localStorage.getItem('smees_data');
+    return savedData ? JSON.parse(savedData) : INITIAL_DATA;
+  });
   const [activeTab, setActiveTab] = useState('dashboard');
   const [mastersView, setMastersView] = useState(null);
   const [convertModal, setConvertModal] = useState(null);
@@ -251,9 +254,9 @@ export default function App() {
     signInAnonymously(auth);
   }, []);
 
-  useEffect(() => {
-    if (!user) return;
-    const fetchData = async () => {
+  // REQ 2: Standalone Sync Function
+  const syncData = async () => {
+      if (!user) return;
       setLoading(true);
       try {
         const newData = { ...INITIAL_DATA };
@@ -268,10 +271,27 @@ export default function App() {
             if (doc.id === 'counters') newData.counters = doc.data();
         });
         if (!newData.counters || Object.keys(newData.counters).length === 0) newData.counters = INITIAL_DATA.counters;
+        
+        // Save to LocalStorage and State
+        localStorage.setItem('smees_data', JSON.stringify(newData));
         setData(newData);
-      } catch (error) { console.error(error); showToast("Error loading data", "error"); } finally { setLoading(false); }
-    };
-    fetchData();
+        showToast("Data Synced Successfully");
+      } catch (error) { 
+          console.error(error); 
+          showToast("Sync Error", "error"); 
+      } finally { 
+          setLoading(false); 
+      }
+  };
+
+  // REQ 3: Smart Auto-Sync Logic
+  useEffect(() => {
+    if (!user) return;
+    const localData = localStorage.getItem('smees_data');
+    // Only sync if no local data exists (First run or cleared cache)
+    if (!localData) {
+        syncData();
+    }
   }, [user]);
 
   useEffect(() => {
@@ -2113,10 +2133,16 @@ export default function App() {
     <div className="min-h-screen bg-gray-50 pb-24 font-sans select-none">
       {toast && <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 rounded-full shadow-lg flex items-center gap-2 text-white animate-in fade-in slide-in-from-top duration-300 ${toast.type === 'error' ? 'bg-red-600' : 'bg-green-600'}`}>{toast.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}<span className="text-sm font-bold">{toast.message}</span></div>}
       <DetailView />
+      
+      {/* REQ 4: Header with Manual Sync Button */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md px-4 py-3 border-b flex justify-between items-center">
         <div className="flex items-center gap-2"><div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black italic">S</div><span className="font-black text-gray-800 tracking-tight">SMEES Pro</span></div>
-        <div className="flex gap-3"><button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 hover:bg-gray-100 rounded-full"><Settings size={20} className="text-gray-500" /></button></div>
+        <div className="flex gap-3">
+            <button onClick={syncData} className={`p-2 hover:bg-gray-100 rounded-full ${loading ? 'animate-spin' : ''}`}><RefreshCw size={20} className="text-blue-600" /></button>
+            <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 hover:bg-gray-100 rounded-full"><Settings size={20} className="text-gray-500" /></button>
+        </div>
       </div>
+
       <main className="max-w-xl mx-auto p-4">
         {loading ? <div className="flex flex-col items-center justify-center h-64 text-gray-400"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div><p className="text-sm font-bold">Syncing Data...</p></div> : (
           <>
