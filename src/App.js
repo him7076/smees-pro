@@ -1562,6 +1562,7 @@ const syncData = async (isBackground = false) => {
               <h2 className="font-bold text-lg">Task Details</h2>
               <div className="flex gap-2">
                    <button onClick={shareTask} className="p-2 bg-green-100 text-green-700 rounded-lg"><MessageCircle size={20}/></button>
+                   {/* Removed Convert Button from here */}
                    {checkPermission(user, 'canEditTasks') && <button onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>}
               </div>
             </div>
@@ -1646,6 +1647,16 @@ const syncData = async (isBackground = false) => {
                         />
                     )}
                 </div>
+
+                {/* New Bottom Convert Button */}
+                {task.status !== 'Converted' && checkPermission(user, 'canEditTasks') && (
+                    <button 
+                        onClick={() => setConvertModal(task)} 
+                        className="w-full bg-purple-600 text-white p-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-purple-200 active:scale-95 transition-transform"
+                    >
+                        <RefreshCw size={20}/> Convert to Sale
+                    </button>
+                )}
             </div>
           </div>
         );
@@ -2173,116 +2184,77 @@ const syncData = async (isBackground = false) => {
   
   const ConvertTaskModal = ({ task }) => {
       const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], received: '', mode: 'Cash' });
+      
       const handleConfirm = async () => {
-          const saleItems = (task.itemsUsed || []).map(i => ({ itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice || 0, description: i.description || '' }));
+          const saleItems = (task.itemsUsed || []).map(i => ({ 
+              itemId: i.itemId, 
+              qty: i.qty, 
+              price: i.price, 
+              buyPrice: i.buyPrice || 0, 
+              description: i.description || '' 
+          }));
+          
           const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
+          
           const workDoneBy = (task.timeLogs || []).map(l => `${l.staffName} (${l.duration}m)`).join(', ');
           const totalMins = (task.timeLogs || []).reduce((acc,l) => acc + (parseFloat(l.duration)||0), 0);
           const workSummary = `${workDoneBy} | Total: ${totalMins} mins`;
-          const newSale = { type: 'sales', date: form.date, partyId: task.partyId, items: saleItems, discountType: '%', discountValue: 0, received: parseFloat(form.received || 0), paymentMode: form.mode, grossTotal: gross, finalTotal: gross, convertedFromTask: task.id, workSummary: workSummary, description: `Converted from Task ${task.id}. Work: ${workSummary}` };
-          const saleId = await saveRecord('transactions', newSale, 'transaction');
-          const updatedTask = { ...task, status: 'Done', generatedSaleId: saleId };
+          
+          const newSale = { 
+              type: 'sales', 
+              date: form.date, 
+              partyId: task.partyId, 
+              items: saleItems, 
+              discountType: '%', 
+              discountValue: 0, 
+              received: parseFloat(form.received || 0), 
+              paymentMode: form.mode, 
+              grossTotal: gross, 
+              finalTotal: gross, 
+              convertedFromTask: task.id, 
+              workSummary: workSummary, 
+              description: `Converted from Task ${task.id}. Work: ${workSummary}` 
+          };
+          
+          // FIX: Use 'sales' type to ensure correct Sales ID (e.g. Sales:922) instead of 'transaction'
+          const saleId = await saveRecord('transactions', newSale, 'sales');
+          
+          // FIX: Set status to 'Converted' instead of 'Done'
+          const updatedTask = { ...task, status: 'Converted', generatedSaleId: saleId };
           await saveRecord('tasks', updatedTask, 'task');
-          setConvertModal(null); setViewDetail(null); handleCloseUI();
+          
+          setConvertModal(null); 
+          setViewDetail(null); 
+          handleCloseUI();
       };
-      return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Convert to Sale</h3><div className="space-y-4"><input type="date" className="w-full p-2 border rounded-xl" value={form.date} onChange={e => setForm({...form, date: e.target.value})}/><input type="number" className="w-full p-2 border rounded-xl" placeholder="Received" value={form.received} onChange={e => setForm({...form, received: e.target.value})}/><div className="flex gap-3"><button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button><button onClick={handleConfirm} className="flex-1 p-3 bg-blue-600 text-white rounded-xl">Confirm</button></div></div></div></div>;
-  };
-  const TimeLogModal = () => {
-      const [form, setForm] = useState({ start: '', end: '' });
-      useEffect(() => { if (editingTimeLog) { const { task, index } = editingTimeLog; const log = task.timeLogs[index] || {}; setForm({ start: log.start ? log.start.slice(0, 16) : '', end: log.end ? log.end.slice(0, 16) : '' }); } }, [editingTimeLog]); 
-      if (!editingTimeLog) return null;
-      const { task, index } = editingTimeLog;
-      const handleSave = async () => {
-          const startD = new Date(form.start); const endD = form.end ? new Date(form.end) : null;
-          const duration = endD ? ((endD - startD) / 1000 / 60).toFixed(0) : 0;
-          const newLogs = [...task.timeLogs]; newLogs[index] = { ...task.timeLogs[index], start: new Date(form.start).toISOString(), end: form.end ? new Date(form.end).toISOString() : null, duration };
-          const updatedTask = { ...task, timeLogs: newLogs };
-          setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
-          if (user) await setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
-          setEditingTimeLog(null); handleCloseUI();
-      };
-      return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Edit Time Log</h3><div className="space-y-3"><input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.start} onChange={e => setForm({...form, start: e.target.value})}/><input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.end} onChange={e => setForm({...form, end: e.target.value})}/><div className="flex gap-3"><button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button><button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl">Save</button></div></div></div></div>;
-  };
-
-  // NEW: Detail Modal for Time Logs
-  const TimeLogDetailsModal = () => {
-      if (!selectedTimeLog) return null;
-      // Get fresh data
-      const { task: staleTask, index } = selectedTimeLog;
-      const task = data.tasks.find(t => t.id === staleTask.id);
-      if (!task || !task.timeLogs[index]) return null;
       
-      const log = task.timeLogs[index];
-
-      const handleDelete = async () => {
-          if(!window.confirm("Permanently delete this time log?")) return;
-          const newLogs = task.timeLogs.filter((_, i) => i !== index);
-          const updatedTask = { ...task, timeLogs: newLogs };
-          setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
-          await setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
-          setSelectedTimeLog(null); handleCloseUI(); showToast("Log Deleted");
-      };
-
-      const handleEdit = () => {
-          setSelectedTimeLog(null); // Close detail
-          setEditingTimeLog({ task, index }); // Open edit (history state already handled by detail view)
-      };
-
       return (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-            <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl">
-                <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
-                    <div>
-                        <h3 className="font-bold text-lg text-gray-800">{log.staffName}</h3>
-                        <p className="text-xs text-gray-500 font-bold uppercase">{formatDate(log.start)}</p>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
+                <h3 className="font-bold text-lg mb-4">Convert to Sale</h3>
+                <div className="space-y-4">
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-500 uppercase">Conversion Date</label>
+                        <input type="date" className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" value={form.date} onChange={e => setForm({...form, date: e.target.value})}/>
                     </div>
-                    <button onClick={handleCloseUI} className="p-2 bg-white rounded-full border hover:bg-gray-100"><X size={18}/></button>
-                </div>
-                
-                <div className="p-6 space-y-6">
-                    <div className="grid grid-cols-2 gap-4 text-center">
-                        <div className="p-3 bg-blue-50 rounded-2xl border border-blue-100">
-                            <p className="text-[10px] font-bold text-blue-500 uppercase">Start Time</p>
-                            <p className="text-xl font-black text-blue-900">{formatTime(log.start)}</p>
-                        </div>
-                        <div className="p-3 bg-purple-50 rounded-2xl border border-purple-100">
-                            <p className="text-[10px] font-bold text-purple-500 uppercase">End Time</p>
-                            <p className="text-xl font-black text-purple-900">{log.end ? formatTime(log.end) : 'Now'}</p>
-                        </div>
+                    {/* FIX: Added Payment Mode Dropdown */}
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-500 uppercase">Payment Mode</label>
+                        <select className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" value={form.mode} onChange={e => setForm({...form, mode: e.target.value})}>
+                            <option>Cash</option>
+                            <option>Bank</option>
+                            <option>UPI</option>
+                        </select>
                     </div>
-
-                    <div className="text-center">
-                        <p className="text-sm text-gray-500 mb-1">Total Duration</p>
-                        <p className="text-4xl font-black text-gray-800">{log.duration}<span className="text-lg text-gray-400 font-bold ml-1">mins</span></p>
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-500 uppercase">Received Amount</label>
+                        <input type="number" className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" placeholder="0.00" value={form.received} onChange={e => setForm({...form, received: e.target.value})}/>
                     </div>
-
-                    <div className="p-4 border border-dashed rounded-2xl bg-gray-50 text-center space-y-2">
-                        <div className="flex items-center justify-center gap-2 text-gray-600 font-bold text-sm">
-                            <MapPin size={16}/>
-                            {log.location ? "Location Captured" : "No Location Data"}
-                        </div>
-                        {log.location && (
-                            <>
-                                <p className="text-xs text-gray-400">{Number(log.location.lat).toFixed(5)}, {Number(log.location.lng).toFixed(5)}</p>
-                                <a 
-                                    href={`https://www.google.com/maps?q=${log.location.lat},${log.location.lng}`} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer" 
-                                    className="block w-full py-2 mt-2 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 transition-colors"
-                                >
-                                    📍 View on Google Maps
-                                </a>
-                            </>
-                        )}
+                    <div className="flex gap-3 pt-2">
+                        <button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold text-sm text-gray-600">Cancel</button>
+                        <button onClick={handleConfirm} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-blue-200">Confirm & Save</button>
                     </div>
                 </div>
-
-                {checkPermission(user, 'canEditTasks') && (
-                    <div className="p-4 bg-gray-50 border-t grid grid-cols-2 gap-3">
-                        <button onClick={handleEdit} className="p-3 bg-white border border-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-50 flex items-center justify-center gap-2"><Edit2 size={16}/> Edit</button>
-                        <button onClick={handleDelete} className="p-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 flex items-center justify-center gap-2"><Trash2 size={16}/> Delete</button>
-                    </div>
-                )}
             </div>
         </div>
       );
