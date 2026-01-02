@@ -327,13 +327,17 @@ export default function App() {
             newData[col] = querySnapshot.docs.map(doc => doc.data());
         }
         
-        // Fetch Settings & Counters
+        // Fetch Settings & Counters & Categories
         const companySnap = await getDocs(collection(db, "settings"));
         companySnap.forEach(doc => {
             if (doc.id === 'company') newData.company = doc.data();
             if (doc.id === 'counters') {
                 // Merge fetched counters with INITIAL_DATA defaults to ensure all keys exist
                 newData.counters = { ...INITIAL_DATA.counters, ...doc.data() };
+            }
+            // NEW: Merge Categories
+            if (doc.id === 'categories') {
+                newData.categories = { ...INITIAL_DATA.categories, ...doc.data() };
             }
         });
         
@@ -1590,6 +1594,95 @@ export default function App() {
     );
   };
 
+  // REQ 2: Category Manager Component
+  const CategoryManager = () => {
+      const [newCat, setNewCat] = useState('');
+      const [editingCat, setEditingCat] = useState(null); // { original: 'Name', current: 'Name' }
+      
+      const handleAdd = async () => {
+          if(!newCat.trim()) return;
+          const current = data.categories.expense || [];
+          if(current.some(c => c.toLowerCase() === newCat.trim().toLowerCase())) return showToast("Category already exists", "error");
+          
+          const updated = [...current, newCat.trim()];
+          const fullCats = { ...data.categories, expense: updated };
+          
+          setData(prev => ({ ...prev, categories: fullCats }));
+          await setDoc(doc(db, "settings", "categories"), fullCats);
+          setNewCat('');
+          showToast("Category Added");
+      };
+
+      const handleUpdate = async (original, newName) => {
+          if (!newName || !newName.trim()) return;
+          const current = data.categories.expense || [];
+          
+          // Check duplicate (excluding self)
+          if(current.some(c => c !== original && c.toLowerCase() === newName.trim().toLowerCase())) {
+              return showToast("Category already exists", "error");
+          }
+
+          const updated = current.map(c => c === original ? newName.trim() : c);
+          const fullCats = { ...data.categories, expense: updated };
+          
+          setData(prev => ({ ...prev, categories: fullCats }));
+          await setDoc(doc(db, "settings", "categories"), fullCats);
+          setEditingCat(null);
+          showToast("Category Updated");
+      };
+
+      const handleDelete = async (catName) => {
+          if(!window.confirm(`Delete category "${catName}"?`)) return;
+          const updated = (data.categories.expense || []).filter(c => c !== catName);
+          const fullCats = { ...data.categories, expense: updated };
+
+          setData(prev => ({ ...prev, categories: fullCats }));
+          await setDoc(doc(db, "settings", "categories"), fullCats);
+          showToast("Deleted");
+      };
+
+      return (
+        <div className="space-y-4">
+             <div className="flex justify-between items-center mb-4">
+                  <h1 className="text-xl font-bold">Expense Categories</h1>
+             </div>
+             
+             <div className="flex gap-2">
+                 <input className="flex-1 p-3 bg-gray-50 border rounded-xl" placeholder="New Category Name..." value={newCat} onChange={e=>setNewCat(e.target.value)} />
+                 <button onClick={handleAdd} className="p-3 bg-blue-600 text-white rounded-xl"><Plus/></button>
+             </div>
+
+             <div className="space-y-2">
+                 {(data.categories.expense || []).map((cat, idx) => (
+                     <div key={idx} className="p-3 bg-white border rounded-xl flex justify-between items-center">
+                        {editingCat?.original === cat ? (
+                            <div className="flex flex-1 gap-2 mr-2">
+                                <input 
+                                    className="flex-1 p-2 border rounded-lg text-sm" 
+                                    value={editingCat.current} 
+                                    autoFocus
+                                    onChange={e => setEditingCat({ ...editingCat, current: e.target.value })}
+                                />
+                                <button onClick={() => handleUpdate(cat, editingCat.current)} className="p-2 bg-green-100 text-green-600 rounded-lg"><CheckCircle2 size={16}/></button>
+                                <button onClick={() => setEditingCat(null)} className="p-2 bg-gray-100 text-gray-600 rounded-lg"><X size={16}/></button>
+                            </div>
+                        ) : (
+                            <>
+                                <span className="font-bold text-gray-800">{cat}</span>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setEditingCat({ original: cat, current: cat })} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit2 size={16}/></button>
+                                    <button onClick={() => handleDelete(cat)} className="p-2 bg-red-50 text-red-600 rounded-lg"><Trash2 size={16}/></button>
+                                </div>
+                            </>
+                        )}
+                     </div>
+                 ))}
+                 {(data.categories.expense || []).length === 0 && <p className="text-center text-gray-400">No categories found.</p>}
+             </div>
+        </div>
+      );
+  };
+
   // 2. Forms
   const TransactionForm = ({ type, record }) => {
     // Initialize state with default values or existing record data
@@ -2230,9 +2323,12 @@ export default function App() {
                         <button onClick={() => { pushHistory(); setMastersView('items'); }} className="p-6 bg-blue-50 border border-blue-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-blue-100"><Package size={32} className="text-blue-600"/><span className="font-bold text-blue-800">Items</span></button>
                         <button onClick={() => { pushHistory(); setMastersView('parties'); }} className="p-6 bg-emerald-50 border border-emerald-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-emerald-100"><Users size={32} className="text-emerald-600"/><span className="font-bold text-emerald-800">Parties</span></button>
                         
-                        {/* NEW: Cash & Bank Adjustment Buttons */}
+                        {/* Cash & Bank Buttons */}
                         <button onClick={() => { pushHistory(); setAdjustCashModal({ type: 'Cash' }); }} className="p-6 bg-green-50 border border-green-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-green-100"><Banknote size={32} className="text-green-600"/><span className="font-bold text-green-800">Cash</span></button>
                         <button onClick={() => { pushHistory(); setAdjustCashModal({ type: 'Bank' }); }} className="p-6 bg-cyan-50 border border-cyan-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-cyan-100"><Briefcase size={32} className="text-cyan-600"/><span className="font-bold text-cyan-800">Bank</span></button>
+
+                        {/* REQ 3: Expense Categories Button */}
+                        <button onClick={() => { pushHistory(); setMastersView('categories'); }} className="p-6 bg-red-50 border border-red-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-red-100"><ReceiptText size={32} className="text-red-600"/><span className="font-bold text-red-800">Exp. Cats</span></button>
 
                         {/* IMPORT BUTTONS */}
                         {user.role === 'admin' && (
@@ -2256,6 +2352,8 @@ export default function App() {
                         {mastersView === 'items' && <MasterList title="Items" collection="items" type="item" onRowClick={(item) => { pushHistory(); setViewDetail({type: 'item', id: item.id}); }} />}
                         {mastersView === 'parties' && <MasterList title="Parties" collection="parties" type="party" onRowClick={(item) => { pushHistory(); setViewDetail({type: 'party', id: item.id}); }} />}
                         {mastersView === 'expenses' && <ExpensesBreakdown />}
+                        {/* REQ 3: Render Category Manager */}
+                        {mastersView === 'categories' && <CategoryManager />}
                     </div>
                 )}
               </div>
