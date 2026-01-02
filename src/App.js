@@ -155,6 +155,7 @@ const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('
 const formatTime = (isoString) => isoString ? new Date(isoString).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--:--';
 
 const getTransactionTotals = (tx) => {
+  if (tx.status === 'Cancelled') return { gross: 0, final: 0, paid: 0, status: 'CANCELLED', amount: 0 };
   const gross = tx.items?.reduce((acc, i) => acc + (parseFloat(i.qty || 0) * parseFloat(i.price || 0)), 0) || 0;
   let discVal = parseFloat(tx.discountValue || 0);
   if (tx.discountType === '%') discVal = (gross * discVal) / 100;
@@ -416,7 +417,7 @@ const syncData = async (isBackground = false) => {
     const balances = {};
     data.parties.forEach(p => balances[p.id] = p.type === 'DR' ? parseFloat(p.openingBal || 0) : -parseFloat(p.openingBal || 0));
     data.transactions.forEach(tx => {
-      if (tx.type === 'estimate') return; 
+      if (tx.type === 'estimate' || tx.status === 'Cancelled') return; 
       const { final, paid } = getTransactionTotals(tx);
       const unpaid = final - paid;
       if (tx.type === 'sales') balances[tx.partyId] = (balances[tx.partyId] || 0) + unpaid;
@@ -434,7 +435,7 @@ const syncData = async (isBackground = false) => {
     const stock = {};
     data.items.forEach(i => stock[i.id] = parseFloat(i.openingStock || 0));
     data.transactions.forEach(tx => {
-      if (tx.type === 'estimate') return;
+      if (tx.type === 'estimate' || tx.status === 'Cancelled') return;
       tx.items?.forEach(line => {
         if (tx.type === 'sales') stock[line.itemId] = (stock[line.itemId] || 0) - parseFloat(line.qty || 0);
         if (tx.type === 'purchase') stock[line.itemId] = (stock[line.itemId] || 0) + parseFloat(line.qty || 0);
@@ -445,8 +446,8 @@ const syncData = async (isBackground = false) => {
 
   const stats = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
-    const todaySales = data.transactions.filter(tx => tx.type === 'sales' && tx.date === today).reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
-    const totalExpenses = data.transactions.filter(tx => tx.type === 'expense').reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
+    const todaySales = data.transactions.filter(tx => tx.type === 'sales' && tx.status !== 'Cancelled' && tx.date === today).reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
+    const totalExpenses = data.transactions.filter(tx => tx.type === 'expense' && tx.status !== 'Cancelled').reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
     const pendingTasks = data.tasks.filter(t => t.status !== 'Done').length;
     let totalReceivables = 0, totalPayables = 0;
     Object.values(partyBalances).forEach(bal => { if (bal > 0) totalReceivables += bal; if (bal < 0) totalPayables += Math.abs(bal); });
@@ -454,7 +455,7 @@ const syncData = async (isBackground = false) => {
     // FIX BUG 2: Correct Cash/Bank Logic (Strictly based on paid/received)
     let cashInHand = 0, bankBalance = 0;
     data.transactions.forEach(tx => {
-        if (tx.type === 'estimate') return;
+        if (tx.type === 'estimate' || tx.status === 'Cancelled') return;
         
         let amt = 0;
         let isIncome = false;
@@ -537,6 +538,30 @@ const syncData = async (isBackground = false) => {
     setData(prev => ({ ...prev, [collectionName]: prev[collectionName].filter(r => r.id !== id) }));
     setConfirmDelete(null); setModal({ type: null, data: null }); handleCloseUI(); showToast("Deleted");
     try { await deleteDoc(doc(db, collectionName, id.toString())); await syncData(true);} catch (e) { console.error(e); }
+  };
+
+  const cancelTransaction = async (id) => {
+    if (!window.confirm("Are you sure you want to cancel this transaction? It will be removed from all calculations but kept in records.")) return;
+    
+    // 1. Update local state immediately
+    const updatedTransactions = data.transactions.map(t => 
+        t.id === id ? { ...t, status: 'Cancelled' } : t
+    );
+    setData(prev => ({ ...prev, transactions: updatedTransactions }));
+    
+    // 2. Update Firebase
+    try {
+        const tx = data.transactions.find(t => t.id === id);
+        if (tx) {
+            await setDoc(doc(db, "transactions", id), { ...tx, status: 'Cancelled' });
+            // 3. Sync quietly
+            await syncData(true);
+            showToast("Transaction Cancelled");
+        }
+    } catch (e) {
+        console.error(e);
+        showToast("Error cancelling", "error");
+    }
   };
 
   // --- MOVED IMPORT LOGIC (From TransactionList to App Scope) ---
@@ -1042,26 +1067,32 @@ const syncData = async (isBackground = false) => {
             const party = data.parties.find(p => p.id === tx.partyId);
             const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
             const totals = getBillLogic(tx);
+            const isCancelled = tx.status === 'Cancelled';
+
             let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
             if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
             if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
             if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
             
             return (
-              <div key={tx.id} onClick={() => { pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
+              <div key={tx.id} onClick={() => { pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className={`p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform ${isCancelled ? 'opacity-50 grayscale bg-gray-50' : ''}`}>
                 <div className="flex gap-4 items-center">
                   <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                   <div>
                     <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
                     <div className="flex gap-1 mt-1">
-                        {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
+                        {isCancelled ? (
+                           <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span>
+                        ) : (
+                           ['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>
+                        )}
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className={`font-bold ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
-                  {['sales', 'purchase'].includes(tx.type) && totals.status !== 'PAID' && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
+                  <p className={`font-bold ${isCancelled ? 'text-gray-400 line-through' : isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
+                  {['sales', 'purchase'].includes(tx.type) && totals.status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
                 </div>
               </div>
             );
@@ -1085,6 +1116,7 @@ const syncData = async (isBackground = false) => {
       const [eDates, setEDates] = useState({ start: '', end: '' });
 
       const filteredExpenses = data.transactions.filter(t => {
+          if (t.status === 'Cancelled') return false;
           if (t.type !== 'expense') return false;
           const d = new Date(t.date);
           const now = new Date();
@@ -1148,7 +1180,7 @@ const syncData = async (isBackground = false) => {
   };
 
   const PnlReportView = () => {
-    const filtered = data.transactions.filter(t => ['sales'].includes(t.type));
+    const filtered = data.transactions.filter(t => ['sales'].includes(t.type) && t.status !== 'Cancelled');
     const filteredDate = filtered.filter(t => {
         const d = new Date(t.date);
         const now = new Date();
@@ -1352,19 +1384,23 @@ const syncData = async (isBackground = false) => {
           <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
             <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
             <div className="flex gap-2">
-               <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-md hover:bg-blue-700"><Share2 size={16}/> Share PDF</button>
+               {tx.status !== 'Cancelled' && <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-md hover:bg-blue-700"><Share2 size={16}/> Share PDF</button>}
                {/* FIX #2: Delete Transaction Button */}
                {checkPermission(user, 'canEditTasks') && (
                    <>
-                       <button onClick={() => { if(window.confirm('Delete this transaction?')) deleteRecord('transactions', tx.id); }} className="p-2 bg-red-50 text-red-600 rounded-lg"><Trash2 size={16}/></button>
-                       <button onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full">Edit</button>
+                       {tx.status !== 'Cancelled' ? (
+                          <button onClick={() => cancelTransaction(tx.id)} className="p-2 bg-gray-100 text-gray-600 rounded-lg border hover:bg-red-50 hover:text-red-600 font-bold text-xs">Cancel</button>
+                       ) : (
+                          <span className="px-2 py-2 bg-red-50 text-red-600 rounded-lg font-black text-xs border border-red-200 flex items-center">CANCELLED</span>
+                       )}
+                       {tx.status !== 'Cancelled' && <button onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full">Edit</button>}
                    </>
                )}
             </div>
           </div>
-          <div className="p-4 space-y-6">
+          <div className={`p-4 space-y-6 ${tx.status === 'Cancelled' ? 'opacity-60 grayscale' : ''}`}>
             <div className="text-center">
-              <h1 className="text-2xl font-black text-gray-800">{formatCurrency(totals.amount)}</h1>
+              <h1 className={`text-2xl font-black ${tx.status === 'Cancelled' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{formatCurrency(totals.amount)}</h1>
               <p className="text-xs font-bold text-gray-400 uppercase">{tx.type} • {formatDate(tx.date)}</p>
             </div>
             <div className="bg-gray-50 p-4 rounded-2xl border">
