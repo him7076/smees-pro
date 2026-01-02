@@ -315,43 +315,47 @@ export default function App() {
     };
   }, []);
 
-  // REQ 2: Updated Fetch Logic (syncData) to merge counters correctly
-  const syncData = async () => {
-      if (!user) return;
-      setLoading(true);
-      try {
-        const newData = { ...INITIAL_DATA };
-        const collections = ['parties', 'items', 'staff', 'transactions', 'tasks', 'attendance'];
-        for (const col of collections) {
-            const querySnapshot = await getDocs(collection(db, col));
-            newData[col] = querySnapshot.docs.map(doc => doc.data());
-        }
-        
-        // Fetch Settings & Counters & Categories
-        const companySnap = await getDocs(collection(db, "settings"));
-        companySnap.forEach(doc => {
-            if (doc.id === 'company') newData.company = doc.data();
-            if (doc.id === 'counters') {
-                // Merge fetched counters with INITIAL_DATA defaults to ensure all keys exist
-                newData.counters = { ...INITIAL_DATA.counters, ...doc.data() };
-            }
-            // NEW: Merge Categories
-            if (doc.id === 'categories') {
-                newData.categories = { ...INITIAL_DATA.categories, ...doc.data() };
-            }
-        });
-        
-        // Save to LocalStorage and State
-        localStorage.setItem('smees_data', JSON.stringify(newData));
-        setData(newData);
-        showToast("Data Synced Successfully");
-      } catch (error) { 
-          console.error(error); 
-          showToast("Sync Error", "error"); 
-      } finally { 
-          setLoading(false); 
+  
+  // REQ 2: Updated Fetch Logic (syncData) with Background Sync Support
+const syncData = async (isBackground = false) => {
+    if (!user) return;
+    
+    // अगर बैकग्राउंड सिंक नहीं है, तभी लोडिंग दिखाएं
+    if (!isBackground) setLoading(true);
+    
+    try {
+      const newData = { ...INITIAL_DATA };
+      const collections = ['parties', 'items', 'staff', 'transactions', 'tasks', 'attendance'];
+      for (const col of collections) {
+          const querySnapshot = await getDocs(collection(db, col));
+          newData[col] = querySnapshot.docs.map(doc => doc.data());
       }
-  };
+      
+      const companySnap = await getDocs(collection(db, "settings"));
+      companySnap.forEach(doc => {
+          if (doc.id === 'company') newData.company = doc.data();
+          if (doc.id === 'counters') {
+              newData.counters = { ...INITIAL_DATA.counters, ...doc.data() };
+          }
+          if (doc.id === 'categories') {
+              newData.categories = { ...INITIAL_DATA.categories, ...doc.data() };
+          }
+      });
+      
+      localStorage.setItem('smees_data', JSON.stringify(newData));
+      setData(newData);
+      
+      // सिर्फ तभी टोस्ट दिखाएं जब यूजर ने मैनुअली रिफ्रेश किया हो
+      if (!isBackground) showToast("Data Synced Successfully");
+      
+    } catch (error) { 
+        console.error(error); 
+        showToast("Sync Error", "error"); 
+    } finally { 
+        // लोडिंग तभी बंद करें अगर वो चालू की गई थी
+        if (!isBackground) setLoading(false); 
+    }
+};
 
   // REQ 3: Smart Auto-Sync Logic
   useEffect(() => {
@@ -521,6 +525,7 @@ export default function App() {
     try {
         await setDoc(doc(db, collectionName, finalId.toString()), safeRecord);
         if (newCounters) await setDoc(doc(db, "settings", "counters"), newCounters);
+        await syncData(true);
     } catch (e) { console.error(e); showToast("Save Error", "error"); }
     return finalId; 
   };
@@ -531,7 +536,7 @@ export default function App() {
     if (collectionName === 'parties' && data.transactions.some(t => t.partyId === id)) { alert("Party is used."); setConfirmDelete(null); return; }
     setData(prev => ({ ...prev, [collectionName]: prev[collectionName].filter(r => r.id !== id) }));
     setConfirmDelete(null); setModal({ type: null, data: null }); handleCloseUI(); showToast("Deleted");
-    try { await deleteDoc(doc(db, collectionName, id.toString())); } catch (e) { console.error(e); }
+    try { await deleteDoc(doc(db, collectionName, id.toString())); await syncData(true);} catch (e) { console.error(e); }
   };
 
   // --- MOVED IMPORT LOGIC (From TransactionList to App Scope) ---
@@ -1220,10 +1225,126 @@ export default function App() {
           pnl.total = pnl.service + pnl.goods;
       }
       
-      const printInvoice = () => {
-        const content = `<html><head><title>${tx.type}</title></head><body><h1>Invoice ${tx.id}</h1></body></html>`; 
+      // New Professional Share/Print Logic
+      const shareInvoice = () => {
+        const companyName = data.company.name || "My Enterprise";
+        const companyMobile = data.company.mobile || "";
+        const partyName = party?.name || tx.category || "Cash Sale";
+        const partyMobile = party?.mobile || "";
+        const partyAddress = party?.address || "";
+        
+        // Calculate Totals for Display
+        const subTotal = tx.items?.reduce((sum, i) => sum + (parseFloat(i.qty) * parseFloat(i.price)), 0) || 0;
+        const discount = parseFloat(tx.discountValue || 0);
+        const grandTotal = parseFloat(totals.amount || 0);
+        const paidAmount = parseFloat(tx.received || tx.paid || 0);
+        const currentDue = grandTotal - paidAmount;
+        const partyTotalDue = partyBalances[tx.partyId] || 0;
+
+        // HTML Template for Professional Invoice
+        const content = `
+          <html>
+            <head>
+              <title>Invoice ${tx.id}</title>
+              <style>
+                body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 20px; color: #333; }
+                .header { text-align: center; margin-bottom: 30px; }
+                .company-name { font-size: 24px; font-weight: bold; color: #2563eb; text-transform: uppercase; }
+                .meta { display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px; }
+                .box { width: 48%; }
+                .label { font-size: 10px; color: #6b7280; text-transform: uppercase; font-weight: bold; }
+                .value { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                th { background-color: #eff6ff; color: #1e40af; padding: 10px; text-align: left; font-size: 12px; border-bottom: 2px solid #2563eb; }
+                td { padding: 10px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+                .text-right { text-align: right; }
+                .totals { display: flex; justify-content: flex-end; }
+                .total-box { width: 50%; }
+                .row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+                .big-total { font-size: 18px; font-weight: bold; color: #2563eb; border-top: 2px solid #e5e7eb; padding-top: 10px; margin-top: 5px; }
+                .footer { margin-top: 40px; text-align: center; font-size: 10px; color: #9ca3af; }
+                .badge { background: #dbeafe; color: #1e40af; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; }
+              </style>
+            </head>
+            <body>
+              <div class="header">
+                <div class="company-name">${companyName}</div>
+                <div style="font-size: 12px;">${companyMobile}</div>
+              </div>
+
+              <div class="meta">
+                <div class="box">
+                  <div class="label">Billed To</div>
+                  <div class="value">${partyName}</div>
+                  <div style="font-size: 12px;">${partyMobile}</div>
+                  <div style="font-size: 12px; color: #6b7280;">${partyAddress}</div>
+                </div>
+                <div class="box text-right">
+                  <div class="label">Invoice Details</div>
+                  <div class="value">#${tx.id}</div>
+                  <div class="value">${formatDate(tx.date)}</div>
+                  <div class="badge">${tx.type.toUpperCase()}</div>
+                </div>
+              </div>
+
+              <table>
+                <thead>
+                  <tr>
+                    <th>ITEM</th>
+                    <th class="text-right">QTY</th>
+                    <th class="text-right">PRICE</th>
+                    <th class="text-right">TOTAL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(tx.items || []).map(item => {
+                    const m = data.items.find(x => x.id === item.itemId);
+                    return `
+                      <tr>
+                        <td>
+                          <div style="font-weight:bold;">${m?.name || 'Item'}</div>
+                          <div style="font-size:10px; color:#6b7280;">${item.description || ''}</div>
+                        </td>
+                        <td class="text-right">${item.qty}</td>
+                        <td class="text-right">${item.price}</td>
+                        <td class="text-right">${(item.qty * item.price).toFixed(2)}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+
+              <div class="totals">
+                <div class="total-box">
+                  <div class="row"><span>Sub Total</span><span>${subTotal.toFixed(2)}</span></div>
+                  <div class="row"><span>Discount (${tx.discountType})</span><span>-${discount}</span></div>
+                  <div class="row big-total"><span>Grand Total</span><span>${grandTotal.toFixed(2)}</span></div>
+                  <div class="row" style="color: #059669; font-weight: bold;"><span>Paid Amount</span><span>${paidAmount.toFixed(2)}</span></div>
+                  <div class="row" style="color: #dc2626; font-weight: bold;"><span>Balance Due (Bill)</span><span>${currentDue.toFixed(2)}</span></div>
+                  <div class="row" style="margin-top: 10px; border-top: 1px dashed #ccc; padding-top: 5px;">
+                    <span style="font-size: 11px;">Total Party Due</span>
+                    <span style="font-weight: bold;">${partyTotalDue.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="footer">
+                <p>Thank you for your business!</p>
+                <p>Generated by SMEES Pro</p>
+              </div>
+            </body>
+          </html>
+        `;
+
         const win = window.open('', '_blank');
-        if (win) { win.document.write(content); win.document.close(); win.print(); }
+        if (win) {
+          win.document.write(content);
+          win.document.close();
+          // Timeout to ensure styles load before printing
+          setTimeout(() => {
+              win.print();
+          }, 500);
+        }
       };
 
       return (
@@ -1231,7 +1352,7 @@ export default function App() {
           <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
             <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
             <div className="flex gap-2">
-               <button onClick={printInvoice} className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg font-bold text-xs flex items-center gap-1"><Printer size={16}/> PDF</button>
+               <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-md hover:bg-blue-700"><Share2 size={16}/> Share PDF</button>
                {/* FIX #2: Delete Transaction Button */}
                {checkPermission(user, 'canEditTasks') && (
                    <>
