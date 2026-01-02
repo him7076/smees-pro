@@ -61,7 +61,7 @@ import {
   Save,
   MessageCircle,
   MoreHorizontal,
-  RefreshCw // Added missing import
+  RefreshCw
 } from 'lucide-react';
 
 // --- FIREBASE CONFIGURATION ---
@@ -93,23 +93,60 @@ const INITIAL_DATA = {
     expense: ["Rent", "Electricity", "Marketing", "Salary"],
     item: ["Electronics", "Grocery", "General", "Furniture", "Pharmacy"]
   },
-  counters: { party: 100, item: 100, staff: 100, transaction: 1000, task: 500 }
+  // REQ 1: Specific Counters aligned with Firebase
+  counters: { 
+      sales: 921, 
+      purchase: 228, 
+      expense: 910, 
+      payment: 1663,
+      task: 508,
+      party: 658, 
+      item: 1184, 
+      staff: 103, 
+      estimate: 100,
+      transaction: 1000
+  }
 };
 
 // --- HELPER FUNCTIONS ---
+// REQ 1: Updated Logic for Specific Counters
 const getNextId = (data, type) => {
   let prefix = type.charAt(0).toUpperCase();
-  let counterKey = type;
-  if (type === 'transaction' || type === 'estimate') { prefix = 'TX'; counterKey = 'transaction'; }
-  if (type === 'sales') { prefix = 'S'; counterKey = 'transaction'; }
-  if (type === 'purchase') { prefix = 'P'; counterKey = 'transaction'; }
-  if (type === 'expense') { prefix = 'E'; counterKey = 'transaction'; }
-  if (type === 'payment') { prefix = 'PAY'; counterKey = 'transaction'; }
+  let counterKey = type; // Default fallback (e.g. party, item, staff)
 
-  const counters = data.counters || INITIAL_DATA.counters; 
-  const num = counters[counterKey] || 1000;
+  // Strict Mapping: type -> counterKey
+  if (type === 'sales') { 
+      prefix = 'Sales:'; 
+      counterKey = 'sales'; 
+  } else if (type === 'purchase') { 
+      prefix = 'Purchase:'; 
+      counterKey = 'purchase'; 
+  } else if (type === 'expense') { 
+      prefix = 'Expense:'; 
+      counterKey = 'expense'; 
+  } else if (type === 'payment') { 
+      prefix = 'Payment:'; 
+      counterKey = 'payment'; 
+  } else if (type === 'estimate') { 
+      prefix = 'EST'; 
+      counterKey = 'estimate'; 
+  } else if (type === 'task') {
+      prefix = 'T';
+      counterKey = 'task';
+  } else if (type === 'transaction') {
+      prefix = 'TX';
+      counterKey = 'transaction';
+  }
+
+  // Get current counter value - Force usage of specific key
+  // Fallback to INITIAL_DATA if data.counters is missing/undefined in state
+  const counters = (data && data.counters) ? data.counters : INITIAL_DATA.counters;
+  const num = counters[counterKey] || 1; 
+
+  // Prepare updated counters object
   const nextCounters = { ...counters };
   nextCounters[counterKey] = num + 1;
+  
   return { id: `${prefix}-${num}`, nextCounters };
 };
 
@@ -247,15 +284,38 @@ export default function App() {
   // NEW: State for selected time log detail
   const [selectedTimeLog, setSelectedTimeLog] = useState(null);
 
+  // REQ 2: Deep Linking (Open Task from URL)
+  useEffect(() => {
+      // Run logic only if data is loaded and tasks exist
+      if (data.tasks && data.tasks.length > 0) {
+          const params = new URLSearchParams(window.location.search);
+          const taskId = params.get('taskId');
+          
+          if (taskId) {
+              const task = data.tasks.find(t => t.id === taskId);
+              if (task) {
+                  setActiveTab('tasks');
+                  setViewDetail({ type: 'task', id: taskId });
+                  
+                  // NOTE: History replacement removed to ensure state persistence
+              }
+          }
+      }
+  }, [data.tasks]);
+
+  // Initial Setup useEffect
   useEffect(() => {
     const script = document.createElement("script");
     script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
     script.async = true;
     document.body.appendChild(script);
     signInAnonymously(auth);
+    return () => {
+        document.body.removeChild(script);
+    };
   }, []);
 
-  // REQ 2: Standalone Sync Function
+  // REQ 2: Updated Fetch Logic (syncData) to merge counters correctly
   const syncData = async () => {
       if (!user) return;
       setLoading(true);
@@ -266,12 +326,16 @@ export default function App() {
             const querySnapshot = await getDocs(collection(db, col));
             newData[col] = querySnapshot.docs.map(doc => doc.data());
         }
+        
+        // Fetch Settings & Counters
         const companySnap = await getDocs(collection(db, "settings"));
         companySnap.forEach(doc => {
             if (doc.id === 'company') newData.company = doc.data();
-            if (doc.id === 'counters') newData.counters = doc.data();
+            if (doc.id === 'counters') {
+                // Merge fetched counters with INITIAL_DATA defaults to ensure all keys exist
+                newData.counters = { ...INITIAL_DATA.counters, ...doc.data() };
+            }
         });
-        if (!newData.counters || Object.keys(newData.counters).length === 0) newData.counters = INITIAL_DATA.counters;
         
         // Save to LocalStorage and State
         localStorage.setItem('smees_data', JSON.stringify(newData));
