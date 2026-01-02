@@ -790,8 +790,6 @@ export default function App() {
             <div><h1 className="text-2xl font-bold text-gray-800">{data.company.name}</h1><p className="text-sm text-gray-500">FY {data.company.financialYear}</p></div>
             <div className="flex gap-2">
                 <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 bg-gray-100 rounded-xl"><Settings className="text-gray-600" /></button>
-                {/* REQ 3: Logout Logic (Clear LocalStorage) */}
-                <button onClick={() => { localStorage.removeItem('smees_user'); setUser(null); }} className="p-2 bg-red-50 text-red-600 rounded-xl"><LogOut size={20} /></button>
             </div>
           </div>
 
@@ -2215,9 +2213,13 @@ export default function App() {
             {activeTab === 'accounting' && checkPermission(user, 'canViewAccounts') && <TransactionList />}
             {activeTab === 'tasks' && checkPermission(user, 'canViewTasks') && <TaskModule />}
             {activeTab === 'staff' && (
-                <div className="space-y-6">
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-bold text-gray-800">Staff</h2>
+                        <button onClick={() => { localStorage.removeItem('smees_user'); setUser(null); }} className="p-2 bg-red-50 text-red-600 rounded-xl flex items-center gap-2 font-bold text-xs"><LogOut size={18} /> Logout</button>
+                    </div>
                     {mastersView === null ? (
-                        <div className="space-y-4"><MasterList title="Staff" collection="staff" type="staff" onRowClick={(s) => { pushHistory(); setViewDetail({type: 'staff', id: s.id}); }} /></div>
+                        <div className="space-y-4"><MasterList title="Team Members" collection="staff" type="staff" onRowClick={(s) => { pushHistory(); setViewDetail({type: 'staff', id: s.id}); }} /></div>
                     ) : null}
                 </div>
             )}
