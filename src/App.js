@@ -9,7 +9,10 @@ import {
   deleteDoc, 
   doc, 
   query, 
-  where 
+  where, 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager 
 } from "firebase/firestore";
 import { 
   LayoutDashboard, 
@@ -62,15 +65,21 @@ import {
 } from 'lucide-react';
 
 // --- FIREBASE CONFIGURATION ---
-const firebaseConfig = JSON.parse(__firebase_config);
+const firebaseConfig = {
+  apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
+  authDomain: "smeestest.firebaseapp.com",
+  projectId: "smeestest",
+  storageBucket: "smeestest.firebasestorage.app",
+  messagingSenderId: "1086297510582",
+  appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
+  measurementId: "G-BQ6NW6D84Z"
+};
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
-
-// Helper for Secured Paths
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app';
-const getColRef = (colName) => collection(db, 'artifacts', appId, 'public', 'data', colName);
-const getDocRef = (colName, docId) => doc(db, 'artifacts', appId, 'public', 'data', colName, docId);
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+});
 
 const INITIAL_DATA = {
   company: { name: "My Enterprise", mobile: "", address: "", financialYear: "2024-25", currency: "₹" },
@@ -84,6 +93,7 @@ const INITIAL_DATA = {
     expense: ["Rent", "Electricity", "Marketing", "Salary"],
     item: ["Electronics", "Grocery", "General", "Furniture", "Pharmacy"]
   },
+  // REQ 1: Specific Counters aligned with Firebase
   counters: { 
       sales: 921, 
       purchase: 228, 
@@ -99,21 +109,41 @@ const INITIAL_DATA = {
 };
 
 // --- HELPER FUNCTIONS ---
+// REQ 1: Updated Logic for Specific Counters
 const getNextId = (data, type) => {
   let prefix = type.charAt(0).toUpperCase();
-  let counterKey = type;
+  let counterKey = type; // Default fallback (e.g. party, item, staff)
 
-  if (type === 'sales') { prefix = 'S'; counterKey = 'sales'; }
-  else if (type === 'purchase') { prefix = 'P'; counterKey = 'purchase'; }
-  else if (type === 'expense') { prefix = 'E'; counterKey = 'expense'; }
-  else if (type === 'payment') { prefix = 'PAY'; counterKey = 'payment'; }
-  else if (type === 'estimate') { prefix = 'EST'; counterKey = 'estimate'; }
-  else if (type === 'task') { prefix = 'T'; counterKey = 'task'; }
-  else if (type === 'transaction') { prefix = 'TX'; counterKey = 'transaction'; }
+  // Strict Mapping: type -> counterKey
+  if (type === 'sales') { 
+      prefix = 'Sales:'; 
+      counterKey = 'sales'; 
+  } else if (type === 'purchase') { 
+      prefix = 'Purchase:'; 
+      counterKey = 'purchase'; 
+  } else if (type === 'expense') { 
+      prefix = 'Expense:'; 
+      counterKey = 'expense'; 
+  } else if (type === 'payment') { 
+      prefix = 'Payment:'; 
+      counterKey = 'payment'; 
+  } else if (type === 'estimate') { 
+      prefix = 'EST'; 
+      counterKey = 'estimate'; 
+  } else if (type === 'task') {
+      prefix = 'T';
+      counterKey = 'task';
+  } else if (type === 'transaction') {
+      prefix = 'TX';
+      counterKey = 'transaction';
+  }
 
+  // Get current counter value - Force usage of specific key
+  // Fallback to INITIAL_DATA if data.counters is missing/undefined in state
   const counters = (data && data.counters) ? data.counters : INITIAL_DATA.counters;
   const num = counters[counterKey] || 1; 
 
+  // Prepare updated counters object
   const nextCounters = { ...counters };
   nextCounters[counterKey] = num + 1;
   
@@ -219,6 +249,7 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
 };
 
 export default function App() {
+  // REQ 1: Persistent Data State (Load from LocalStorage)
   const [user, setUser] = useState(() => {
     const savedUser = localStorage.getItem('smees_user');
     return savedUser ? JSON.parse(savedUser) : null;
@@ -238,80 +269,99 @@ export default function App() {
   const [reportView, setReportView] = useState(null);
   const [statementModal, setStatementModal] = useState(null);
    
+  // Logic & Filter States
   const [listFilter, setListFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState(null);
   const [partyFilter, setPartyFilter] = useState(null);
   const [listPaymentMode, setListPaymentMode] = useState(null);
-  const [pnlFilter, setPnlFilter] = useState('Monthly');
+  const [pnlFilter, setPnlFilter] = useState('Monthly'); // Default
   const [pnlCustomDates, setPnlCustomDates] = useState({ start: '', end: '' });
   const [showPnlReport, setShowPnlReport] = useState(false);
   const [timerConflict, setTimerConflict] = useState(null);
   const [editingTimeLog, setEditingTimeLog] = useState(null);
   const [manualAttModal, setManualAttModal] = useState(null); 
   const [adjustCashModal, setAdjustCashModal] = useState(null);
+  // NEW: State for selected time log detail
   const [selectedTimeLog, setSelectedTimeLog] = useState(null);
 
-  // Auth Listener
+  // REQ 2: Deep Linking (Open Task from URL)
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-        if (!u && !user) {
-            signInAnonymously(auth).catch(console.error);
-        }
-    });
-    return () => unsubscribe();
-  }, [user]);
-
-  // Sync Logic
-  const syncData = async () => {
-      setLoading(true);
-      try {
-        const newData = { ...INITIAL_DATA };
-        const collections = ['parties', 'items', 'staff', 'transactions', 'tasks', 'attendance'];
-        for (const col of collections) {
-            const querySnapshot = await getDocs(getColRef(col));
-            newData[col] = querySnapshot.docs.map(doc => doc.data());
-        }
-        
-        const companySnap = await getDocs(getColRef("settings"));
-        companySnap.forEach(doc => {
-            if (doc.id === 'company') newData.company = doc.data();
-            if (doc.id === 'counters') newData.counters = { ...INITIAL_DATA.counters, ...doc.data() };
-            if (doc.id === 'categories') newData.categories = { ...INITIAL_DATA.categories, ...doc.data() };
-        });
-        
-        localStorage.setItem('smees_data', JSON.stringify(newData));
-        setData(newData);
-        showToast("Data Synced Successfully");
-      } catch (error) { 
-          console.error(error); 
-          showToast("Sync Error: " + error.message, "error"); 
-      } finally { 
-          setLoading(false); 
-      }
-  };
-
-  useEffect(() => {
-    if (!user) return;
-    const localData = localStorage.getItem('smees_data');
-    if (!localData) {
-        syncData();
-    }
-  }, [user]);
-
-  // Deep Linking
-  useEffect(() => {
+      // Run logic only if data is loaded and tasks exist
       if (data.tasks && data.tasks.length > 0) {
           const params = new URLSearchParams(window.location.search);
           const taskId = params.get('taskId');
+          
           if (taskId) {
               const task = data.tasks.find(t => t.id === taskId);
               if (task) {
                   setActiveTab('tasks');
                   setViewDetail({ type: 'task', id: taskId });
+                  
+                  // NOTE: History replacement removed to ensure state persistence
               }
           }
       }
   }, [data.tasks]);
+
+  // Initial Setup useEffect
+  useEffect(() => {
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    script.async = true;
+    document.body.appendChild(script);
+    signInAnonymously(auth);
+    return () => {
+        document.body.removeChild(script);
+    };
+  }, []);
+
+  // REQ 2: Updated Fetch Logic (syncData) to merge counters correctly
+  const syncData = async () => {
+      if (!user) return;
+      setLoading(true);
+      try {
+        const newData = { ...INITIAL_DATA };
+        const collections = ['parties', 'items', 'staff', 'transactions', 'tasks', 'attendance'];
+        for (const col of collections) {
+            const querySnapshot = await getDocs(collection(db, col));
+            newData[col] = querySnapshot.docs.map(doc => doc.data());
+        }
+        
+        // Fetch Settings & Counters & Categories
+        const companySnap = await getDocs(collection(db, "settings"));
+        companySnap.forEach(doc => {
+            if (doc.id === 'company') newData.company = doc.data();
+            if (doc.id === 'counters') {
+                // Merge fetched counters with INITIAL_DATA defaults to ensure all keys exist
+                newData.counters = { ...INITIAL_DATA.counters, ...doc.data() };
+            }
+            // NEW: Merge Categories
+            if (doc.id === 'categories') {
+                newData.categories = { ...INITIAL_DATA.categories, ...doc.data() };
+            }
+        });
+        
+        // Save to LocalStorage and State
+        localStorage.setItem('smees_data', JSON.stringify(newData));
+        setData(newData);
+        showToast("Data Synced Successfully");
+      } catch (error) { 
+          console.error(error); 
+          showToast("Sync Error", "error"); 
+      } finally { 
+          setLoading(false); 
+      }
+  };
+
+  // REQ 3: Smart Auto-Sync Logic
+  useEffect(() => {
+    if (!user) return;
+    const localData = localStorage.getItem('smees_data');
+    // Only sync if no local data exists (First run or cleared cache)
+    if (!localData) {
+        syncData();
+    }
+  }, [user]);
 
   useEffect(() => {
       const handlePopState = () => {
@@ -326,7 +376,7 @@ export default function App() {
           else if (editingTimeLog) setEditingTimeLog(null);
           else if (manualAttModal) setManualAttModal(null);
           else if (adjustCashModal) setAdjustCashModal(null);
-          else if (selectedTimeLog) setSelectedTimeLog(null);
+          else if (selectedTimeLog) setSelectedTimeLog(null); // Handle Back Button
       };
       window.addEventListener('popstate', handlePopState);
       return () => window.removeEventListener('popstate', handlePopState);
@@ -397,13 +447,16 @@ export default function App() {
     let totalReceivables = 0, totalPayables = 0;
     Object.values(partyBalances).forEach(bal => { if (bal > 0) totalReceivables += bal; if (bal < 0) totalPayables += Math.abs(bal); });
     
+    // FIX BUG 2: Correct Cash/Bank Logic (Strictly based on paid/received)
     let cashInHand = 0, bankBalance = 0;
     data.transactions.forEach(tx => {
         if (tx.type === 'estimate') return;
+        
         let amt = 0;
         let isIncome = false;
         let affectCashBank = false;
 
+        // Specific logic per type - only count what is ACTUALLY paid/received
         if (tx.type === 'sales') {
             amt = parseFloat(tx.received || 0);
             isIncome = true;
@@ -413,10 +466,12 @@ export default function App() {
             isIncome = false;
             affectCashBank = amt > 0;
         } else if (tx.type === 'expense') {
+            // Expenses: Use 'paid' field (default for expense form)
             amt = parseFloat(tx.paid || 0);
             isIncome = false;
             affectCashBank = amt > 0;
         } else if (tx.type === 'payment') {
+            // Payments are pure cash flow
             amt = parseFloat(tx.amount || 0);
             isIncome = tx.subType === 'in';
             affectCashBank = amt > 0;
@@ -449,7 +504,7 @@ export default function App() {
          if (task) {
            task.itemsUsed = record.items.map(i => ({ itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice, description: i.description }));
            newData.tasks = newData.tasks.map(t => t.id === task.id ? task : t);
-           setDoc(getDocRef("tasks", task.id), task);
+           setDoc(doc(db, "tasks", task.id), task);
          }
       }
     } else {
@@ -464,8 +519,8 @@ export default function App() {
     const safeRecord = cleanData(record);
     setData(newData); setModal({ type: null, data: null }); handleCloseUI(); showToast("Saved");
     try {
-        await setDoc(getDocRef(collectionName, finalId.toString()), safeRecord);
-        if (newCounters) await setDoc(getDocRef("settings", "counters"), newCounters);
+        await setDoc(doc(db, collectionName, finalId.toString()), safeRecord);
+        if (newCounters) await setDoc(doc(db, "settings", "counters"), newCounters);
     } catch (e) { console.error(e); showToast("Save Error", "error"); }
     return finalId; 
   };
@@ -476,9 +531,10 @@ export default function App() {
     if (collectionName === 'parties' && data.transactions.some(t => t.partyId === id)) { alert("Party is used."); setConfirmDelete(null); return; }
     setData(prev => ({ ...prev, [collectionName]: prev[collectionName].filter(r => r.id !== id) }));
     setConfirmDelete(null); setModal({ type: null, data: null }); handleCloseUI(); showToast("Deleted");
-    try { await deleteDoc(getDocRef(collectionName, id.toString())); } catch (e) { console.error(e); }
+    try { await deleteDoc(doc(db, collectionName, id.toString())); } catch (e) { console.error(e); }
   };
 
+  // --- MOVED IMPORT LOGIC (From TransactionList to App Scope) ---
   const handleTransactionImport = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -505,7 +561,7 @@ export default function App() {
               
               const tx = {
                   id,
-                  date: row[0],
+                  date: row[0], // Expect YYYY-MM-DD
                   type,
                   partyId: party ? party.id : '',
                   amount: parseFloat(row[3] || 0),
@@ -521,11 +577,11 @@ export default function App() {
               }
 
               newTx.push(cleanData(tx));
-              batch.push(setDoc(getDocRef("transactions", id), cleanData(tx)));
+              batch.push(setDoc(doc(db, "transactions", id), cleanData(tx)));
           }
           
           if(batch.length > 0) {
-              batch.push(setDoc(getDocRef("settings", "counters"), nextCounters));
+              batch.push(setDoc(doc(db, "settings", "counters"), nextCounters));
               await Promise.all(batch);
               setData(prev => ({ ...prev, transactions: [...prev.transactions, ...newTx], counters: nextCounters }));
               showToast(`Imported ${newTx.length} transactions`);
@@ -561,7 +617,7 @@ export default function App() {
                   id,
                   type: 'payment',
                   date: row[0],
-                  subType: (row[1] || 'in').toLowerCase(), 
+                  subType: (row[1] || 'in').toLowerCase(), // 'in' or 'out'
                   partyId: party ? party.id : '',
                   amount: parseFloat(row[3] || 0),
                   paymentMode: row[4] || 'Cash',
@@ -570,11 +626,11 @@ export default function App() {
               };
 
               newTx.push(cleanData(tx));
-              batch.push(setDoc(getDocRef("transactions", id), cleanData(tx)));
+              batch.push(setDoc(doc(db, "transactions", id), cleanData(tx)));
           }
 
           if(batch.length > 0) {
-              batch.push(setDoc(getDocRef("settings", "counters"), nextCounters));
+              batch.push(setDoc(doc(db, "settings", "counters"), nextCounters));
               await Promise.all(batch);
               setData(prev => ({ ...prev, transactions: [...prev.transactions, ...newTx], counters: nextCounters }));
               showToast(`Imported ${newTx.length} payments`);
@@ -591,6 +647,7 @@ export default function App() {
      const attToday = data.attendance.find(a => a.staffId === staff.id && a.date === new Date().toISOString().split('T')[0]) || {};
      const attHistory = data.attendance.filter(a => a.staffId === staff.id).sort((a,b) => new Date(b.date) - new Date(a.date));
      
+     // UPDATED: Include taskId and originalIndex to enable editing/viewing details
      const workLogs = data.tasks.flatMap(t => 
         (t.timeLogs || []).map((l, i) => ({ ...l, taskId: t.id, originalIndex: i, taskName: t.name }))
         .filter(l => l.staffId === staff.id)
@@ -609,13 +666,13 @@ export default function App() {
         if (type === 'lunchEnd') attRecord.lunchEnd = timeStr;
         const newAtt = [...data.attendance.filter(a => a.id !== attRecord.id), attRecord];
         setData(prev => ({ ...prev, attendance: newAtt }));
-        await setDoc(getDocRef("attendance", attRecord.id), attRecord);
+        await setDoc(doc(db, "attendance", attRecord.id), attRecord);
         showToast(`${type} Recorded`);
     };
 
     const deleteAtt = async (id) => {
         if(!window.confirm("Delete this attendance record?")) return;
-        await deleteDoc(getDocRef("attendance", id));
+        await deleteDoc(doc(db, "attendance", id));
         setData(prev => ({...prev, attendance: prev.attendance.filter(a => a.id !== id)}));
     }
     
@@ -689,6 +746,7 @@ export default function App() {
   };
 
   const Dashboard = () => {
+      // FIX #2: Net Profit Filters
       const pnlData = useMemo(() => {
           const now = new Date();
           let filteredTx = data.transactions.filter(t => ['sales'].includes(t.type));
@@ -761,6 +819,7 @@ export default function App() {
                     </div>
                   )}
               </div>
+              {/* FIX #4: Cash/Bank with Adjust Button */}
               <div className="bg-white p-4 rounded-2xl border shadow-sm relative group">
                   <div className="flex justify-between items-start mb-1">
                       <p className="text-xs font-bold text-gray-400">CASH / BANK</p>
@@ -772,21 +831,25 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
+            {/* Receivables Card - Click to filter Party Master */}
             <div onClick={() => { pushHistory(); setActiveTab('masters'); setMastersView('parties'); setPartyFilter('receivable'); }} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 cursor-pointer active:scale-95 transition-transform">
                <p className="text-xs font-bold text-emerald-600 uppercase">Receivables</p>
                <p className="text-xl font-bold text-emerald-900">{formatCurrency(stats.totalReceivables)}</p>
             </div>
             
+            {/* Payables Card - Click to filter Party Master */}
             <div onClick={() => { pushHistory(); setActiveTab('masters'); setMastersView('parties'); setPartyFilter('payable'); }} className="bg-rose-50 p-4 rounded-2xl border border-rose-100 cursor-pointer active:scale-95 transition-transform">
                <p className="text-xs font-bold text-rose-600 uppercase">Payables</p>
                <p className="text-xl font-bold text-rose-900">{formatCurrency(stats.totalPayables)}</p>
             </div>
             
+            {/* Sales Card - Click to go to Accounting Tab */}
             <div onClick={() => { setListFilter('sales'); setActiveTab('accounting'); }} className="bg-green-50 p-4 rounded-2xl border border-green-100 cursor-pointer active:scale-95 transition-transform">
               <p className="text-xs font-bold text-green-600 uppercase">Today Sales</p>
               <p className="text-xl font-bold text-green-900">{formatCurrency(stats.todaySales)}</p>
             </div>
             
+            {/* Expenses Card - Click to open Expenses Breakdown */}
             <div onClick={() => { pushHistory(); setActiveTab('masters'); setMastersView('expenses'); }} className="bg-red-50 p-4 rounded-2xl border border-red-100 cursor-pointer active:scale-95 transition-transform">
               <p className="text-xs font-bold text-red-600 uppercase">Expenses</p>
               <p className="text-xl font-bold text-red-900">{formatCurrency(stats.totalExpenses)}</p>
@@ -833,6 +896,7 @@ export default function App() {
 
     const filtered = sortData(listData.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(search.toLowerCase()))), sort);
 
+    // --- IMPORT LOGIC ---
     const handleImport = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -873,11 +937,11 @@ export default function App() {
                 
                 if (record.name) {
                     newRecords.push(cleanData(record));
-                    batchPromises.push(setDoc(getDocRef(collection, id), cleanData(record)));
+                    batchPromises.push(setDoc(doc(db, collection, id), cleanData(record)));
                 }
             }
             
-            batchPromises.push(setDoc(getDocRef("settings", "counters"), nextCounters));
+            batchPromises.push(setDoc(doc(db, "settings", "counters"), nextCounters));
             
             await Promise.all(batchPromises);
             setData(prev => ({ 
@@ -896,7 +960,7 @@ export default function App() {
        const ids = [...selectedIds];
        setSelectedIds([]);
        setData(prev => ({ ...prev, [collection]: prev[collection].filter(item => !ids.includes(item.id)) }));
-       try { await Promise.all(ids.map(id => deleteDoc(getDocRef(collection, id.toString())))); } catch (e) { console.error(e); }
+       try { await Promise.all(ids.map(id => deleteDoc(doc(db, collection, id.toString())))); } catch (e) { console.error(e); }
     };
 
     return (
@@ -1010,6 +1074,7 @@ export default function App() {
     );
   };
 
+  // FIX #3: Expenses Breakdown with Date Filters
   const ExpensesBreakdown = () => {
       const [eFilter, setEFilter] = useState('Monthly');
       const [eDates, setEDates] = useState({ start: '', end: '' });
@@ -1065,6 +1130,7 @@ export default function App() {
                       Show All Expenses List
                   </div>
                   {Object.entries(byCategory).map(([cat, total]) => (
+                      // FIX #3: Interactive Expense Categories
                       <div key={cat} onClick={() => { setListFilter('expense'); setCategoryFilter(cat); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border cursor-pointer hover:bg-gray-100">
                           <span className="font-bold">{cat}</span>
                           <span className="font-bold text-red-600">{formatCurrency(total)}</span>
@@ -1154,142 +1220,10 @@ export default function App() {
           pnl.total = pnl.service + pnl.goods;
       }
       
-      const shareInvoice = () => {
-        const company = data.company;
-        const discountAmt = totals.gross - totals.final;
-        
-        const htmlContent = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>${tx.type.toUpperCase()} - ${tx.id}</title>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-              @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
-              body { font-family: 'Inter', sans-serif; color: #1e293b; margin: 0; padding: 20px; background: #f8fafc; -webkit-print-color-adjust: exact; }
-              .invoice-box { max-width: 800px; margin: auto; background: #fff; padding: 40px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0; }
-              .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; border-bottom: 2px solid #2563eb; padding-bottom: 24px; }
-              .company-name { font-size: 32px; font-weight: 800; color: #2563eb; margin: 0 0 4px 0; letter-spacing: -0.5px; }
-              .company-details { font-size: 13px; color: #64748b; line-height: 1.5; }
-              .invoice-info { text-align: right; }
-              .invoice-title { font-size: 24px; font-weight: 800; color: #0f172a; text-transform: uppercase; margin-bottom: 4px; }
-              .meta-item { font-size: 13px; color: #64748b; margin-top: 2px; }
-              .status-badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 11px; font-weight: 700; color: white; background: ${totals.status === 'PAID' ? '#10b981' : totals.status === 'PARTIAL' ? '#f59e0b' : '#ef4444'}; margin-top: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-              .billing-grid { display: grid; grid-template-columns: 1fr; margin-bottom: 40px; }
-              .bill-card { background: #f1f5f9; padding: 20px; border-radius: 12px; border-left: 4px solid #2563eb; }
-              .label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-              .party-name { font-size: 18px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0; }
-              .party-detail { font-size: 13px; color: #475569; display: block; margin-top: 2px; }
-              table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-              table th { background: #eff6ff; color: #1e40af; padding: 12px 16px; font-size: 12px; font-weight: 700; text-transform: uppercase; text-align: left; border-top: 1px solid #dbeafe; border-bottom: 1px solid #dbeafe; }
-              table td { padding: 16px; border-bottom: 1px solid #e2e8f0; font-size: 13px; color: #334155; }
-              table tr:last-child td { border-bottom: none; }
-              .text-right { text-align: right; }
-              .item-name { font-weight: 600; color: #0f172a; display: block; }
-              .item-desc { font-size: 11px; color: #64748b; margin-top: 2px; display: block; }
-              .totals-section { display: flex; justify-content: flex-end; }
-              .totals-box { width: 280px; }
-              .total-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px; color: #64748b; }
-              .total-row.grand-total { border-top: 2px solid #0f172a; border-bottom: 2px solid #0f172a; padding: 12px 0; margin-top: 8px; margin-bottom: 8px; font-size: 18px; font-weight: 800; color: #2563eb; }
-              .total-row.balance { color: #dc2626; font-weight: 700; }
-              .footer { text-align: center; margin-top: 60px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 24px; }
-              @media print {
-                body { background: white; padding: 0; }
-                .invoice-box { box-shadow: none; border: none; padding: 0; max-width: 100%; }
-                .no-print { display: none; }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="invoice-box">
-              <div class="header">
-                <div>
-                  <h1 class="company-name">${company.name}</h1>
-                  <div class="company-details">${company.address || 'Address Not Available'}</div>
-                  <div class="company-details">Phone: ${company.mobile || 'N/A'}</div>
-                </div>
-                <div class="invoice-info">
-                  <div class="invoice-title">${tx.type}</div>
-                  <div class="meta-item">Voucher #: <span style="color: #0f172a; font-weight: 600;">${tx.id}</span></div>
-                  <div class="meta-item">Date: <span style="color: #0f172a; font-weight: 600;">${formatDate(tx.date)}</span></div>
-                  <span class="status-badge">${totals.status}</span>
-                </div>
-              </div>
-
-              <div class="billing-grid">
-                <div class="bill-card">
-                  <div class="label">Billed To</div>
-                  <h3 class="party-name">${party?.name || tx.category || 'Unknown'}</h3>
-                  <span class="party-detail">Mobile: ${party?.mobile || 'N/A'}</span>
-                  <span class="party-detail">${party?.address || ''}</span>
-                </div>
-              </div>
-
-              ${!isPayment ? `
-              <table>
-                <thead>
-                  <tr>
-                    <th style="border-radius: 8px 0 0 8px;">Item Description</th>
-                    <th class="text-right">Qty</th>
-                    <th class="text-right">Price</th>
-                    <th class="text-right" style="border-radius: 0 8px 8px 0;">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${(tx.items || []).map(item => {
-                    const m = data.items.find(x => x.id === item.itemId);
-                    return `
-                      <tr>
-                        <td>
-                          <span class="item-name">${m?.name || 'Item'}</span>
-                          ${item.description ? `<span class="item-desc">${item.description}</span>` : ''}
-                        </td>
-                        <td class="text-right">${item.qty}</td>
-                        <td class="text-right">${formatCurrency(item.price)}</td>
-                        <td class="text-right" style="font-weight: 600;">${formatCurrency(item.qty * item.price)}</td>
-                      </tr>
-                    `;
-                  }).join('')}
-                </tbody>
-              </table>
-              ` : `
-              <div style="margin-bottom: 30px; padding: 20px; background: #f8fafc; border-radius: 8px; text-align: center;">
-                  <p style="font-size: 14px; color: #64748b;">Payment for <strong>${tx.description || 'General Account'}</strong></p>
-                  <h2 style="color: #2563eb; font-size: 24px; margin: 10px 0;">${formatCurrency(tx.amount)}</h2>
-                  <p style="font-size: 12px; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Paid via ${tx.paymentMode}</p>
-              </div>
-              `}
-
-              <div class="totals-section">
-                <div class="totals-box">
-                  <div class="total-row"><span>Subtotal</span><span>${formatCurrency(totals.gross || totals.amount)}</span></div>
-                  ${discountAmt > 0 ? `<div class="total-row"><span>Discount</span><span style="color: #ef4444;">-${formatCurrency(discountAmt)}</span></div>` : ''}
-                  <div class="total-row grand-total"><span>Grand Total</span><span>${formatCurrency(totals.final || totals.amount)}</span></div>
-                  <div class="total-row"><span>Paid Amount</span><span>${formatCurrency(totals.paid || (isPayment ? totals.amount : 0))}</span></div>
-                  ${totals.pending > 0 ? `<div class="total-row balance"><span>Balance Due</span><span>${formatCurrency(totals.pending)}</span></div>` : ''}
-                </div>
-              </div>
-
-              <div class="footer">
-                <p style="margin-bottom: 8px;">Thank you for your business!</p>
-                <p style="font-weight: 600; color: #0f172a;">${company.name}</p>
-              </div>
-            </div>
-            <script>
-                // Auto-print when loaded
-                setTimeout(() => { window.print(); }, 500);
-            </script>
-          </body>
-          </html>
-        `;
-        
+      const printInvoice = () => {
+        const content = `<html><head><title>${tx.type}</title></head><body><h1>Invoice ${tx.id}</h1></body></html>`; 
         const win = window.open('', '_blank');
-        if (win) { 
-            win.document.write(htmlContent); 
-            win.document.close(); 
-        } else {
-            alert("Pop-up blocked! Please allow pop-ups to view the invoice.");
-        }
+        if (win) { win.document.write(content); win.document.close(); win.print(); }
       };
 
       return (
@@ -1297,9 +1231,8 @@ export default function App() {
           <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
             <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
             <div className="flex gap-2">
-               <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-2 hover:bg-blue-700 shadow-md shadow-blue-200">
-                   <Share2 size={16}/> Share PDF
-               </button>
+               <button onClick={printInvoice} className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg font-bold text-xs flex items-center gap-1"><Printer size={16}/> PDF</button>
+               {/* FIX #2: Delete Transaction Button */}
                {checkPermission(user, 'canEditTasks') && (
                    <>
                        <button onClick={() => { if(window.confirm('Delete this transaction?')) deleteRecord('transactions', tx.id); }} className="p-2 bg-red-50 text-red-600 rounded-lg"><Trash2 size={16}/></button>
@@ -1364,6 +1297,7 @@ export default function App() {
         
         const openEditTimeLog = (idx) => { pushHistory(); setEditingTimeLog({ task, index: idx }); };
 
+        // Helper for Items dropdown
         const itemOptions = data.items.map(i => ({ 
             ...i, 
             subText: `Stock: ${itemStock[i.id] || 0}`, 
@@ -1377,12 +1311,15 @@ export default function App() {
             const activeLogIndex = newLogs.findIndex(l => l.staffId === staffId && !l.end);
 
             if (activeLogIndex >= 0) {
+                // STOP TIMER (No location needed)
                 const start = new Date(newLogs[activeLogIndex].start); 
                 const end = new Date(now);
                 const duration = ((end - start) / 1000 / 60).toFixed(0); 
                 newLogs[activeLogIndex] = { ...newLogs[activeLogIndex], end: now, duration };
                 updateTaskLogs(newLogs);
             } else {
+                // START TIMER
+                // 1. Check for conflicts
                 const activeTask = data.tasks.find(t => t.timeLogs && t.timeLogs.some(l => l.staffId === staffId && !l.end));
                 if (activeTask && activeTask.id !== task.id) { 
                     pushHistory(); 
@@ -1392,6 +1329,7 @@ export default function App() {
                 
                 const staff = data.staff.find(s => s.id === staffId);
                 
+                // 2. Define helper to save log with or without location
                 const saveLog = (locData) => {
                      newLogs.push({ 
                         staffId, 
@@ -1399,11 +1337,12 @@ export default function App() {
                         start: now, 
                         end: null, 
                         duration: 0,
-                        location: locData 
+                        location: locData // Saves { lat, lng } or null
                     });
                     updateTaskLogs(newLogs);
                 };
 
+                // 3. Robust Geolocation Capture
                 if (navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(
                         (pos) => {
@@ -1412,7 +1351,7 @@ export default function App() {
                         },
                         (err) => {
                             console.error("Location Error:", err);
-                            saveLog(null); 
+                            saveLog(null); // Proceed even if location fails
                         },
                         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                     );
@@ -1425,13 +1364,13 @@ export default function App() {
         const updateTaskLogs = (logs) => {
             const updatedTask = { ...task, timeLogs: logs };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
-            setDoc(getDocRef("tasks", updatedTask.id), updatedTask);
+            setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
         };
         
         const updateTaskItems = (newItems) => {
             const updated = { ...task, itemsUsed: newItems };
             setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updated : t) }));
-            setDoc(getDocRef("tasks", updated.id), updated);
+            setDoc(doc(db, "tasks", updated.id), updated);
         };
 
         const addItem = (itemId) => {
@@ -1447,6 +1386,7 @@ export default function App() {
              updateTaskItems(newItems);
         };
 
+        // REQ 2: Fixed WhatsApp Share Link
         const shareTask = () => {
             const link = `${window.location.origin}?taskId=${task.id}`;
             const text = `*Task Details*\nID: ${task.id}\nTask: ${task.name}\nClient: ${party?.name || 'N/A'} (${party?.mobile || ''})\nStatus: ${task.status}\n\nLink: ${link}`;
@@ -1475,6 +1415,7 @@ export default function App() {
                     <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
                     <p className="text-sm text-gray-600 my-4">{task.description}</p>
 
+                    {/* REQ 1: Client Details UI */}
                     {party && (
                         <div className="bg-white p-3 rounded-xl border mb-4 space-y-1">
                             <div className="flex justify-between items-start">
@@ -1489,6 +1430,7 @@ export default function App() {
                         </div>
                     )}
                     
+                    {/* Time Logs List */}
                     <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
                         {(task.timeLogs || []).map((log, idx) => (
                             <div 
@@ -1508,6 +1450,7 @@ export default function App() {
                         ))}
                     </div>
 
+                    {/* Staff Timer Controls */}
                     <div className="flex flex-col gap-2 mb-4">
                         {visibleStaff.map(s => {
                             const isRunning = task.timeLogs?.some(l => l.staffId === s.id && !l.end);
@@ -1518,6 +1461,7 @@ export default function App() {
                     </div>
                 </div>
 
+                {/* REQ 1: Items Used Section */}
                 <div className="bg-gray-50 p-4 rounded-2xl border">
                     <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><Package size={18}/> Items / Parts Used</h3>
                     <div className="space-y-2 mb-4">
@@ -1550,6 +1494,7 @@ export default function App() {
         );
     }
 
+    // --- STAFF DETAIL ---
     if (viewDetail.type === 'staff') {
         const staff = data.staff.find(s => s.id === viewDetail.id);
         if (!staff) return null;
@@ -1663,7 +1608,7 @@ export default function App() {
           const fullCats = { ...data.categories, expense: updated };
           
           setData(prev => ({ ...prev, categories: fullCats }));
-          await setDoc(getDocRef("settings", "categories"), fullCats);
+          await setDoc(doc(db, "settings", "categories"), fullCats);
           setNewCat('');
           showToast("Category Added");
       };
@@ -1681,7 +1626,7 @@ export default function App() {
           const fullCats = { ...data.categories, expense: updated };
           
           setData(prev => ({ ...prev, categories: fullCats }));
-          await setDoc(getDocRef("settings", "categories"), fullCats);
+          await setDoc(doc(db, "settings", "categories"), fullCats);
           setEditingCat(null);
           showToast("Category Updated");
       };
@@ -1692,7 +1637,7 @@ export default function App() {
           const fullCats = { ...data.categories, expense: updated };
 
           setData(prev => ({ ...prev, categories: fullCats }));
-          await setDoc(getDocRef("settings", "categories"), fullCats);
+          await setDoc(doc(db, "settings", "categories"), fullCats);
           showToast("Deleted");
       };
 
@@ -1956,6 +1901,342 @@ export default function App() {
     );
   };
 
+  const TaskForm = ({ record }) => {
+    const [form, setForm] = useState(record ? { ...record, itemsUsed: record.itemsUsed || [], assignedStaff: record.assignedStaff || [] } : { name: '', partyId: '', description: '', status: 'To Do', dueDate: '', assignedStaff: [], itemsUsed: [] });
+    const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
+    const updateItem = (idx, field, val) => { const n = [...form.itemsUsed]; n[idx][field] = val; if(field==='itemId') { const item = data.items.find(i=>i.id===val); if(item) { n[idx].price = item.sellPrice; n[idx].buyPrice = item.buyPrice; n[idx].description = item.description || ''; } } setForm({...form, itemsUsed: n}); };
+    return (
+      <div className="space-y-4">
+        <input className="w-full p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Task Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+        <div className="p-3 bg-gray-50 rounded-xl border"><label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Assigned Staff</label><div className="flex flex-wrap gap-2 mb-2">{form.assignedStaff.map(sid => { const s = data.staff.find(st => st.id === sid); return (<span key={sid} className="bg-white border px-2 py-1 rounded-full text-xs flex items-center gap-1">{s?.name} <button onClick={() => setForm({...form, assignedStaff: form.assignedStaff.filter(id => id !== sid)})}><X size={12}/></button></span>); })}</div><select className="w-full p-2 border rounded-lg text-sm bg-white" onChange={e => { if(e.target.value && !form.assignedStaff.includes(e.target.value)) setForm({...form, assignedStaff: [...form.assignedStaff, e.target.value]}); }}><option value="">+ Add Staff</option>{data.staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+        <SearchableSelect label="Client" options={data.parties} value={form.partyId} onChange={v => setForm({...form, partyId: v})} />
+        <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-20" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+        <div className="space-y-2"><div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4><button onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="text-blue-600 text-xs font-bold">+ Add</button></div>{form.itemsUsed.map((line, idx) => (<div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2"><button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button><SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} /><input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} /><div className="flex gap-2"><input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} /><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} /><input type="number" className="w-20 p-1 border rounded text-xs bg-gray-100" placeholder="Buy" value={line.buyPrice} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} /></div></div>))}</div>
+        <div className="grid grid-cols-2 gap-4"><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /><select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.status} onChange={e => setForm({...form, status: e.target.value})}><option>To Do</option><option>In Progress</option><option>Done</option></select></div>
+        <button onClick={() => saveRecord('tasks', form, 'task')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
+      </div>
+    );
+  };
+
+  const TaskModule = () => {
+    const [sort, setSort] = useState('DateAsc');
+    const [search, setSearch] = useState('');
+    const filtered = data.tasks.filter(t => {
+        const clientName = data.parties.find(p => p.id === t.partyId)?.name || '';
+        const searchText = search.toLowerCase();
+        return t.name.toLowerCase().includes(searchText) || t.description.toLowerCase().includes(searchText) || clientName.toLowerCase().includes(searchText);
+    });
+    const sortedTasks = sortData(filtered, sort);
+    const pending = sortedTasks.filter(t => t.status !== 'Done' && t.status !== 'Converted');
+    const done = sortedTasks.filter(t => t.status === 'Done' || t.status === 'Converted');
+    const TaskItem = ({ task }) => (
+      <div onClick={() => { pushHistory(); setViewDetail({ type: 'task', id: task.id }); }} className="p-4 bg-white border rounded-2xl mb-2 flex justify-between items-start cursor-pointer active:scale-95 transition-transform">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1"><span className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : task.status === 'Converted' ? 'bg-purple-500' : 'bg-orange-500'}`} /><p className="font-bold text-gray-800">{task.name}</p></div>
+          <p className="text-xs text-gray-500 line-clamp-1">{task.description}</p>
+          <div className="flex gap-3 mt-2 text-[10px] font-bold text-gray-400 uppercase"><span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(task.dueDate)}</span><span className="flex items-center gap-1"><Users size={10} /> {task.assignedStaff?.length || 0} Staff</span></div>
+        </div>
+        <div className="text-right"><p className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full font-bold">{task.id}</p></div>
+      </div>
+    );
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center"><h1 className="text-xl font-bold">Tasks</h1><div className="flex gap-2 items-center"><input className="p-2 border rounded-xl text-xs w-32" placeholder="Search tasks..." value={search} onChange={e => setSearch(e.target.value)}/><select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateAsc">Due Soon</option><option value="DateDesc">Due Later</option><option value="A-Z">A-Z</option><option value="Z-A">Z-A</option></select>{checkPermission(user, 'canEditTasks') && <button onClick={() => { pushHistory(); setModal({ type: 'task' }); }} className="p-2 bg-blue-600 text-white rounded-xl"><Plus /></button>}</div></div>
+        <div><h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Pending ({pending.length})</h3>{pending.map(t => <TaskItem key={t.id} task={t} />)}</div>
+        <div><h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Completed ({done.length})</h3><div className="opacity-60">{done.map(t => <TaskItem key={t.id} task={t} />)}</div></div>
+      </div>
+    );
+  };
+
+  const StaffForm = ({ record }) => {
+    const [form, setForm] = useState({ name: '', mobile: '', role: 'Staff', active: true, loginId: '', password: '', permissions: { canViewAccounts: false, canViewMasters: false, canViewTasks: true, canEditTasks: false, canViewDashboard: true }, ...(record || {}) });
+    const togglePerm = (p) => setForm({ ...form, permissions: { ...form.permissions, [p]: !form.permissions[p] } });
+    return (
+      <div className="space-y-4">
+        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Staff Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+        <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
+        <div className="grid grid-cols-2 gap-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Login ID" value={form.loginId} onChange={e => setForm({...form, loginId: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} /></div>
+        <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.role} onChange={e => setForm({...form, role: e.target.value})}><option>Admin</option><option>Staff</option><option>Manager</option></select>
+        <div className="p-4 bg-gray-50 rounded-xl border"><p className="font-bold text-xs uppercase text-gray-500 mb-2">Permissions</p><div className="grid grid-cols-2 gap-2"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewDashboard} onChange={() => togglePerm('canViewDashboard')}/> View Home</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewAccounts} onChange={() => togglePerm('canViewAccounts')}/> View Accounts</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewMasters} onChange={() => togglePerm('canViewMasters')}/> View Masters</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewTasks} onChange={() => togglePerm('canViewTasks')}/> View Tasks</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canEditTasks} onChange={() => togglePerm('canEditTasks')}/> Edit Tasks</label></div></div>
+        <button onClick={() => saveRecord('staff', form, 'staff')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Staff</button>
+      </div>
+    );
+  };
+
+  // FIX #4: Party Form Missing Fields
+  const PartyForm = ({ record }) => {
+    const [form, setForm] = useState({ 
+        name: '', mobile: '', email: '', 
+        address: '', lat: '', lng: '', reference: '', 
+        openingBal: '', type: 'DR', // type maps to opening balance type (DR/CR)
+        ...(record || {}) 
+    });
+    return (
+        <div className="space-y-4">
+            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+            <div className="grid grid-cols-2 gap-4">
+                 <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
+                 <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Ref By" value={form.reference} onChange={e => setForm({...form, reference: e.target.value})} />
+            </div>
+            <textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+            <div className="grid grid-cols-2 gap-4">
+                 <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Latitude" value={form.lat} onChange={e => setForm({...form, lat: e.target.value})} />
+                 <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Longitude" value={form.lng} onChange={e => setForm({...form, lng: e.target.value})} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+                 <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Opening Bal" value={form.openingBal} onChange={e => setForm({...form, openingBal: e.target.value})} />
+                 <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
+                     <option value="DR">Debit (To Collect)</option>
+                     <option value="CR">Credit (To Pay)</option>
+                 </select>
+            </div>
+            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Email (Optional)" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
+            <button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
+        </div>
+    );
+  };
+  
+  const ItemForm = ({ record }) => {
+    const [form, setForm] = useState({ name: '', sellPrice: '', buyPrice: '', unit: 'pcs', openingStock: '0', type: 'Goods', ...(record || {}) });
+    return (
+       <div className="space-y-4">
+         <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Item Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+         <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option>Goods</option><option>Service</option><option>Expense Item</option></select>
+         <div className="grid grid-cols-2 gap-4"><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Sell Price" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} /><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Buy Price" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} /></div>
+         <div className="grid grid-cols-2 gap-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Unit (e.g. pcs)" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} /><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Opening Stock" value={form.openingStock} onChange={e => setForm({...form, openingStock: e.target.value})} /></div>
+         <button onClick={() => saveRecord('items', form, 'item')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Item</button>
+       </div>
+    );
+  };
+  
+  const CompanyForm = ({ record }) => {
+    const [form, setForm] = useState(data.company);
+    return <div className="space-y-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Company Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} /><textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} /><button onClick={() => { setData({...data, company: form}); setModal({type:null}); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Settings</button></div>;
+  };
+  
+  const ConvertTaskModal = ({ task }) => {
+      const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], received: '', mode: 'Cash' });
+      const handleConfirm = async () => {
+          const saleItems = (task.itemsUsed || []).map(i => ({ itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice || 0, description: i.description || '' }));
+          const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
+          const workDoneBy = (task.timeLogs || []).map(l => `${l.staffName} (${l.duration}m)`).join(', ');
+          const totalMins = (task.timeLogs || []).reduce((acc,l) => acc + (parseFloat(l.duration)||0), 0);
+          const workSummary = `${workDoneBy} | Total: ${totalMins} mins`;
+          const newSale = { type: 'sales', date: form.date, partyId: task.partyId, items: saleItems, discountType: '%', discountValue: 0, received: parseFloat(form.received || 0), paymentMode: form.mode, grossTotal: gross, finalTotal: gross, convertedFromTask: task.id, workSummary: workSummary, description: `Converted from Task ${task.id}. Work: ${workSummary}` };
+          const saleId = await saveRecord('transactions', newSale, 'transaction');
+          const updatedTask = { ...task, status: 'Done', generatedSaleId: saleId };
+          await saveRecord('tasks', updatedTask, 'task');
+          setConvertModal(null); setViewDetail(null); handleCloseUI();
+      };
+      return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Convert to Sale</h3><div className="space-y-4"><input type="date" className="w-full p-2 border rounded-xl" value={form.date} onChange={e => setForm({...form, date: e.target.value})}/><input type="number" className="w-full p-2 border rounded-xl" placeholder="Received" value={form.received} onChange={e => setForm({...form, received: e.target.value})}/><div className="flex gap-3"><button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button><button onClick={handleConfirm} className="flex-1 p-3 bg-blue-600 text-white rounded-xl">Confirm</button></div></div></div></div>;
+  };
+  const TimeLogModal = () => {
+      const [form, setForm] = useState({ start: '', end: '' });
+      useEffect(() => { if (editingTimeLog) { const { task, index } = editingTimeLog; const log = task.timeLogs[index] || {}; setForm({ start: log.start ? log.start.slice(0, 16) : '', end: log.end ? log.end.slice(0, 16) : '' }); } }, [editingTimeLog]); 
+      if (!editingTimeLog) return null;
+      const { task, index } = editingTimeLog;
+      const handleSave = async () => {
+          const startD = new Date(form.start); const endD = form.end ? new Date(form.end) : null;
+          const duration = endD ? ((endD - startD) / 1000 / 60).toFixed(0) : 0;
+          const newLogs = [...task.timeLogs]; newLogs[index] = { ...task.timeLogs[index], start: new Date(form.start).toISOString(), end: form.end ? new Date(form.end).toISOString() : null, duration };
+          const updatedTask = { ...task, timeLogs: newLogs };
+          setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
+          if (user) await setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
+          setEditingTimeLog(null); handleCloseUI();
+      };
+      return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Edit Time Log</h3><div className="space-y-3"><input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.start} onChange={e => setForm({...form, start: e.target.value})}/><input type="datetime-local" className="w-full p-2 border rounded-xl" value={form.end} onChange={e => setForm({...form, end: e.target.value})}/><div className="flex gap-3"><button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button><button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl">Save</button></div></div></div></div>;
+  };
+
+  // NEW: Detail Modal for Time Logs
+  const TimeLogDetailsModal = () => {
+      if (!selectedTimeLog) return null;
+      // Get fresh data
+      const { task: staleTask, index } = selectedTimeLog;
+      const task = data.tasks.find(t => t.id === staleTask.id);
+      if (!task || !task.timeLogs[index]) return null;
+      
+      const log = task.timeLogs[index];
+
+      const handleDelete = async () => {
+          if(!window.confirm("Permanently delete this time log?")) return;
+          const newLogs = task.timeLogs.filter((_, i) => i !== index);
+          const updatedTask = { ...task, timeLogs: newLogs };
+          setData(prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t) }));
+          await setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
+          setSelectedTimeLog(null); handleCloseUI(); showToast("Log Deleted");
+      };
+
+      const handleEdit = () => {
+          setSelectedTimeLog(null); // Close detail
+          setEditingTimeLog({ task, index }); // Open edit (history state already handled by detail view)
+      };
+
+      return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl">
+                <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                    <div>
+                        <h3 className="font-bold text-lg text-gray-800">{log.staffName}</h3>
+                        <p className="text-xs text-gray-500 font-bold uppercase">{formatDate(log.start)}</p>
+                    </div>
+                    <button onClick={handleCloseUI} className="p-2 bg-white rounded-full border hover:bg-gray-100"><X size={18}/></button>
+                </div>
+                
+                <div className="p-6 space-y-6">
+                    <div className="grid grid-cols-2 gap-4 text-center">
+                        <div className="p-3 bg-blue-50 rounded-2xl border border-blue-100">
+                            <p className="text-[10px] font-bold text-blue-500 uppercase">Start Time</p>
+                            <p className="text-xl font-black text-blue-900">{formatTime(log.start)}</p>
+                        </div>
+                        <div className="p-3 bg-purple-50 rounded-2xl border border-purple-100">
+                            <p className="text-[10px] font-bold text-purple-500 uppercase">End Time</p>
+                            <p className="text-xl font-black text-purple-900">{log.end ? formatTime(log.end) : 'Now'}</p>
+                        </div>
+                    </div>
+
+                    <div className="text-center">
+                        <p className="text-sm text-gray-500 mb-1">Total Duration</p>
+                        <p className="text-4xl font-black text-gray-800">{log.duration}<span className="text-lg text-gray-400 font-bold ml-1">mins</span></p>
+                    </div>
+
+                    <div className="p-4 border border-dashed rounded-2xl bg-gray-50 text-center space-y-2">
+                        <div className="flex items-center justify-center gap-2 text-gray-600 font-bold text-sm">
+                            <MapPin size={16}/>
+                            {log.location ? "Location Captured" : "No Location Data"}
+                        </div>
+                        {log.location && (
+                            <>
+                                <p className="text-xs text-gray-400">{Number(log.location.lat).toFixed(5)}, {Number(log.location.lng).toFixed(5)}</p>
+                                <a 
+                                    href={`https://www.google.com/maps?q=${log.location.lat},${log.location.lng}`} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer" 
+                                    className="block w-full py-2 mt-2 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 transition-colors"
+                                >
+                                    📍 View on Google Maps
+                                </a>
+                            </>
+                        )}
+                    </div>
+                </div>
+
+                {checkPermission(user, 'canEditTasks') && (
+                    <div className="p-4 bg-gray-50 border-t grid grid-cols-2 gap-3">
+                        <button onClick={handleEdit} className="p-3 bg-white border border-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-50 flex items-center justify-center gap-2"><Edit2 size={16}/> Edit</button>
+                        <button onClick={handleDelete} className="p-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 flex items-center justify-center gap-2"><Trash2 size={16}/> Delete</button>
+                    </div>
+                )}
+            </div>
+        </div>
+      );
+  };
+
+  const StatementModal = () => {
+      const [dates, setDates] = useState({ start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] });
+      const [withItems, setWithItems] = useState(false);
+      
+      if (!statementModal) return null;
+      return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Statement</h3><div className="space-y-4"><input type="date" className="w-full p-3 border rounded-xl" value={dates.start} onChange={e=>setDates({...dates, start:e.target.value})}/><input type="date" className="w-full p-3 border rounded-xl" value={dates.end} onChange={e=>setDates({...dates, end:e.target.value})}/><div className="flex gap-2"><button onClick={() => setStatementModal(null)} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button></div></div></div></div>;
+  };
+  
+  const ManualAttendanceModal = () => {
+      const [form, setForm] = useState({ date: '', in: '', out: '', lStart: '', lEnd: '' });
+      
+      // Effect to sync state when modal opens
+      useEffect(() => {
+          if (manualAttModal) {
+              const initial = manualAttModal.isEdit ? manualAttModal : { date: new Date().toISOString().split('T')[0], checkIn: '09:00', checkOut: '18:00', lunchStart: '13:00', lunchEnd: '14:00' };
+              setForm({
+                  date: initial.date,
+                  in: initial.checkIn || '09:00',
+                  out: initial.checkOut || '18:00',
+                  lStart: initial.lunchStart || '',
+                  lEnd: initial.lunchEnd || ''
+              });
+          }
+      }, [manualAttModal]);
+
+      if (!manualAttModal) return null;
+      
+      const handleSave = async () => {
+          const staffId = manualAttModal.staffId || manualAttModal.id.split('-')[1]; // Extract ID if editing
+          const attId = manualAttModal.isEdit ? manualAttModal.id : `ATT-${staffId}-${form.date}`;
+          
+          const record = { 
+              staffId, 
+              date: form.date, 
+              checkIn: form.in, 
+              checkOut: form.out, 
+              lunchStart: form.lStart, 
+              lunchEnd: form.lEnd, 
+              id: attId, 
+              status: 'Present' 
+          };
+          
+          const newAtt = [...data.attendance.filter(a => a.id !== attId), record];
+          setData(prev => ({ ...prev, attendance: newAtt }));
+          await setDoc(doc(db, "attendance", attId), record);
+          setManualAttModal(false); handleCloseUI(); showToast(manualAttModal.isEdit ? "Updated" : "Added");
+      };
+      
+      return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">{manualAttModal.isEdit ? 'Edit' : 'Manual'} Attendance</h3><div className="space-y-4"><input type="date" disabled={manualAttModal.isEdit} className="w-full p-3 border rounded-xl" value={form.date} onChange={e=>setForm({...form, date: e.target.value})} /><div className="grid grid-cols-2 gap-4"><input type="time" className="w-full p-3 border rounded-xl" value={form.in} onChange={e=>setForm({...form, in: e.target.value})} /><input type="time" className="w-full p-3 border rounded-xl" value={form.out} onChange={e=>setForm({...form, out: e.target.value})} /></div><div className="grid grid-cols-2 gap-4"><input type="time" className="w-full p-3 border rounded-xl bg-yellow-50" placeholder="Lunch Start" value={form.lStart} onChange={e=>setForm({...form, lStart: e.target.value})} /><input type="time" className="w-full p-3 border rounded-xl" placeholder="Lunch End" value={form.lEnd} onChange={e=>setForm({...form, lEnd: e.target.value})} /></div><button onClick={handleSave} className="w-full p-3 bg-blue-600 text-white rounded-xl font-bold">Save Entry</button></div></div></div>;
+  }
+
+  // FIX #4: Cash Adjustment Modal
+  const CashAdjustmentModal = () => {
+      const [form, setForm] = useState({ 
+          action: 'Increase', // Increase (Payment In) or Decrease (Payment Out)
+          amount: '', 
+          description: 'Manual Adjustment',
+          date: new Date().toISOString().split('T')[0]
+      });
+
+      if (!adjustCashModal) return null;
+
+      const handleSave = async () => {
+          if (!form.amount || parseFloat(form.amount) <= 0) return alert("Enter valid amount");
+          
+          const subType = form.action === 'Increase' ? 'in' : 'out';
+          const newTx = {
+             type: 'payment',
+             subType,
+             date: form.date,
+             partyId: '', // No Party ID for adjustment (or can be System/Self)
+             amount: parseFloat(form.amount),
+             paymentMode: adjustCashModal.type, // Cash or Bank
+             discountValue: 0,
+             discountType: 'Amt',
+             linkedBills: [],
+             description: form.description,
+             category: 'Adjustment'
+          };
+          
+          await saveRecord('transactions', newTx, 'transaction');
+          setAdjustCashModal(null); handleCloseUI();
+      };
+
+      return (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+              <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
+                  <h3 className="font-bold text-lg mb-4">Adjust {adjustCashModal.type} Balance</h3>
+                  <div className="space-y-4">
+                      <div className="flex bg-gray-100 p-1 rounded-xl">
+                          <button onClick={()=>setForm({...form, action: 'Increase'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${form.action==='Increase' ? 'bg-white shadow text-green-600' : 'text-gray-500'}`}>Increase (+)</button>
+                          <button onClick={()=>setForm({...form, action: 'Decrease'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${form.action==='Decrease' ? 'bg-white shadow text-red-600' : 'text-gray-500'}`}>Decrease (-)</button>
+                      </div>
+                      <input type="number" className="w-full p-3 border rounded-xl text-xl font-bold" placeholder="Amount" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} />
+                      <input className="w-full p-3 border rounded-xl text-sm" placeholder="Reason / Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+                      <input type="date" className="w-full p-3 border rounded-xl" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+                      <div className="flex gap-2">
+                          <button onClick={() => { setAdjustCashModal(null); handleCloseUI(); }} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
+                          <button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Save</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      );
+  };
+
   const LoginScreen = () => {
     const [id, setId] = useState('');
     const [pass, setPass] = useState('');
@@ -1970,7 +2251,7 @@ export default function App() {
         } else {
             try {
                 await signInAnonymously(auth);
-                const q = query(getColRef('staff'), where('loginId', '==', id), where('password', '==', pass));
+                const q = query(collection(db, 'staff'), where('loginId', '==', id), where('password', '==', pass));
                 const snap = await getDocs(q);
                 if(!snap.empty) {
                     const userData = snap.docs[0].data();
