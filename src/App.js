@@ -5,7 +5,7 @@ import {
   getFirestore, 
   collection, 
   getDocs, 
-  getDoc, // Added getDoc
+  getDoc,
   setDoc, 
   deleteDoc, 
   doc, 
@@ -94,7 +94,6 @@ const INITIAL_DATA = {
     expense: ["Rent", "Electricity", "Marketing", "Salary"],
     item: ["Electronics", "Grocery", "General", "Furniture", "Pharmacy"]
   },
-  // REQ 1: Specific Counters aligned with Firebase
   counters: { 
       sales: 921, 
       purchase: 228, 
@@ -110,44 +109,22 @@ const INITIAL_DATA = {
 };
 
 // --- HELPER FUNCTIONS ---
-// REQ 1: Updated Logic for Specific Counters
 const getNextId = (data, type) => {
   let prefix = type.charAt(0).toUpperCase();
-  let counterKey = type; // Default fallback (e.g. party, item, staff)
+  let counterKey = type;
 
-  // Strict Mapping: type -> counterKey
-  if (type === 'sales') { 
-      prefix = 'Sales:'; 
-      counterKey = 'sales'; 
-  } else if (type === 'purchase') { 
-      prefix = 'Purchase:'; 
-      counterKey = 'purchase'; 
-  } else if (type === 'expense') { 
-      prefix = 'Expense:'; 
-      counterKey = 'expense'; 
-  } else if (type === 'payment') { 
-      prefix = 'Payment:'; 
-      counterKey = 'payment'; 
-  } else if (type === 'estimate') { 
-      prefix = 'EST'; 
-      counterKey = 'estimate'; 
-  } else if (type === 'task') {
-      prefix = 'T';
-      counterKey = 'task';
-  } else if (type === 'transaction') {
-      prefix = 'TX';
-      counterKey = 'transaction';
-  }
+  if (type === 'sales') { prefix = 'Sales:'; counterKey = 'sales'; } 
+  else if (type === 'purchase') { prefix = 'Purchase:'; counterKey = 'purchase'; } 
+  else if (type === 'expense') { prefix = 'Expense:'; counterKey = 'expense'; } 
+  else if (type === 'payment') { prefix = 'Payment:'; counterKey = 'payment'; } 
+  else if (type === 'estimate') { prefix = 'EST'; counterKey = 'estimate'; } 
+  else if (type === 'task') { prefix = 'T'; counterKey = 'task'; } 
+  else if (type === 'transaction') { prefix = 'TX'; counterKey = 'transaction'; }
 
-  // Get current counter value - Force usage of specific key
-  // Fallback to INITIAL_DATA if data.counters is missing/undefined in state
   const counters = (data && data.counters) ? data.counters : INITIAL_DATA.counters;
   const num = counters[counterKey] || 1; 
-
-  // Prepare updated counters object
   const nextCounters = { ...counters };
   nextCounters[counterKey] = num + 1;
-  
   return { id: `${prefix}-${num}`, nextCounters };
 };
 
@@ -196,7 +173,384 @@ const cleanData = (obj) => {
     return newObj;
 };
 
-// --- COMPONENTS ---
+// --- EXTERNALIZED SUB-COMPONENTS ---
+
+const LoginScreen = ({ setUser }) => {
+  const [id, setId] = useState('');
+  const [pass, setPass] = useState('');
+  const [err, setErr] = useState('');
+
+  const handleLogin = async () => {
+      if(id === 'him23' && pass === 'Himanshu#3499sp') {
+          const adminUser = { name: 'Admin', role: 'admin', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true } };
+          setUser(adminUser);
+          localStorage.setItem('smees_user', JSON.stringify(adminUser));
+      } else {
+          try {
+              await signInAnonymously(auth);
+              const q = query(collection(db, 'staff'), where('loginId', '==', id), where('password', '==', pass));
+              const snap = await getDocs(q);
+              if(!snap.empty) {
+                  const userData = snap.docs[0].data();
+                  const defaults = { canViewAccounts: false, canViewMasters: false, canViewTasks: true, canEditTasks: false, canViewDashboard: true };
+                  const staffUser = { ...userData, permissions: { ...defaults, ...userData.permissions } };
+                  setUser(staffUser);
+                  localStorage.setItem('smees_user', JSON.stringify(staffUser));
+              } else {
+                  setErr("Invalid ID or Password");
+              }
+          } catch (e) {
+              console.error(e);
+              setErr("Connection Error or Invalid Credentials");
+          }
+      }
+  };
+
+  return (
+      <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center p-6">
+          <div className="w-full max-w-sm">
+              <div className="flex justify-center mb-8"><div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white text-3xl font-black italic">S</div></div>
+              <h1 className="text-2xl font-bold text-center mb-6">SMEES Pro Login</h1>
+              <input className="w-full p-4 mb-4 bg-gray-50 border rounded-xl" placeholder="Login ID" value={id} onChange={e=>setId(e.target.value)}/>
+              <input className="w-full p-4 mb-4 bg-gray-50 border rounded-xl" type="password" placeholder="Password" value={pass} onChange={e=>setPass(e.target.value)}/>
+              {err && <p className="text-red-500 text-sm mb-4 text-center">{err}</p>}
+              <button onClick={handleLogin} className="w-full p-4 bg-blue-600 text-white rounded-xl font-bold text-lg">Login</button>
+          </div>
+      </div>
+  );
+};
+
+const ConvertTaskModal = ({ task, onClose, saveRecord, setViewDetail, handleCloseUI }) => {
+  const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], received: '', mode: 'Cash' });
+
+  const handleConfirm = async () => {
+      const saleItems = (task.itemsUsed || []).map(i => ({ 
+          itemId: i.itemId, 
+          qty: i.qty, 
+          price: i.price, 
+          buyPrice: i.buyPrice || 0, 
+          description: i.description || '' 
+      }));
+      
+      const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
+      
+      const workDoneBy = (task.timeLogs || []).map(l => `${l.staffName} (${l.duration}m)`).join(', ');
+      const totalMins = (task.timeLogs || []).reduce((acc,l) => acc + (parseFloat(l.duration)||0), 0);
+      const workSummary = `${workDoneBy} | Total: ${totalMins} mins`;
+      
+      const newSale = { 
+          type: 'sales', 
+          date: form.date, 
+          partyId: task.partyId, 
+          items: saleItems, 
+          discountType: '%', 
+          discountValue: 0, 
+          received: parseFloat(form.received || 0), 
+          paymentMode: form.mode, 
+          grossTotal: gross, 
+          finalTotal: gross, 
+          convertedFromTask: task.id, 
+          workSummary: workSummary, 
+          description: `Converted from Task ${task.id}. Work: ${workSummary}` 
+      };
+      
+      const saleId = await saveRecord('transactions', newSale, 'sales');
+      
+      const updatedTask = { ...task, status: 'Converted', generatedSaleId: saleId };
+      await saveRecord('tasks', updatedTask, 'task');
+      
+      onClose(); 
+      setViewDetail(null); 
+      handleCloseUI();
+  };
+  
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
+            <h3 className="font-bold text-lg mb-4">Convert to Sale</h3>
+            <div className="space-y-4">
+                <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-500 uppercase">Conversion Date</label>
+                    <input type="date" className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" value={form.date} onChange={e => setForm({...form, date: e.target.value})}/>
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-500 uppercase">Payment Mode</label>
+                    <select className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" value={form.mode} onChange={e => setForm({...form, mode: e.target.value})}>
+                        <option>Cash</option>
+                        <option>Bank</option>
+                        <option>UPI</option>
+                    </select>
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-500 uppercase">Received Amount</label>
+                    <input type="number" className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" placeholder="0.00" value={form.received} onChange={e => setForm({...form, received: e.target.value})}/>
+                </div>
+                <div className="flex gap-3 pt-2">
+                    <button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold text-sm text-gray-600">Cancel</button>
+                    <button onClick={handleConfirm} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-blue-200">Confirm & Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+  );
+};
+
+const StatementModal = ({ isOpen, onClose }) => {
+  const [dates, setDates] = useState({ start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] });
+  
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
+        <h3 className="font-bold text-lg mb-4">Statement</h3>
+        <div className="space-y-4">
+          <input type="date" className="w-full p-3 border rounded-xl" value={dates.start} onChange={e=>setDates({...dates, start:e.target.value})}/>
+          <input type="date" className="w-full p-3 border rounded-xl" value={dates.end} onChange={e=>setDates({...dates, end:e.target.value})}/>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button>
+            <button className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Generate</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ManualAttendanceModal = ({ manualAttModal, setManualAttModal, data, setData, handleCloseUI, showToast }) => {
+  const [form, setForm] = useState({ date: '', in: '', out: '', lStart: '', lEnd: '' });
+  
+  useEffect(() => {
+      if (manualAttModal) {
+          const initial = manualAttModal.isEdit ? manualAttModal : { date: new Date().toISOString().split('T')[0], checkIn: '09:00', checkOut: '18:00', lunchStart: '13:00', lunchEnd: '14:00' };
+          setForm({
+              date: initial.date,
+              in: initial.checkIn || '09:00',
+              out: initial.checkOut || '18:00',
+              lStart: initial.lunchStart || '',
+              lEnd: initial.lunchEnd || ''
+          });
+      }
+  }, [manualAttModal]);
+
+  if (!manualAttModal) return null;
+  
+  const handleSave = async () => {
+      const staffId = manualAttModal.staffId || manualAttModal.id.split('-')[1]; 
+      const attId = manualAttModal.isEdit ? manualAttModal.id : `ATT-${staffId}-${form.date}`;
+      
+      const record = { 
+          staffId, 
+          date: form.date, 
+          checkIn: form.in, 
+          checkOut: form.out, 
+          lunchStart: form.lStart, 
+          lunchEnd: form.lEnd, 
+          id: attId, 
+          status: 'Present' 
+      };
+      
+      const newAtt = [...data.attendance.filter(a => a.id !== attId), record];
+      setData(prev => ({ ...prev, attendance: newAtt }));
+      await setDoc(doc(db, "attendance", attId), record);
+      setManualAttModal(false); 
+      handleCloseUI(); 
+      showToast(manualAttModal.isEdit ? "Updated" : "Added");
+  };
+  
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
+        <h3 className="font-bold text-lg mb-4">{manualAttModal.isEdit ? 'Edit' : 'Manual'} Attendance</h3>
+        <div className="space-y-4">
+          <input type="date" disabled={manualAttModal.isEdit} className="w-full p-3 border rounded-xl" value={form.date} onChange={e=>setForm({...form, date: e.target.value})} />
+          <div className="grid grid-cols-2 gap-4">
+            <input type="time" className="w-full p-3 border rounded-xl" value={form.in} onChange={e=>setForm({...form, in: e.target.value})} />
+            <input type="time" className="w-full p-3 border rounded-xl" value={form.out} onChange={e=>setForm({...form, out: e.target.value})} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <input type="time" className="w-full p-3 border rounded-xl bg-yellow-50" placeholder="Lunch Start" value={form.lStart} onChange={e=>setForm({...form, lStart: e.target.value})} />
+            <input type="time" className="w-full p-3 border rounded-xl" placeholder="Lunch End" value={form.lEnd} onChange={e=>setForm({...form, lEnd: e.target.value})} />
+          </div>
+          <button onClick={handleSave} className="w-full p-3 bg-blue-600 text-white rounded-xl font-bold">Save Entry</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CashAdjustmentModal = ({ adjustCashModal, setAdjustCashModal, saveRecord, handleCloseUI }) => {
+  const [form, setForm] = useState({ 
+      action: 'Increase',
+      amount: '', 
+      description: 'Manual Adjustment',
+      date: new Date().toISOString().split('T')[0]
+  });
+
+  if (!adjustCashModal) return null;
+
+  const handleSave = async () => {
+      if (!form.amount || parseFloat(form.amount) <= 0) return alert("Enter valid amount");
+      
+      const subType = form.action === 'Increase' ? 'in' : 'out';
+      const newTx = {
+         type: 'payment',
+         subType,
+         date: form.date,
+         partyId: '',
+         amount: parseFloat(form.amount),
+         paymentMode: adjustCashModal.type,
+         discountValue: 0,
+         discountType: 'Amt',
+         linkedBills: [],
+         description: form.description,
+         category: 'Adjustment'
+      };
+      
+      await saveRecord('transactions', newTx, 'transaction');
+      setAdjustCashModal(null); 
+      handleCloseUI();
+  };
+
+  return (
+      <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
+              <h3 className="font-bold text-lg mb-4">Adjust {adjustCashModal.type} Balance</h3>
+              <div className="space-y-4">
+                  <div className="flex bg-gray-100 p-1 rounded-xl">
+                      <button onClick={()=>setForm({...form, action: 'Increase'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${form.action==='Increase' ? 'bg-white shadow text-green-600' : 'text-gray-500'}`}>Increase (+)</button>
+                      <button onClick={()=>setForm({...form, action: 'Decrease'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${form.action==='Decrease' ? 'bg-white shadow text-red-600' : 'text-gray-500'}`}>Decrease (-)</button>
+                  </div>
+                  <input type="number" className="w-full p-3 border rounded-xl text-xl font-bold" placeholder="Amount" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} />
+                  <input className="w-full p-3 border rounded-xl text-sm" placeholder="Reason / Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+                  <input type="date" className="w-full p-3 border rounded-xl" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+                  <div className="flex gap-2">
+                      <button onClick={() => { setAdjustCashModal(null); handleCloseUI(); }} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
+                      <button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Save</button>
+                  </div>
+              </div>
+          </div>
+      </div>
+  );
+};
+
+const TimeLogModal = ({ editingTimeLog, setEditingTimeLog, data, setData, handleCloseUI, showToast }) => {
+    const [form, setForm] = useState({ start: '', end: '' });
+
+    useEffect(() => {
+        if (editingTimeLog) {
+            const { task, index } = editingTimeLog;
+            const log = task.timeLogs[index];
+            setForm({
+                start: log.start ? new Date(log.start).toISOString().slice(0, 16) : '',
+                end: log.end ? new Date(log.end).toISOString().slice(0, 16) : ''
+            });
+        }
+    }, [editingTimeLog]);
+
+    if (!editingTimeLog) return null;
+
+    const handleSave = async () => {
+        const { task, index } = editingTimeLog;
+        const start = new Date(form.start);
+        const end = form.end ? new Date(form.end) : null;
+        
+        // Calculate new duration
+        let duration = 0;
+        if (end) {
+            duration = ((end - start) / 1000 / 60).toFixed(0);
+        }
+
+        const updatedLogs = [...task.timeLogs];
+        updatedLogs[index] = { ...updatedLogs[index], start: start.toISOString(), end: end ? end.toISOString() : null, duration };
+
+        const updatedTask = { ...task, timeLogs: updatedLogs };
+        
+        setData(prev => ({
+            ...prev,
+            tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t)
+        }));
+        
+        await setDoc(doc(db, "tasks", task.id), updatedTask);
+        setEditingTimeLog(null);
+        handleCloseUI();
+        showToast("Time Log Updated");
+    };
+
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
+                <h3 className="font-bold text-lg mb-4">Edit Time Log</h3>
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 uppercase">Start Time</label>
+                        <input type="datetime-local" className="w-full p-3 border rounded-xl" value={form.start} onChange={e => setForm({...form, start: e.target.value})} />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 uppercase">End Time</label>
+                        <input type="datetime-local" className="w-full p-3 border rounded-xl" value={form.end} onChange={e => setForm({...form, end: e.target.value})} />
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                         <button onClick={() => { setEditingTimeLog(null); handleCloseUI(); }} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
+                         <button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseUI }) => {
+    if (!selectedTimeLog) return null;
+    const { task, index } = selectedTimeLog;
+    const log = task.timeLogs[index];
+
+    return (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-sm relative">
+                <button onClick={() => { setSelectedTimeLog(null); handleCloseUI(); }} className="absolute top-4 right-4 p-1 bg-gray-100 rounded-full"><X size={20}/></button>
+                <h3 className="font-bold text-lg mb-4">Time Log Details</h3>
+                <div className="space-y-3">
+                    <div className="p-3 bg-gray-50 rounded-xl border">
+                        <p className="text-xs font-bold text-gray-400 uppercase">Task</p>
+                        <p className="font-bold">{task.name}</p>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-xl border">
+                         <p className="text-xs font-bold text-gray-400 uppercase">Staff</p>
+                         <p className="font-bold">{log.staffName}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                        <div className="p-3 bg-gray-50 rounded-xl border">
+                             <p className="text-xs font-bold text-gray-400 uppercase">Start</p>
+                             <p className="text-sm font-bold">{new Date(log.start).toLocaleString()}</p>
+                        </div>
+                        <div className="p-3 bg-gray-50 rounded-xl border">
+                             <p className="text-xs font-bold text-gray-400 uppercase">End</p>
+                             <p className="text-sm font-bold">{log.end ? new Date(log.end).toLocaleString() : 'Running'}</p>
+                        </div>
+                    </div>
+                    <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
+                         <p className="text-xs font-bold text-blue-500 uppercase">Duration</p>
+                         <p className="font-black text-xl text-blue-700">{log.duration} mins</p>
+                    </div>
+                    {log.location && (
+                        <div className="p-3 bg-green-50 rounded-xl border border-green-100 flex justify-between items-center">
+                            <div>
+                                <p className="text-xs font-bold text-green-600 uppercase">Location Captured</p>
+                                <p className="text-[10px] text-gray-500">{log.location.lat.toFixed(5)}, {log.location.lng.toFixed(5)}</p>
+                            </div>
+                            <a href={`https://www.google.com/maps?q=${log.location.lat},${log.location.lng}`} target="_blank" rel="noreferrer" className="p-2 bg-white rounded-lg shadow-sm text-green-700">
+                                <MapPin size={20}/>
+                            </a>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- MAIN APP COMPONENT ---
+
 const Modal = ({ isOpen, onClose, title, children }) => {
   if (!isOpen) return null;
   return (
@@ -2280,238 +2634,8 @@ const syncData = async (isBackground = false) => {
     const [form, setForm] = useState(data.company);
     return <div className="space-y-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Company Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} /><textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} /><button onClick={() => { setData({...data, company: form}); setModal({type:null}); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Settings</button></div>;
   };
-  
-  const ConvertTaskModal = ({ task }) => {
-      const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], received: '', mode: 'Cash' });
-      
-      const handleConfirm = async () => {
-          const saleItems = (task.itemsUsed || []).map(i => ({ 
-              itemId: i.itemId, 
-              qty: i.qty, 
-              price: i.price, 
-              buyPrice: i.buyPrice || 0, 
-              description: i.description || '' 
-          }));
-          
-          const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
-          
-          const workDoneBy = (task.timeLogs || []).map(l => `${l.staffName} (${l.duration}m)`).join(', ');
-          const totalMins = (task.timeLogs || []).reduce((acc,l) => acc + (parseFloat(l.duration)||0), 0);
-          const workSummary = `${workDoneBy} | Total: ${totalMins} mins`;
-          
-          const newSale = { 
-              type: 'sales', 
-              date: form.date, 
-              partyId: task.partyId, 
-              items: saleItems, 
-              discountType: '%', 
-              discountValue: 0, 
-              received: parseFloat(form.received || 0), 
-              paymentMode: form.mode, 
-              grossTotal: gross, 
-              finalTotal: gross, 
-              convertedFromTask: task.id, 
-              workSummary: workSummary, 
-              description: `Converted from Task ${task.id}. Work: ${workSummary}` 
-          };
-          
-          // FIX: Use 'sales' type to ensure correct Sales ID (e.g. Sales:922) instead of 'transaction'
-          const saleId = await saveRecord('transactions', newSale, 'sales');
-          
-          // FIX: Set status to 'Converted' instead of 'Done'
-          const updatedTask = { ...task, status: 'Converted', generatedSaleId: saleId };
-          await saveRecord('tasks', updatedTask, 'task');
-          
-          setConvertModal(null); 
-          setViewDetail(null); 
-          handleCloseUI();
-      };
-      
-      return (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
-                <h3 className="font-bold text-lg mb-4">Convert to Sale</h3>
-                <div className="space-y-4">
-                    <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-500 uppercase">Conversion Date</label>
-                        <input type="date" className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" value={form.date} onChange={e => setForm({...form, date: e.target.value})}/>
-                    </div>
-                    {/* FIX: Added Payment Mode Dropdown */}
-                    <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-500 uppercase">Payment Mode</label>
-                        <select className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" value={form.mode} onChange={e => setForm({...form, mode: e.target.value})}>
-                            <option>Cash</option>
-                            <option>Bank</option>
-                            <option>UPI</option>
-                        </select>
-                    </div>
-                    <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-500 uppercase">Received Amount</label>
-                        <input type="number" className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" placeholder="0.00" value={form.received} onChange={e => setForm({...form, received: e.target.value})}/>
-                    </div>
-                    <div className="flex gap-3 pt-2">
-                        <button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold text-sm text-gray-600">Cancel</button>
-                        <button onClick={handleConfirm} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-blue-200">Confirm & Save</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-      );
-  };
 
-  const StatementModal = () => {
-      const [dates, setDates] = useState({ start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] });
-      const [withItems, setWithItems] = useState(false);
-      
-      if (!statementModal) return null;
-      return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">Statement</h3><div className="space-y-4"><input type="date" className="w-full p-3 border rounded-xl" value={dates.start} onChange={e=>setDates({...dates, start:e.target.value})}/><input type="date" className="w-full p-3 border rounded-xl" value={dates.end} onChange={e=>setDates({...dates, end:e.target.value})}/><div className="flex gap-2"><button onClick={() => setStatementModal(null)} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button></div></div></div></div>;
-  };
-  
-  const ManualAttendanceModal = () => {
-      const [form, setForm] = useState({ date: '', in: '', out: '', lStart: '', lEnd: '' });
-      
-      // Effect to sync state when modal opens
-      useEffect(() => {
-          if (manualAttModal) {
-              const initial = manualAttModal.isEdit ? manualAttModal : { date: new Date().toISOString().split('T')[0], checkIn: '09:00', checkOut: '18:00', lunchStart: '13:00', lunchEnd: '14:00' };
-              setForm({
-                  date: initial.date,
-                  in: initial.checkIn || '09:00',
-                  out: initial.checkOut || '18:00',
-                  lStart: initial.lunchStart || '',
-                  lEnd: initial.lunchEnd || ''
-              });
-          }
-      }, [manualAttModal]);
-
-      if (!manualAttModal) return null;
-      
-      const handleSave = async () => {
-          const staffId = manualAttModal.staffId || manualAttModal.id.split('-')[1]; // Extract ID if editing
-          const attId = manualAttModal.isEdit ? manualAttModal.id : `ATT-${staffId}-${form.date}`;
-          
-          const record = { 
-              staffId, 
-              date: form.date, 
-              checkIn: form.in, 
-              checkOut: form.out, 
-              lunchStart: form.lStart, 
-              lunchEnd: form.lEnd, 
-              id: attId, 
-              status: 'Present' 
-          };
-          
-          const newAtt = [...data.attendance.filter(a => a.id !== attId), record];
-          setData(prev => ({ ...prev, attendance: newAtt }));
-          await setDoc(doc(db, "attendance", attId), record);
-          setManualAttModal(false); handleCloseUI(); showToast(manualAttModal.isEdit ? "Updated" : "Added");
-      };
-      
-      return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm"><h3 className="font-bold text-lg mb-4">{manualAttModal.isEdit ? 'Edit' : 'Manual'} Attendance</h3><div className="space-y-4"><input type="date" disabled={manualAttModal.isEdit} className="w-full p-3 border rounded-xl" value={form.date} onChange={e=>setForm({...form, date: e.target.value})} /><div className="grid grid-cols-2 gap-4"><input type="time" className="w-full p-3 border rounded-xl" value={form.in} onChange={e=>setForm({...form, in: e.target.value})} /><input type="time" className="w-full p-3 border rounded-xl" value={form.out} onChange={e=>setForm({...form, out: e.target.value})} /></div><div className="grid grid-cols-2 gap-4"><input type="time" className="w-full p-3 border rounded-xl bg-yellow-50" placeholder="Lunch Start" value={form.lStart} onChange={e=>setForm({...form, lStart: e.target.value})} /><input type="time" className="w-full p-3 border rounded-xl" placeholder="Lunch End" value={form.lEnd} onChange={e=>setForm({...form, lEnd: e.target.value})} /></div><button onClick={handleSave} className="w-full p-3 bg-blue-600 text-white rounded-xl font-bold">Save Entry</button></div></div></div>;
-  }
-
-  // FIX #4: Cash Adjustment Modal
-  const CashAdjustmentModal = () => {
-      const [form, setForm] = useState({ 
-          action: 'Increase', // Increase (Payment In) or Decrease (Payment Out)
-          amount: '', 
-          description: 'Manual Adjustment',
-          date: new Date().toISOString().split('T')[0]
-      });
-
-      if (!adjustCashModal) return null;
-
-      const handleSave = async () => {
-          if (!form.amount || parseFloat(form.amount) <= 0) return alert("Enter valid amount");
-          
-          const subType = form.action === 'Increase' ? 'in' : 'out';
-          const newTx = {
-             type: 'payment',
-             subType,
-             date: form.date,
-             partyId: '', // No Party ID for adjustment (or can be System/Self)
-             amount: parseFloat(form.amount),
-             paymentMode: adjustCashModal.type, // Cash or Bank
-             discountValue: 0,
-             discountType: 'Amt',
-             linkedBills: [],
-             description: form.description,
-             category: 'Adjustment'
-          };
-          
-          await saveRecord('transactions', newTx, 'transaction');
-          setAdjustCashModal(null); handleCloseUI();
-      };
-
-      return (
-          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-              <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
-                  <h3 className="font-bold text-lg mb-4">Adjust {adjustCashModal.type} Balance</h3>
-                  <div className="space-y-4">
-                      <div className="flex bg-gray-100 p-1 rounded-xl">
-                          <button onClick={()=>setForm({...form, action: 'Increase'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${form.action==='Increase' ? 'bg-white shadow text-green-600' : 'text-gray-500'}`}>Increase (+)</button>
-                          <button onClick={()=>setForm({...form, action: 'Decrease'})} className={`flex-1 py-2 rounded-lg text-xs font-bold ${form.action==='Decrease' ? 'bg-white shadow text-red-600' : 'text-gray-500'}`}>Decrease (-)</button>
-                      </div>
-                      <input type="number" className="w-full p-3 border rounded-xl text-xl font-bold" placeholder="Amount" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} />
-                      <input className="w-full p-3 border rounded-xl text-sm" placeholder="Reason / Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
-                      <input type="date" className="w-full p-3 border rounded-xl" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
-                      <div className="flex gap-2">
-                          <button onClick={() => { setAdjustCashModal(null); handleCloseUI(); }} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
-                          <button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Save</button>
-                      </div>
-                  </div>
-              </div>
-          </div>
-      );
-  };
-
-  const LoginScreen = () => {
-    const [id, setId] = useState('');
-    const [pass, setPass] = useState('');
-    const [err, setErr] = useState('');
-
-    // REQ 2: Save Session on Login
-    const handleLogin = async () => {
-        if(id === 'him23' && pass === 'Himanshu#3499sp') {
-            const adminUser = { name: 'Admin', role: 'admin', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true } };
-            setUser(adminUser);
-            localStorage.setItem('smees_user', JSON.stringify(adminUser));
-        } else {
-            try {
-                await signInAnonymously(auth);
-                const q = query(collection(db, 'staff'), where('loginId', '==', id), where('password', '==', pass));
-                const snap = await getDocs(q);
-                if(!snap.empty) {
-                    const userData = snap.docs[0].data();
-                    const defaults = { canViewAccounts: false, canViewMasters: false, canViewTasks: true, canEditTasks: false, canViewDashboard: true };
-                    const staffUser = { ...userData, permissions: { ...defaults, ...userData.permissions } };
-                    setUser(staffUser);
-                    localStorage.setItem('smees_user', JSON.stringify(staffUser));
-                } else {
-                    setErr("Invalid ID or Password");
-                }
-            } catch (e) {
-                console.error(e);
-                setErr("Connection Error or Invalid Credentials");
-            }
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center p-6">
-            <div className="w-full max-w-sm">
-                <div className="flex justify-center mb-8"><div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white text-3xl font-black italic">S</div></div>
-                <h1 className="text-2xl font-bold text-center mb-6">SMEES Pro Login</h1>
-                <input className="w-full p-4 mb-4 bg-gray-50 border rounded-xl" placeholder="Login ID" value={id} onChange={e=>setId(e.target.value)}/>
-                <input className="w-full p-4 mb-4 bg-gray-50 border rounded-xl" type="password" placeholder="Password" value={pass} onChange={e=>setPass(e.target.value)}/>
-                {err && <p className="text-red-500 text-sm mb-4 text-center">{err}</p>}
-                <button onClick={handleLogin} className="w-full p-4 bg-blue-600 text-white rounded-xl font-bold text-lg">Login</button>
-            </div>
-        </div>
-    );
-  };
-
-  if (!user) return <LoginScreen />;
+  if (!user) return <LoginScreen setUser={setUser} />;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24 font-sans select-none">
@@ -2605,12 +2729,63 @@ const syncData = async (isBackground = false) => {
       </Modal>
       {timerConflict && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm text-center"><AlertTriangle className="text-yellow-600 mx-auto mb-4" size={32}/><h3 className="font-bold">Timer Conflict</h3><p className="text-sm my-2">Another task is active.</p><button onClick={() => setTimerConflict(null)} className="p-2 bg-gray-100 rounded font-bold">Dismiss</button></div></div>}
       {showPnlReport && <PnlReportView />}
-      {convertModal && <ConvertTaskModal task={convertModal} />}
-      {editingTimeLog && <TimeLogModal />}
-      {statementModal && <StatementModal />}
-      {manualAttModal && <ManualAttendanceModal />}
-      {adjustCashModal && <CashAdjustmentModal />}
-      {selectedTimeLog && <TimeLogDetailsModal />}
+      
+      {/* RENDER MODALS OUTSIDE MAIN FLOW WITH PROPS */}
+      {convertModal && (
+        <ConvertTaskModal 
+            task={convertModal} 
+            onClose={() => setConvertModal(null)} 
+            saveRecord={saveRecord} 
+            setViewDetail={setViewDetail} 
+            handleCloseUI={handleCloseUI} 
+        />
+      )}
+      
+      {editingTimeLog && (
+        <TimeLogModal 
+            editingTimeLog={editingTimeLog} 
+            setEditingTimeLog={setEditingTimeLog} 
+            data={data} 
+            setData={setData} 
+            handleCloseUI={handleCloseUI} 
+            showToast={showToast} 
+        />
+      )}
+      
+      {statementModal && (
+        <StatementModal 
+            isOpen={!!statementModal} 
+            onClose={() => setStatementModal(null)} 
+        />
+      )}
+      
+      {manualAttModal && (
+        <ManualAttendanceModal 
+            manualAttModal={manualAttModal} 
+            setManualAttModal={setManualAttModal} 
+            data={data} 
+            setData={setData} 
+            handleCloseUI={handleCloseUI} 
+            showToast={showToast} 
+        />
+      )}
+      
+      {adjustCashModal && (
+        <CashAdjustmentModal 
+            adjustCashModal={adjustCashModal} 
+            setAdjustCashModal={setAdjustCashModal} 
+            saveRecord={saveRecord} 
+            handleCloseUI={handleCloseUI} 
+        />
+      )}
+      
+      {selectedTimeLog && (
+        <TimeLogDetailsModal 
+            selectedTimeLog={selectedTimeLog} 
+            setSelectedTimeLog={setSelectedTimeLog} 
+            handleCloseUI={handleCloseUI} 
+        />
+      )}
     </div>
   );
 }
