@@ -5,6 +5,7 @@ import {
   getFirestore, 
   collection, 
   getDocs, 
+  getDoc, // Added getDoc
   setDoc, 
   deleteDoc, 
   doc, 
@@ -496,6 +497,38 @@ const syncData = async (isBackground = false) => {
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 3000); };
 
+  // REQ: Targeted Sync Function
+  const refreshSingleRecord = async (collectionName, id) => {
+    try {
+        const docRef = doc(db, collectionName, id);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+            const serverData = docSnap.data();
+            setData(prev => {
+                const list = prev[collectionName] || [];
+                const index = list.findIndex(i => i.id === id);
+                let newList;
+                
+                if (index >= 0) {
+                    newList = [...list];
+                    newList[index] = serverData;
+                } else {
+                    newList = [...list, serverData];
+                }
+                
+                const newData = { ...prev, [collectionName]: newList };
+                localStorage.setItem('smees_data', JSON.stringify(newData));
+                return newData;
+            });
+            // Optional: Only show toast if triggered manually (context dependent, but okay here)
+            // showToast("Refreshed"); 
+        }
+    } catch (error) {
+        console.error("Targeted Sync Error:", error);
+    }
+  };
+
   const saveRecord = async (collectionName, record, idType) => {
     if (!user) return;
     let newData = { ...data };
@@ -526,7 +559,9 @@ const syncData = async (isBackground = false) => {
     try {
         await setDoc(doc(db, collectionName, finalId.toString()), safeRecord);
         if (newCounters) await setDoc(doc(db, "settings", "counters"), newCounters);
-        await syncData(true);
+        
+        // REQ: Use Targeted Sync instead of full sync
+        await refreshSingleRecord(collectionName, finalId);
     } catch (e) { console.error(e); showToast("Save Error", "error"); }
     return finalId; 
   };
@@ -1561,6 +1596,9 @@ const syncData = async (isBackground = false) => {
               <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
               <h2 className="font-bold text-lg">Task Details</h2>
               <div className="flex gap-2">
+                   {/* REQ: Refresh Task Button */}
+                   <button onClick={() => refreshSingleRecord('tasks', task.id)} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><RefreshCw size={20}/></button>
+                   
                    <button onClick={shareTask} className="p-2 bg-green-100 text-green-700 rounded-lg"><MessageCircle size={20}/></button>
                    {/* Removed Convert Button from here */}
                    {checkPermission(user, 'canEditTasks') && <button onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>}
