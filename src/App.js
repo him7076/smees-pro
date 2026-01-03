@@ -1875,10 +1875,16 @@ const syncData = async (isBackground = false) => {
         subType: type === 'payment' ? 'in' : '', 
         amount: '', 
         linkedBills: [], 
-        description: '' 
+        description: '',
+        address: '', 
+        mobile: '', 
+        lat: '', 
+        lng: '', 
+        locationLabel: ''
     });
     
     const [showLinking, setShowLinking] = useState(false);
+    const [showLocPicker, setShowLocPicker] = useState(false); // Local state for location
     
     // REQ 4: Calculate Voucher ID using useMemo
     const currentVoucherId = useMemo(() => {
@@ -1887,6 +1893,19 @@ const syncData = async (isBackground = false) => {
     }, [data, type, record]);
 
     const totals = getTransactionTotals(tx);
+    const selectedParty = data.parties.find(p => p.id === tx.partyId);
+
+    const handleLocationSelect = (loc) => {
+        setTx({
+            ...tx,
+            address: loc.address,
+            mobile: loc.mobile || selectedParty?.mobile || '',
+            lat: loc.lat || '',
+            lng: loc.lng || '',
+            locationLabel: loc.label
+        });
+        setShowLocPicker(false);
+    };
     
     const unpaidBills = useMemo(() => {
       if (!tx.partyId) return [];
@@ -1949,14 +1968,45 @@ const syncData = async (isBackground = false) => {
 
         {/* REQ 1 & 3: Party Select (Vertical Stacking - w-full) */}
         {/* Even for Expense, we now ask for Party FIRST */}
-        <SearchableSelect 
-            label={type === 'expense' ? "Paid To (Party)" : "Party / Client"} 
-            options={partyOptions} 
-            value={tx.partyId} 
-            onChange={v => setTx({...tx, partyId: v})} 
-            onAddNew={() => { pushHistory(); setModal({ type: 'party' }); }} 
-            placeholder="Select Party..." 
-        />
+        <div>
+             <SearchableSelect 
+                label={type === 'expense' ? "Paid To (Party)" : "Party / Client"} 
+                options={partyOptions} 
+                value={tx.partyId} 
+                onChange={v => setTx({...tx, partyId: v, locationLabel: '', address: ''})} 
+                onAddNew={() => { pushHistory(); setModal({ type: 'party' }); }} 
+                placeholder="Select Party..." 
+            />
+            {/* Location Selector */}
+            {selectedParty?.locations?.length > 0 && (
+                <div className="relative mt-1 mb-2">
+                    <div className="flex justify-between items-center bg-blue-50 p-2 rounded-lg border border-blue-100">
+                         <div className="text-xs text-blue-800">
+                            <span className="font-bold">Location: </span> 
+                            {tx.locationLabel ? tx.locationLabel : 'Default / Primary'}
+                            {tx.address && <div className="text-[10px] text-gray-500 truncate max-w-[200px]">{tx.address}</div>}
+                         </div>
+                         <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[10px] font-bold bg-white border px-2 py-1 rounded shadow-sm text-blue-600 flex items-center gap-1">
+                             <MapPin size={10}/> Change
+                         </button>
+                    </div>
+                    {showLocPicker && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1">
+                            <div onClick={() => handleLocationSelect({ label: '', address: selectedParty.address, mobile: selectedParty.mobile, lat: selectedParty.lat, lng: selectedParty.lng })} className="p-2 hover:bg-gray-50 cursor-pointer rounded text-xs border-b">
+                                <span className="font-bold text-gray-600">Default (Primary)</span>
+                                <div className="truncate">{selectedParty.address}</div>
+                            </div>
+                            {selectedParty.locations.map((loc, idx) => (
+                                <div key={idx} onClick={() => handleLocationSelect(loc)} className="p-2 hover:bg-blue-50 cursor-pointer rounded text-xs">
+                                    <span className="font-bold text-blue-600">{loc.label}</span>
+                                    <div className="truncate text-gray-600">{loc.address}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
 
         {/* REQ 3: Expense Category (Shown BELOW Party for expenses) */}
         {type === 'expense' && (
