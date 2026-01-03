@@ -251,15 +251,26 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
 };
 
 export default function App() {
-  // REQ 1: Persistent Data State (Load from LocalStorage)
-  const [user, setUser] = useState(() => {
+  // REQ 1: Persistent Data State (Fixed for Hydration / SSR)
+  // Initialize with default values (null / INITIAL_DATA) to prevent Prop ID Mismatch
+  const [user, setUser] = useState(null);
+  const [data, setData] = useState(INITIAL_DATA);
+
+  // Load from LocalStorage ONLY on the client-side after mount
+  useEffect(() => {
+    // Load User
     const savedUser = localStorage.getItem('smees_user');
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
-  const [data, setData] = useState(() => {
+    if (savedUser) {
+        try { setUser(JSON.parse(savedUser)); } catch (e) { console.error(e); }
+    }
+
+    // Load Data
     const savedData = localStorage.getItem('smees_data');
-    return savedData ? JSON.parse(savedData) : INITIAL_DATA;
-  });
+    if (savedData) {
+        try { setData(JSON.parse(savedData)); } catch (e) { console.error(e); }
+    }
+  }, []);
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [mastersView, setMastersView] = useState(null);
   const [convertModal, setConvertModal] = useState(null);
