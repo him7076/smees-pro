@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "firebase/auth";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { 
   getFirestore, 
   collection, 
@@ -76,6 +74,10 @@ const firebaseConfig = {
   appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
   measurementId: "G-BQ6NW6D84Z"
 };
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);       // Ye line jaruri hai login ke liye
+const db = getFirestore(app);    // Ye line jaruri hai database ke liye
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -487,10 +489,11 @@ const TimeLogModal = ({ editingTimeLog, setEditingTimeLog, data, setData, handle
                     <div>
                         <label className="text-xs font-bold text-gray-500 uppercase">End Time</label>
                         <input type="datetime-local" className="w-full p-3 border rounded-xl" value={form.end} onChange={e => setForm({...form, end: e.target.value})} />
+                        <p className="text-[10px] text-gray-400 mt-1">Leave empty if currently running</p>
                     </div>
-                    <div className="flex gap-2 pt-2">
-                          <button onClick={() => { setEditingTimeLog(null); handleCloseUI(); }} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
-                          <button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Save</button>
+                    <div className="flex gap-2">
+                         <button onClick={() => { setEditingTimeLog(null); handleCloseUI(); }} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
+                         <button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Update Log</button>
                     </div>
                 </div>
             </div>
@@ -498,10 +501,20 @@ const TimeLogModal = ({ editingTimeLog, setEditingTimeLog, data, setData, handle
     );
 };
 
-const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseUI }) => {
+const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseUI, saveRecord, setEditingTimeLog }) => {
     if (!selectedTimeLog) return null;
     const { task, index } = selectedTimeLog;
     const log = task.timeLogs[index];
+
+    const handleDelete = async () => {
+         if(!window.confirm("Delete this time log?")) return;
+         const updatedLogs = [...task.timeLogs];
+         updatedLogs.splice(index, 1);
+         const updatedTask = { ...task, timeLogs: updatedLogs };
+         await saveRecord('tasks', updatedTask, 'task');
+         setSelectedTimeLog(null);
+         handleCloseUI();
+    };
 
     return (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -542,6 +555,10 @@ const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseU
                             </a>
                         </div>
                     )}
+                    <div className="flex gap-3 pt-2">
+                         <button onClick={handleDelete} className="flex-1 p-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Trash2 size={16}/> Delete</button>
+                         <button onClick={() => { setEditingTimeLog({ task, index }); setSelectedTimeLog(null); }} className="flex-1 p-3 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Edit2 size={16}/> Edit</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1096,6 +1113,20 @@ const syncData = async (isBackground = false) => {
         .filter(l => l.staffId === staff.id)
      ).sort((a,b) => new Date(b.start) - new Date(a.start));
 
+     // HELPER: Time Calculations
+     const getMins = (t) => {
+        if(!t) return 0;
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+     };
+     
+     const formatDur = (m) => {
+        if(m <= 0) return '-';
+        const h = Math.floor(m / 60);
+        const mins = m % 60;
+        return `${h}h ${mins}m`;
+     };
+
      const handleAttendance = async (type) => {
         if (!user) return;
         const now = new Date();
@@ -1153,19 +1184,39 @@ const syncData = async (isBackground = false) => {
                     )}
 
                     <div className="space-y-2">
-                        {attHistory.map(item => (
-                            <div key={item.id} className="p-3 border rounded-xl bg-white text-xs relative">
-                                {user.role === 'admin' && (
-                                    <div className="absolute top-2 right-2 flex gap-2">
-                                        <button onClick={() => editAtt(item)} className="text-blue-500"><Edit2 size={14}/></button>
-                                        <button onClick={() => deleteAtt(item.id)} className="text-red-500"><Trash2 size={14}/></button>
-                                    </div>
-                                )}
-                                <div className="flex justify-between font-bold text-gray-800 mb-1"><span>{formatDate(item.date)}</span></div>
-                                <div className="flex justify-between text-gray-600"><span>In: {item.checkIn || '-'}</span><span>Out: {item.checkOut || '-'}</span></div>
-                                {item.lunchStart && <div className="text-gray-400 mt-1">Lunch: {item.lunchStart} - {item.lunchEnd}</div>}
-                            </div>
-                        ))}
+                        {attHistory.map(item => {
+                            const inM = getMins(item.checkIn);
+                            const outM = getMins(item.checkOut);
+                            const lsM = getMins(item.lunchStart);
+                            const leM = getMins(item.lunchEnd);
+                            
+                            let gross = 0, lunch = 0, net = 0;
+                            if (item.checkIn && item.checkOut) gross = outM - inM;
+                            if (item.lunchStart && item.lunchEnd) lunch = leM - lsM;
+                            net = gross - lunch;
+                            
+                            return (
+                                <div key={item.id} className="p-3 border rounded-xl bg-white text-xs relative">
+                                    {user.role === 'admin' && (
+                                        <div className="absolute top-2 right-2 flex gap-2">
+                                            <button onClick={() => editAtt(item)} className="text-blue-500"><Edit2 size={14}/></button>
+                                            <button onClick={() => deleteAtt(item.id)} className="text-red-500"><Trash2 size={14}/></button>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between font-bold text-gray-800 mb-1"><span>{formatDate(item.date)}</span></div>
+                                    <div className="flex justify-between text-gray-600"><span>In: {item.checkIn || '-'}</span><span>Out: {item.checkOut || '-'}</span></div>
+                                    {item.lunchStart && <div className="text-gray-400 mt-1">Lunch: {item.lunchStart} - {item.lunchEnd}</div>}
+                                    
+                                    {gross > 0 && (
+                                        <div className="mt-2 pt-2 border-t flex justify-between text-[10px] text-gray-500 bg-gray-50 p-2 rounded-lg">
+                                            <span>Gross: {formatDur(gross)}</span>
+                                            <span>Lunch: {formatDur(lunch)}</span>
+                                            <span className="font-bold text-gray-800">Net: {formatDur(net)}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             )}
@@ -1726,7 +1777,8 @@ const syncData = async (isBackground = false) => {
           pnl.total = (pnl.service + pnl.goods) - pnl.discount;
       }
       
-      // --- UPDATE THIS FUNCTION INSIDE DetailView ---
+
+      // New Professional Share/Print Logic
       // New Professional Share/Print Logic
       const shareInvoice = () => {
         const companyName = data.company.name || "My Enterprise";
@@ -3073,7 +3125,9 @@ const syncData = async (isBackground = false) => {
         <TimeLogDetailsModal 
             selectedTimeLog={selectedTimeLog} 
             setSelectedTimeLog={setSelectedTimeLog} 
-            handleCloseUI={handleCloseUI} 
+            handleCloseUI={handleCloseUI}
+            saveRecord={saveRecord}
+            setEditingTimeLog={setEditingTimeLog}
         />
       )}
     </div>
