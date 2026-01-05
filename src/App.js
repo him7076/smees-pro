@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "firebase/auth";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { 
   getFirestore, 
   collection, 
@@ -1724,7 +1726,158 @@ const syncData = async (isBackground = false) => {
           pnl.total = (pnl.service + pnl.goods) - pnl.discount;
       }
       
-      const shareInvoice = () => { /* ... existing shareInvoice code ... */ };
+      // --- UPDATE THIS FUNCTION INSIDE DetailView ---
+      const shareInvoice = () => {
+        const doc = new jsPDF();
+        
+        // --- 1. HEADER (Company Details) ---
+        // Company Name
+        doc.setFontSize(20);
+        doc.setFont("helvetica", "bold");
+        doc.text(data.company.name || "Sun Electricals", 14, 15);
+
+        // Company Contact Info (Left Side)
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(data.company.address || "Warasiya Vadodara", 14, 22);
+        doc.text(`State: 24-Gujarat`, 14, 27);
+        doc.text(`M: ${data.company.mobile || "7990800655"}`, 14, 32);
+        doc.text(`E: ${data.company.email || "sunelectrical.se@gmail.com"}`, 14, 37);
+
+        // --- 2. INVOICE DETAILS (Right Side) ---
+        const rightX = 140;
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.text(tx.type === 'estimate' ? "ESTIMATE" : "INVOICE", rightX, 15);
+        
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(`No: ${tx.id}`, rightX, 22);
+        doc.text(`Date: ${formatDate(tx.date)}`, rightX, 27);
+        doc.text(`Time: ${formatTime(tx.createdAt || new Date().toISOString())}`, rightX, 32);
+
+        // --- 3. BILL TO (Client Details) ---
+        doc.setDrawColor(200); 
+        doc.line(14, 42, 196, 42); // Horizontal Line
+
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.text("Bill To:", 14, 48);
+        
+        doc.setFont("helvetica", "normal");
+        doc.text(party?.name || tx.category || "Cash Customer", 14, 54);
+        if(party?.mobile) doc.text(`Contact: ${party.mobile}`, 14, 59);
+        if(party?.address) doc.text(`Address: ${party.address}`, 14, 64);
+
+        // --- 4. ITEM TABLE ---
+        const tableColumn = ["#", "Item Name", "Qty", "Rate", "Amount"];
+        const tableRows = [];
+
+        // Add Items
+        tx.items?.forEach((item, index) => {
+            const itemMaster = data.items.find(i => i.id === item.itemId);
+            const itemName = itemMaster ? itemMaster.name : (item.description || "Item");
+            const amount = parseFloat(item.qty) * parseFloat(item.price);
+            
+            const itemData = [
+                index + 1,
+                itemName,
+                item.qty,
+                formatCurrency(item.price).replace('₹', ''), // Removing symbol for PDF font compatibility
+                formatCurrency(amount).replace('₹', '')
+            ];
+            tableRows.push(itemData);
+        });
+
+        // Generate Table
+        autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: 70,
+            theme: 'grid', // 'striped', 'grid', 'plain'
+            headStyles: { fillColor: [44, 62, 80], textColor: 255, fontStyle: 'bold' },
+            styles: { fontSize: 9, cellPadding: 2 },
+            columnStyles: {
+                0: { cellWidth: 10 }, // Index
+                1: { cellWidth: 'auto' }, // Name
+                2: { cellWidth: 20, halign: 'center' }, // Qty
+                3: { cellWidth: 30, halign: 'right' }, // Rate
+                4: { cellWidth: 30, halign: 'right' }  // Amount
+            }
+        });
+
+        // --- 5. TOTALS SECTION ---
+        const finalY = doc.lastAutoTable.finalY + 10;
+        const summaryX = 130; 
+        const valueX = 195;
+
+        // Helper to draw total line
+        const drawTotalLine = (label, value, y, isBold = false) => {
+            doc.setFont("helvetica", isBold ? "bold" : "normal");
+            doc.setFontSize(isBold ? 11 : 10);
+            doc.text(label, summaryX, y);
+            doc.text(formatCurrency(value).replace('₹', ''), valueX, y, { align: "right" });
+        };
+
+        let currentY = finalY;
+
+        if (tx.type !== 'payment') {
+            drawTotalLine("Sub Total:", totals.gross, currentY);
+            currentY += 6;
+
+            if (parseFloat(tx.discountValue) > 0) {
+                drawTotalLine(`Discount (${tx.discountType === '%' ? tx.discountValue + '%' : 'Amt'}):`, totals.gross - totals.final, currentY);
+                currentY += 6;
+            }
+
+            drawTotalLine("Grand Total:", totals.final, currentY, true);
+            currentY += 8;
+        } else {
+             // For Payment Receipt
+             drawTotalLine("Amount Paid:", totals.amount, currentY, true);
+             currentY += 8;
+        }
+
+        // Received & Balance (Only for Sales)
+        if (['sales'].includes(tx.type)) {
+            const received = parseFloat(tx.received || 0);
+            const balance = totals.final - received;
+            
+            if (received > 0) {
+                doc.setFont("helvetica", "normal");
+                doc.text("Received:", summaryX, currentY);
+                doc.text(formatCurrency(received).replace('₹', ''), valueX, currentY, { align: "right" });
+                currentY += 6;
+            }
+            
+            if (balance > 0) {
+                doc.setFont("helvetica", "bold");
+                doc.setTextColor(200, 0, 0); // Red color for balance
+                doc.text("Balance Due:", summaryX, currentY);
+                doc.text(formatCurrency(balance).replace('₹', ''), valueX, currentY, { align: "right" });
+                doc.setTextColor(0, 0, 0); // Reset color
+            }
+        }
+
+        // --- 6. FOOTER ---
+        const footerY = 270; // Bottom of page
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.text("Terms & Conditions:", 14, footerY - 15);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.text("1. Goods once sold will not be taken back.", 14, footerY - 10);
+        doc.text("2. Interest @18% p.a. will be charged if not paid within due date.", 14, footerY - 6);
+
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.text("For, " + (data.company.name || "Sun Electricals"), 196, footerY - 15, { align: "right" });
+        doc.setFont("helvetica", "normal");
+        doc.text("Authorized Signatory", 196, footerY, { align: "right" });
+
+        // Save PDF
+        doc.save(`${tx.type.toUpperCase()}_${tx.id}.pdf`);
+      };
 
       return (
         <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
