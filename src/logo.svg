@@ -83,7 +83,3 @@
         />
       </g>
     </svg>
-  );
-};
-
-export default SunElectricalsLogo;
