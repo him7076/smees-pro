@@ -498,10 +498,27 @@ const TimeLogModal = ({ editingTimeLog, setEditingTimeLog, data, setData, handle
     );
 };
 
-const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseUI }) => {
+const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseUI, saveRecord, setEditingTimeLog }) => {
     if (!selectedTimeLog) return null;
     const { task, index } = selectedTimeLog;
     const log = task.timeLogs[index];
+
+    // Delete Logic
+    const handleDelete = async () => {
+        if(!window.confirm("Are you sure you want to delete this time log?")) return;
+        
+        // Remove item from array
+        const updatedLogs = [...task.timeLogs];
+        updatedLogs.splice(index, 1);
+        
+        const updatedTask = { ...task, timeLogs: updatedLogs };
+        
+        // Save to Firebase
+        await saveRecord('tasks', updatedTask, 'task');
+        
+        setSelectedTimeLog(null);
+        handleCloseUI();
+    };
 
     return (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -514,8 +531,8 @@ const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseU
                         <p className="font-bold">{task.name}</p>
                     </div>
                     <div className="p-3 bg-gray-50 rounded-xl border">
-                          <p className="text-xs font-bold text-gray-400 uppercase">Staff</p>
-                          <p className="font-bold">{log.staffName}</p>
+                         <p className="text-xs font-bold text-gray-400 uppercase">Staff</p>
+                         <p className="font-bold">{log.staffName}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                         <div className="p-3 bg-gray-50 rounded-xl border">
@@ -528,8 +545,8 @@ const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseU
                         </div>
                     </div>
                     <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
-                          <p className="text-xs font-bold text-blue-500 uppercase">Duration</p>
-                          <p className="font-black text-xl text-blue-700">{log.duration} mins</p>
+                         <p className="text-xs font-bold text-blue-500 uppercase">Duration</p>
+                         <p className="font-black text-xl text-blue-700">{log.duration} mins</p>
                     </div>
                     {log.location && (
                         <div className="p-3 bg-green-50 rounded-xl border border-green-100 flex justify-between items-center">
@@ -542,6 +559,12 @@ const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseU
                             </a>
                         </div>
                     )}
+                    
+                    {/* EDIT AND DELETE BUTTONS */}
+                    <div className="flex gap-3 pt-2">
+                         <button onClick={handleDelete} className="flex-1 p-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Trash2 size={16}/> Delete</button>
+                         <button onClick={() => { setEditingTimeLog({ task, index }); setSelectedTimeLog(null); }} className="flex-1 p-3 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Edit2 size={16}/> Edit</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -801,11 +824,18 @@ const syncData = async (isBackground = false) => {
          balances[tx.partyId] = (balances[tx.partyId] || 0) - unpaid;
       }
       
-      if (tx.type === 'payment') {
-        const amt = parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0);
-        if (tx.subType === 'in') balances[tx.partyId] = (balances[tx.partyId] || 0) - amt;
-        else balances[tx.partyId] = (balances[tx.partyId] || 0) + amt;
-      }
+      // --- FIND THIS BLOCK INSIDE partyBalances ---
+if (tx.type === 'payment') {
+    // OLD CODE (Galat):
+    // const amt = parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0);
+
+    // NEW CODE (Sahi):
+    // Party ke khate me pura 1000 (tx.amount) hi count hoga.
+    const amt = parseFloat(tx.amount || 0); 
+
+    if (tx.subType === 'in') balances[tx.partyId] = (balances[tx.partyId] || 0) - amt;
+    else balances[tx.partyId] = (balances[tx.partyId] || 0) + amt;
+}
     });
     return balances;
   }, [data]);
@@ -854,10 +884,13 @@ const syncData = async (isBackground = false) => {
             amt = parseFloat(tx.paid || 0);
             isIncome = false;
             affectCashBank = amt > 0;
-        } else if (tx.type === 'payment') {
-            // Payments are pure cash flow - Strictly use 'amount' (ignore discount)
-            amt = parseFloat(tx.amount || 0);
-            isIncome = tx.subType === 'in';
+        }else if (tx.type === 'payment') {
+            // FIX: Explicitly calculate net cash amount
+            const total = parseFloat(tx.amount || 0);
+            const disc = parseFloat(tx.discountValue || 0);
+            amt = total - disc; 
+
+            isIncome = tx.subType === 'in'; // in = Income, out = Expense
             affectCashBank = amt > 0;
         }
 
@@ -871,7 +904,7 @@ const syncData = async (isBackground = false) => {
         }
     });
     return { todaySales, totalExpenses, pendingTasks, totalReceivables, totalPayables, cashInHand, bankBalance };
-  }, [data, partyBalances]);
+  }, [data.transactions, data.tasks, partyBalances]);
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 3000); };
 
@@ -1085,18 +1118,33 @@ const syncData = async (isBackground = false) => {
   // --- SUB-COMPONENTS ---
 
   const StaffDetailView = ({ staff }) => {
-     const [sTab, setSTab] = useState('attendance');
-     
-     const attToday = data.attendance.find(a => a.staffId === staff.id && a.date === new Date().toISOString().split('T')[0]) || {};
-     const attHistory = data.attendance.filter(a => a.staffId === staff.id).sort((a,b) => new Date(b.date) - new Date(a.date));
-     
-     // UPDATED: Include taskId and originalIndex to enable editing/viewing details
-     const workLogs = data.tasks.flatMap(t => 
+      const [sTab, setSTab] = useState('attendance');
+      
+      const attToday = data.attendance.find(a => a.staffId === staff.id && a.date === new Date().toISOString().split('T')[0]) || {};
+      const attHistory = data.attendance.filter(a => a.staffId === staff.id).sort((a,b) => new Date(b.date) - new Date(a.date));
+      
+      const workLogs = data.tasks.flatMap(t => 
         (t.timeLogs || []).map((l, i) => ({ ...l, taskId: t.id, originalIndex: i, taskName: t.name }))
         .filter(l => l.staffId === staff.id)
-     ).sort((a,b) => new Date(b.start) - new Date(a.start));
+      ).sort((a,b) => new Date(b.start) - new Date(a.start));
 
-     const handleAttendance = async (type) => {
+      // --- 1. Helper Functions (Time Calculation) ---
+      // "HH:MM" string ko minutes me badalta hai
+      const getMins = (t) => {
+        if(!t) return 0;
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+      };
+      
+      // Minutes ko "8h 30m" format me badalta hai
+      const formatDur = (m) => {
+        if(m <= 0) return '-';
+        const h = Math.floor(m / 60);
+        const mins = m % 60;
+        return `${h}h ${mins}m`;
+      };
+
+      const handleAttendance = async (type) => {
         if (!user) return;
         const now = new Date();
         const todayStr = now.toISOString().split('T')[0];
@@ -1124,21 +1172,21 @@ const syncData = async (isBackground = false) => {
         setManualAttModal({ ...record, isEdit: true });
     }
 
-     return (
-         <div className="p-4 space-y-6">
-            <div className="p-4 bg-gray-50 rounded-2xl border">
+      return (
+          <div className="p-4 space-y-6">
+             <div className="p-4 bg-gray-50 rounded-2xl border">
                 <div className="flex justify-between items-center mb-2"><p className="font-bold text-lg text-gray-800">{staff.role}</p><span className={`px-2 py-1 rounded text-xs font-bold ${staff.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{staff.active ? 'Active' : 'Inactive'}</span></div>
                 <p className="text-sm text-gray-500 flex items-center gap-2"><Phone size={14}/> {staff.mobile}</p>
-            </div>
+             </div>
 
-            <div className="flex bg-gray-100 p-1 rounded-xl">
+             <div className="flex bg-gray-100 p-1 rounded-xl">
                 <button onClick={()=>setSTab('attendance')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${sTab==='attendance' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Attendance</button>
                 <button onClick={()=>setSTab('work')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${sTab==='work' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Work Logs</button>
-            </div>
+             </div>
 
-            {sTab === 'attendance' && (
+             {sTab === 'attendance' && (
                 <div className="space-y-4">
-                     <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                      <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
                         <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2"><UserCheck size={18}/> Actions (Today)</h3>
                         <div className="grid grid-cols-2 gap-2 mb-3">
                             <button onClick={() => handleAttendance('checkIn')} disabled={!!attToday.checkIn} className="p-3 bg-green-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 disabled:bg-gray-400">Check In <br/> <span className="text-xs font-normal">{attToday.checkIn || '--:--'}</span></button>
@@ -1153,24 +1201,49 @@ const syncData = async (isBackground = false) => {
                     )}
 
                     <div className="space-y-2">
-                        {attHistory.map(item => (
-                            <div key={item.id} className="p-3 border rounded-xl bg-white text-xs relative">
-                                {user.role === 'admin' && (
-                                    <div className="absolute top-2 right-2 flex gap-2">
-                                        <button onClick={() => editAtt(item)} className="text-blue-500"><Edit2 size={14}/></button>
-                                        <button onClick={() => deleteAtt(item.id)} className="text-red-500"><Trash2 size={14}/></button>
-                                    </div>
-                                )}
-                                <div className="flex justify-between font-bold text-gray-800 mb-1"><span>{formatDate(item.date)}</span></div>
-                                <div className="flex justify-between text-gray-600"><span>In: {item.checkIn || '-'}</span><span>Out: {item.checkOut || '-'}</span></div>
-                                {item.lunchStart && <div className="text-gray-400 mt-1">Lunch: {item.lunchStart} - {item.lunchEnd}</div>}
-                            </div>
-                        ))}
+                        {attHistory.map(item => {
+                            // --- 2. Duration Calculations ---
+                            const inM = getMins(item.checkIn);
+                            const outM = getMins(item.checkOut);
+                            const lsM = getMins(item.lunchStart);
+                            const leM = getMins(item.lunchEnd);
+                            
+                            let gross = 0, lunch = 0, net = 0;
+                            // Check-in se Check-out ka total time
+                            if (item.checkIn && item.checkOut) gross = outM - inM;
+                            // Lunch ka total time
+                            if (item.lunchStart && item.lunchEnd) lunch = leM - lsM;
+                            // Net (Final) Duration = Gross - Lunch
+                            net = gross - lunch;
+                            
+                            return (
+                                <div key={item.id} className="p-3 border rounded-xl bg-white text-xs relative">
+                                    {user.role === 'admin' && (
+                                        <div className="absolute top-2 right-2 flex gap-2">
+                                            <button onClick={() => editAtt(item)} className="text-blue-500"><Edit2 size={14}/></button>
+                                            <button onClick={() => deleteAtt(item.id)} className="text-red-500"><Trash2 size={14}/></button>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between font-bold text-gray-800 mb-1"><span>{formatDate(item.date)}</span></div>
+                                    <div className="flex justify-between text-gray-600"><span>In: {item.checkIn || '-'}</span><span>Out: {item.checkOut || '-'}</span></div>
+                                    {item.lunchStart && <div className="text-gray-400 mt-1">Lunch: {item.lunchStart} - {item.lunchEnd}</div>}
+                                    
+                                    {/* --- 3. UI Display for Durations --- */}
+                                    {gross > 0 && (
+                                        <div className="mt-2 pt-2 border-t flex justify-between text-[10px] text-gray-500 bg-gray-50 p-2 rounded-lg">
+                                            <span>Total: {formatDur(gross)}</span>
+                                            <span>Lunch: {formatDur(lunch)}</span>
+                                            <span className="font-bold text-gray-800">Final: {formatDur(net)}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
-            )}
+             )}
 
-            {sTab === 'work' && (
+             {sTab === 'work' && (
                 <div className="space-y-2">
                     {workLogs.map((item, idx) => (
                         <div 
@@ -1183,9 +1256,9 @@ const syncData = async (isBackground = false) => {
                         </div>
                     ))}
                 </div>
-            )}
+             )}
          </div>
-     );
+      );
   };
 
   const Dashboard = () => {
@@ -2575,12 +2648,45 @@ const syncData = async (isBackground = false) => {
                 {tx.items.map((line, idx) => (
                     <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
                         <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
-                        <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine(idx, 'itemId', v)} />
+                        
+                        <SearchableSelect 
+                            options={itemOptions} 
+                            value={line.itemId} 
+                            onChange={v => updateLine(idx, 'itemId', v)} 
+                        />
+                        
                         <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
+                        
                         <div className="flex gap-2">
-                            <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} />
-                            <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Price" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
-                            <div className="flex-1 text-right self-center text-xs font-bold text-gray-500">{formatCurrency(line.qty * line.price)}</div>
+                            {/* Qty Input */}
+                            <div className="flex flex-col">
+                                <span className="text-[8px] text-gray-400 font-bold ml-1">QTY</span>
+                                <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} />
+                            </div>
+
+                            {/* Sale Price Input */}
+                            <div className="flex flex-col">
+                                <span className="text-[8px] text-gray-400 font-bold ml-1">SALE</span>
+                                <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
+                            </div>
+
+                            {/* Buy Price Input (Always Visible Now) */}
+                            {/* Agar aap sirf Admin ko dikhana chahte hain to: {user.role === 'admin' && (...)} lagayein */}
+                            <div className="flex flex-col">
+                                <span className="text-[8px] text-gray-400 font-bold ml-1">BUY</span>
+                                <input 
+                                    type="number" 
+                                    className="w-20 p-1 border rounded text-xs bg-yellow-50 text-gray-600" 
+                                    placeholder="Buy" 
+                                    value={line.buyPrice} 
+                                    onChange={e => updateLine(idx, 'buyPrice', e.target.value)} 
+                                />
+                            </div>
+
+                            {/* Total Display */}
+                            <div className="flex-1 text-right self-end text-xs font-bold text-gray-500 pb-2">
+                                {formatCurrency(line.qty * line.price)}
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -3074,6 +3180,8 @@ const syncData = async (isBackground = false) => {
             selectedTimeLog={selectedTimeLog} 
             setSelectedTimeLog={setSelectedTimeLog} 
             handleCloseUI={handleCloseUI} 
+            saveRecord={saveRecord}           // <--- Ye line honi chahiye
+            setEditingTimeLog={setEditingTimeLog} // <--- Ye line honi chahiye
         />
       )}
     </div>
