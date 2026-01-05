@@ -2172,37 +2172,20 @@ if (tx.type === 'payment') {
                     <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
                     <p className="text-sm text-gray-600 my-4">{task.description}</p>
 
-                    {/* REQ 1: Client Details UI (Updated Logic) */}
-                    {party && (() => {
-                        // Priority: Task Data > Party Data
-                        const displayAddress = task.address || party.address;
-                        const displayMobile = task.mobile || party.mobile;
-                        const displayLat = task.lat || party.lat;
-                        const displayLng = task.lng || party.lng;
-                        const locationLabel = task.locationLabel || '';
-
-                        return (
-                            <div className="bg-white p-3 rounded-xl border mb-4 space-y-1">
-                                <div className="flex justify-between items-start">
-                                    <div>
-                                        <p className="text-xs font-bold text-gray-400 uppercase">
-                                            Client {locationLabel && <span className="text-blue-600">({locationLabel})</span>}
-                                        </p>
-                                        <p className="font-bold text-gray-800">{party.name}</p>
-                                    </div>
-                                    {displayLat && (
-                                        <a href={`https://www.google.com/maps/search/?api=1&query=${displayLat},${displayLng}`} target="_blank" rel="noreferrer" className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                                            <MapPin size={16}/>
-                                        </a>
-                                    )}
+                    {/* REQ 1: Client Details UI */}
+                    {party && (
+                        <div className="bg-white p-3 rounded-xl border mb-4 space-y-1">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <p className="text-xs font-bold text-gray-400 uppercase">Client</p>
+                                    <p className="font-bold text-gray-800">{party.name}</p>
                                 </div>
-                                <a href={`tel:${displayMobile}`} className="text-sm font-bold text-blue-600 flex items-center gap-1">
-                                    <Phone size={14}/> {displayMobile}
-                                </a>
-                                {displayAddress && <p className="text-xs text-gray-500">{displayAddress}</p>}
+                                {party.lat && <a href={`https://www.google.com/maps?q=${party.lat},${party.lng}`} target="_blank" rel="noreferrer" className="p-2 bg-blue-50 text-blue-600 rounded-lg"><MapPin size={16}/></a>}
                             </div>
-                        );
-                    })()}
+                            <a href={`tel:${party.mobile}`} className="text-sm font-bold text-blue-600 flex items-center gap-1"><Phone size={14}/> {party.mobile}</a>
+                            {party.address && <p className="text-xs text-gray-500">{party.address}</p>}
+                        </div>
+                    )}
                     
                     {/* Time Logs List */}
                     <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
@@ -2797,35 +2780,19 @@ if (tx.type === 'payment') {
   };
 
   const TaskForm = ({ record }) => {
-    // 1. 'mobileLabel' ko initial state me add kiya
-    const [form, setForm] = useState(record ? { 
-        ...record, 
-        itemsUsed: record.itemsUsed || [], 
-        assignedStaff: record.assignedStaff || [] 
-    } : { 
-        name: '', partyId: '', description: '', status: 'To Do', dueDate: '', 
-        assignedStaff: [], itemsUsed: [], 
-        address: '', mobile: '', lat: '', lng: '', locationLabel: '', 
-        mobileLabel: '' // <--- NEW FIELD
-    });
-
-    const [showLocPicker, setShowLocPicker] = useState(false);
+    const [form, setForm] = useState(record ? { ...record, itemsUsed: record.itemsUsed || [], assignedStaff: record.assignedStaff || [] } : { name: '', partyId: '', description: '', status: 'To Do', dueDate: '', assignedStaff: [], itemsUsed: [], address: '', mobile: '', lat: '', lng: '', locationLabel: '' });
+    const [showLocPicker, setShowLocPicker] = useState(false); // Local state for location picker
     
-    // 2. Mobile Picker ke liye naya state
-    const [showMobilePicker, setShowMobilePicker] = useState(false); 
-
     const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
     const selectedParty = data.parties.find(p => p.id === form.partyId);
-
-    // ... existing updateItem function ...
-
+    
+    const updateItem = (idx, field, val) => { const n = [...form.itemsUsed]; n[idx][field] = val; if(field==='itemId') { const item = data.items.find(i=>i.id===val); if(item) { n[idx].price = item.sellPrice; n[idx].buyPrice = item.buyPrice; n[idx].description = item.description || ''; } } setForm({...form, itemsUsed: n}); };
+    
     const handleLocationSelect = (loc) => {
-       // ... existing location logic ...
-       // (No change here)
         setForm({
             ...form,
             address: loc.address,
-            // mobile: loc.mobile || selectedParty?.mobile || '', // HATA DEIN (Mobile alag se select hoga ab)
+            mobile: loc.mobile || selectedParty?.mobile || '',
             lat: loc.lat || '',
             lng: loc.lng || '',
             locationLabel: loc.label
@@ -2833,15 +2800,52 @@ if (tx.type === 'payment') {
         setShowLocPicker(false);
     };
 
-    // 3. New Function: Mobile Select Karne ke liye
-    const handleMobileSelect = (mob) => {
-        setForm({
-            ...form,
-            mobile: mob.number,
-            mobileLabel: mob.label
-        });
-        setShowMobilePicker(false);
-    };
+    return (
+      <div className="space-y-4">
+        <input className="w-full p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Task Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+        <div className="p-3 bg-gray-50 rounded-xl border"><label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Assigned Staff</label><div className="flex flex-wrap gap-2 mb-2">{form.assignedStaff.map(sid => { const s = data.staff.find(st => st.id === sid); return (<span key={sid} className="bg-white border px-2 py-1 rounded-full text-xs flex items-center gap-1">{s?.name} <button onClick={() => setForm({...form, assignedStaff: form.assignedStaff.filter(id => id !== sid)})}><X size={12}/></button></span>); })}</div><select className="w-full p-2 border rounded-lg text-sm bg-white" onChange={e => { if(e.target.value && !form.assignedStaff.includes(e.target.value)) setForm({...form, assignedStaff: [...form.assignedStaff, e.target.value]}); }}><option value="">+ Add Staff</option>{data.staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+        
+        <div>
+            <SearchableSelect label="Client" options={data.parties} value={form.partyId} onChange={v => setForm({...form, partyId: v, locationLabel: '', address: ''})} />
+            
+            {/* Location Selector for Task */}
+            {selectedParty?.locations?.length > 0 && (
+                <div className="mt-1 relative">
+                    <div className="flex justify-between items-center bg-blue-50 p-2 rounded-lg border border-blue-100">
+                         <div className="text-xs text-blue-800">
+                            <span className="font-bold">Location: </span> 
+                            {form.locationLabel ? form.locationLabel : 'Default / Primary'}
+                            {form.address && <div className="text-[10px] text-gray-500 truncate max-w-[200px]">{form.address}</div>}
+                         </div>
+                         <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[10px] font-bold bg-white border px-2 py-1 rounded shadow-sm text-blue-600 flex items-center gap-1">
+                             <MapPin size={10}/> Change
+                         </button>
+                    </div>
+                    {showLocPicker && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1">
+                            <div onClick={() => handleLocationSelect({ label: '', address: selectedParty.address, mobile: selectedParty.mobile, lat: selectedParty.lat, lng: selectedParty.lng })} className="p-2 hover:bg-gray-50 cursor-pointer rounded text-xs border-b">
+                                <span className="font-bold text-gray-600">Default (Primary)</span>
+                                <div className="truncate">{selectedParty.address}</div>
+                            </div>
+                            {selectedParty.locations.map((loc, idx) => (
+                                <div key={idx} onClick={() => handleLocationSelect(loc)} className="p-2 hover:bg-blue-50 cursor-pointer rounded text-xs">
+                                    <span className="font-bold text-blue-600">{loc.label}</span>
+                                    <div className="truncate text-gray-600">{loc.address}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+
+        <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-20" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+        <div className="space-y-2"><div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4><button onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="text-blue-600 text-xs font-bold">+ Add</button></div>{form.itemsUsed.map((line, idx) => (<div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2"><button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button><SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} /><input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} /><div className="flex gap-2"><input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} /><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} /><input type="number" className="w-20 p-1 border rounded text-xs bg-gray-100" placeholder="Buy" value={line.buyPrice} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} /></div></div>))}</div>
+        <div className="grid grid-cols-2 gap-4"><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /><select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.status} onChange={e => setForm({...form, status: e.target.value})}><option>To Do</option><option>In Progress</option><option>Done</option></select></div>
+        <button onClick={() => saveRecord('tasks', form, 'task')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
+      </div>
+    );
+  };
 
   const TaskModule = () => {
     const [sort, setSort] = useState('DateAsc');
@@ -2928,87 +2932,36 @@ if (tx.type === 'payment') {
     );
   };
 
-  // --- UPDATED PartyForm Component ---
-const PartyForm = ({ record }) => {
+  // FIX #4: Party Form Missing Fields
+  const PartyForm = ({ record }) => {
     const [form, setForm] = useState({ 
         name: '', mobile: '', email: '', 
         address: '', lat: '', lng: '', reference: '', 
-        openingBal: '', type: 'DR', 
-        locations: [],      // Existing Locations Array
-        mobileNumbers: [],  // NEW: Array for Multiple Mobiles
+        openingBal: '', type: 'DR', // type maps to opening balance type (DR/CR)
+        locations: [], // Array to store multiple addresses
         ...(record || {}) 
     });
 
-    const [newLoc, setNewLoc] = useState({ label: '', address: '', lat: '', lng: '' });
-    
-    // NEW: State for adding new mobile number
-    const [newMobile, setNewMobile] = useState({ label: '', number: '' });
+    const [newLoc, setNewLoc] = useState({ label: '', address: '', mobile: '', lat: '', lng: '' });
 
-    // --- Location Logic ---
     const addLocation = () => {
         if (!newLoc.label || !newLoc.address) return alert("Label and Address are required");
         setForm(prev => ({ ...prev, locations: [...(prev.locations || []), newLoc] }));
-        setNewLoc({ label: '', address: '', lat: '', lng: '' });
+        setNewLoc({ label: '', address: '', mobile: '', lat: '', lng: '' });
     };
 
     const removeLocation = (idx) => {
         setForm(prev => ({ ...prev, locations: prev.locations.filter((_, i) => i !== idx) }));
     };
 
-    // --- NEW: Mobile Number Logic ---
-    const addMobile = () => {
-        if (!newMobile.label || !newMobile.number) return alert("Label and Number are required");
-        setForm(prev => ({ ...prev, mobileNumbers: [...(prev.mobileNumbers || []), newMobile] }));
-        setNewMobile({ label: '', number: '' });
-    };
-
-    const removeMobile = (idx) => {
-        setForm(prev => ({ ...prev, mobileNumbers: prev.mobileNumbers.filter((_, i) => i !== idx) }));
-    };
-
     return (
         <div className="space-y-4">
             <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-            
             <div className="grid grid-cols-2 gap-4">
-                 <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Primary Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
+                 <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
                  <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Ref By" value={form.reference} onChange={e => setForm({...form, reference: e.target.value})} />
             </div>
             
-            {/* --- NEW: Multiple Mobile Numbers Section --- */}
-            <div className="p-3 bg-green-50 rounded-xl border border-green-100 space-y-3">
-                <p className="text-xs font-bold text-green-600 uppercase flex items-center gap-2"><Phone size={12}/> Multiple Contacts</p>
-                
-                {/* List of Added Mobiles */}
-                {(form.mobileNumbers || []).map((mob, idx) => (
-                    <div key={idx} className="bg-white p-2 rounded-lg border flex justify-between items-center text-xs">
-                        <div>
-                            <span className="font-bold text-green-700 bg-green-100 px-1 rounded mr-2">{mob.label}</span>
-                            <span className="text-gray-700 font-bold">{mob.number}</span>
-                        </div>
-                        <button onClick={() => removeMobile(idx)} className="text-red-500 p-1 hover:bg-red-50 rounded"><X size={14}/></button>
-                    </div>
-                ))}
-
-                {/* Add New Mobile Inputs */}
-                <div className="flex gap-2 pt-2 border-t border-green-200">
-                    <input 
-                        className="w-1/3 p-2 border rounded-lg text-xs" 
-                        placeholder="Label (e.g. Manager)" 
-                        value={newMobile.label} 
-                        onChange={e => setNewMobile({...newMobile, label: e.target.value})} 
-                    />
-                    <input 
-                        className="flex-1 p-2 border rounded-lg text-xs" 
-                        placeholder="Mobile Number" 
-                        type="tel"
-                        value={newMobile.number} 
-                        onChange={e => setNewMobile({...newMobile, number: e.target.value})} 
-                    />
-                    <button onClick={addMobile} className="px-4 bg-green-600 text-white rounded-lg font-bold text-xs">Add</button>
-                </div>
-            </div>
-
             <div className="p-3 bg-gray-50 rounded-xl border space-y-3">
                 <p className="text-xs font-bold text-gray-500 uppercase">Primary Address</p>
                 <textarea className="w-full p-3 bg-white border rounded-xl" placeholder="Main Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
@@ -3018,29 +2971,30 @@ const PartyForm = ({ record }) => {
                 </div>
             </div>
 
-            {/* Location Manager Section (Updated as per previous request) */}
+            {/* Location Manager Section */}
             <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 space-y-3">
                 <p className="text-xs font-bold text-blue-600 uppercase flex items-center gap-2"><MapPin size={12}/> Multiple Locations</p>
                 
+                {/* List of Added Locations */}
                 {(form.locations || []).map((loc, idx) => (
                     <div key={idx} className="bg-white p-2 rounded-lg border flex justify-between items-start text-xs">
                         <div>
                             <span className="font-bold text-blue-700 bg-blue-100 px-1 rounded mr-1">{loc.label}</span>
                             <span className="text-gray-600">{loc.address}</span>
-                            {(loc.lat || loc.lng) && <div className="text-gray-400 mt-1 text-[10px]">Coords: {loc.lat}, {loc.lng}</div>}
+                            {loc.mobile && <div className="text-gray-400 mt-1">Contact: {loc.mobile}</div>}
                         </div>
                         <button onClick={() => removeLocation(idx)} className="text-red-500 p-1 hover:bg-red-50 rounded"><X size={14}/></button>
                     </div>
                 ))}
 
+                {/* Add New Location Inputs */}
                 <div className="space-y-2 pt-2 border-t border-blue-200">
                     <div className="flex gap-2">
                         <input className="w-1/3 p-2 border rounded-lg text-xs" placeholder="Label (e.g. Office)" value={newLoc.label} onChange={e => setNewLoc({...newLoc, label: e.target.value})} />
                         <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Address" value={newLoc.address} onChange={e => setNewLoc({...newLoc, address: e.target.value})} />
                     </div>
                     <div className="flex gap-2">
-                        <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Lat" value={newLoc.lat} onChange={e => setNewLoc({...newLoc, lat: e.target.value})} />
-                        <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Lng" value={newLoc.lng} onChange={e => setNewLoc({...newLoc, lng: e.target.value})} />
+                        <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Site Mobile" value={newLoc.mobile} onChange={e => setNewLoc({...newLoc, mobile: e.target.value})} />
                         <button onClick={addLocation} className="px-4 bg-blue-600 text-white rounded-lg font-bold text-xs">Add</button>
                     </div>
                 </div>
@@ -3057,7 +3011,7 @@ const PartyForm = ({ record }) => {
             <button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
         </div>
     );
-};
+  };
    
   const ItemForm = ({ record }) => {
     const [form, setForm] = useState({ name: '', sellPrice: '', buyPrice: '', unit: 'pcs', openingStock: '0', type: 'Goods', ...(record || {}) });
