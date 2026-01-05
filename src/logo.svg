@@ -1,85 +1,68 @@
-<svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 400 200"
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200">
+  <g stroke="#F59E0B" stroke-width="6" stroke-linecap="round">
+    <line x1="55" y1="80" x2="30" y2="85" />
+    <line x1="60" y1="60" x2="35" y2="55" />
+    <line x1="75" y1="40" x2="55" y2="25" />
+    <line x1="95" y1="25" x2="85" y2="10" />
+  </g>
+
+  <g transform="rotate(-20, 150, 100)">
+    <circle cx="150" cy="85" r="45" fill="#F7941D" />
+
+    <path
+      d="M195 85C195 115 175 130 170 145H130C125 130 105 115 105 85C105 60.1472 125.147 40 150 40C155 40 160 41 165 43L168 35C162 32 156 30 150 30C119.624 30 95 54.6243 95 85C95 118 115 135 120 155H180C185 135 205 118 205 85C205 75 202 65 198 58L190 64C193 70 195 77 195 85Z"
+      fill="#A4D134"
+    />
+    
+    <path
+      d="M135 110C135 110 165 110 165 100C165 90 135 90 135 80C135 70 165 70 165 70"
+      stroke="white"
+      stroke-width="4"
+      stroke-linecap="round"
       fill="none"
-      className={className}
-      aria-label="Sun Electricals Logo"
+    />
+
+    <path
+      d="M128 155L132 180C132 185 135 190 140 190H160C165 190 168 185 168 180L172 155H128Z"
+      fill="#2D2D2D"
+    />
+    
+    <line x1="130" y1="165" x2="170" y2="165" stroke="white" stroke-width="2" />
+    <line x1="131" y1="175" x2="169" y2="175" stroke="white" stroke-width="2" />
+  </g>
+
+  <g transform="translate(0, 50)">
+    <text
+      x="10"
+      y="130"
+      font-family="Arial, Helvetica, sans-serif"
+      font-weight="bold"
+      font-size="50"
+      fill="#4B4B4B"
     >
-      {/* --- Sun Rays (Orange) --- */}
-      <g stroke="#F59E0B" strokeWidth="6" strokeLinecap="round">
-        <line x1="55" y1="80" x2="30" y2="85" />
-        <line x1="60" y1="60" x2="35" y2="55" />
-        <line x1="75" y1="40" x2="55" y2="25" />
-        <line x1="95" y1="25" x2="85" y2="10" />
-      </g>
+      Sun
+    </text>
 
-      {/* --- Main Bulb Body --- */}
-      <g transform="rotate(-20, 150, 100)">
-        {/* Inner Sun (Orange Circle) */}
-        <circle cx="150" cy="85" r="45" fill="#F7941D" />
-
-        {/* Green Bulb Shell */}
-        <path
-          d="M195 85C195 115 175 130 170 145H130C125 130 105 115 105 85C105 60.1472 125.147 40 150 40C155 40 160 41 165 43L168 35C162 32 156 30 150 30C119.624 30 95 54.6243 95 85C95 118 115 135 120 155H180C185 135 205 118 205 85C205 75 202 65 198 58L190 64C193 70 195 77 195 85Z"
-          fill="#A4D134"
-        />
-        
-        {/* White Filament Loop */}
-        <path
-          d="M135 110C135 110 165 110 165 100C165 90 135 90 135 80C135 70 165 70 165 70"
-          stroke="white"
-          strokeWidth="4"
-          strokeLinecap="round"
-          fill="none"
-        />
-
-        {/* Black Base */}
-        <path
-          d="M128 155L132 180C132 185 135 190 140 190H160C165 190 168 185 168 180L172 155H128Z"
-          fill="#2D2D2D"
-        />
-        
-        {/* White Stripes on Base */}
-        <line x1="130" y1="165" x2="170" y2="165" stroke="white" strokeWidth="2" />
-        <line x1="131" y1="175" x2="169" y2="175" stroke="white" strokeWidth="2" />
-      </g>
-
-      {/* --- Text Part --- */}
-      <g transform="translate(0, 50)">
-        {/* "Sun" Text */}
-        <text
-          x="10"
-          y="130"
-          fontFamily="Arial, Helvetica, sans-serif"
-          fontWeight="bold"
-          fontSize="50"
-          fill="#4B4B4B"
-        >
-          Sun
-        </text>
-
-        {/* "Electricals" Text - Using a stylized E approach */}
-        <text
-          x="110"
-          y="130"
-          fontFamily="Arial, Helvetica, sans-serif"
-          fontWeight="bold"
-          fontSize="50"
-          fill="#4B4B4B"
-        >
-          Electricals
-        </text>
-        
-        {/* Custom 'E' Stylization (Optional graphical overlay for the logo look) */}
-        <path
-           d="M112 100 H 130 V 108 H 118 V 112 H 128 V 119 H 118 V 123 H 130 V 131 H 112 Z"
-           fill="#4B4B4B"
-        />
-        <path 
-           d="M112 115 C 108 115, 108 120, 112 120" 
-           stroke="#4B4B4B" 
-           strokeWidth="8" 
-           fill="none" 
-        />
-      </g>
-    </svg>
+    <text
+      x="110"
+      y="130"
+      font-family="Arial, Helvetica, sans-serif"
+      font-weight="bold"
+      font-size="50"
+      fill="#4B4B4B"
+    >
+      Electricals
+    </text>
+    
+    <path
+       d="M112 100 H 130 V 108 H 118 V 112 H 128 V 119 H 118 V 123 H 130 V 131 H 112 Z"
+       fill="#4B4B4B"
+    />
+    <path 
+       d="M112 115 C 108 115, 108 120, 112 120" 
+       stroke="#4B4B4B" 
+       stroke-width="8" 
+       fill="none" 
+    />
+  </g>
+</svg>
