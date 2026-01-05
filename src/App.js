@@ -1727,156 +1727,126 @@ const syncData = async (isBackground = false) => {
       }
       
       // --- UPDATE THIS FUNCTION INSIDE DetailView ---
+      // New Professional Share/Print Logic
       const shareInvoice = () => {
-        const doc = new jsPDF();
+        const companyName = data.company.name || "My Enterprise";
+        const companyMobile = data.company.mobile || "";
+        const partyName = party?.name || tx.category || "Cash Sale";
+        const partyMobile = party?.mobile || "";
+        const partyAddress = party?.address || "";
         
-        // --- 1. HEADER (Company Details) ---
-        // Company Name
-        doc.setFontSize(20);
-        doc.setFont("helvetica", "bold");
-        doc.text(data.company.name || "Sun Electricals", 14, 15);
+        // Calculate Totals for Display
+        const subTotal = tx.items?.reduce((sum, i) => sum + (parseFloat(i.qty) * parseFloat(i.price)), 0) || 0;
+        const discount = parseFloat(tx.discountValue || 0);
+        const grandTotal = parseFloat(totals.amount || 0);
+        const paidAmount = parseFloat(tx.received || tx.paid || 0);
+        const currentDue = grandTotal - paidAmount;
+        const partyTotalDue = partyBalances[tx.partyId] || 0;
 
-        // Company Contact Info (Left Side)
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text(data.company.address || "Warasiya Vadodara", 14, 22);
-        doc.text(`State: 24-Gujarat`, 14, 27);
-        doc.text(`M: ${data.company.mobile || "7990800655"}`, 14, 32);
-        doc.text(`E: ${data.company.email || "sunelectrical.se@gmail.com"}`, 14, 37);
+        // HTML Template for Professional Invoice
+        const content = `
+          <html>
+            <head>
+              <title>Invoice ${tx.id}</title>
+              <style>
+                body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 20px; color: #333; }
+                .header { text-align: center; margin-bottom: 30px; }
+                .company-name { font-size: 24px; font-weight: bold; color: #2563eb; text-transform: uppercase; }
+                .meta { display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px; }
+                .box { width: 48%; }
+                .label { font-size: 10px; color: #6b7280; text-transform: uppercase; font-weight: bold; }
+                .value { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                th { background-color: #eff6ff; color: #1e40af; padding: 10px; text-align: left; font-size: 12px; border-bottom: 2px solid #2563eb; }
+                td { padding: 10px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+                .text-right { text-align: right; }
+                .totals { display: flex; justify-content: flex-end; }
+                .total-box { width: 50%; }
+                .row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+                .big-total { font-size: 18px; font-weight: bold; color: #2563eb; border-top: 2px solid #e5e7eb; padding-top: 10px; margin-top: 5px; }
+                .footer { margin-top: 40px; text-align: center; font-size: 10px; color: #9ca3af; }
+                .badge { background: #dbeafe; color: #1e40af; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; }
+              </style>
+            </head>
+            <body>
+              <div class="header">
+                <div class="company-name">${companyName}</div>
+                <div style="font-size: 12px;">${companyMobile}</div>
+              </div>
 
-        // --- 2. INVOICE DETAILS (Right Side) ---
-        const rightX = 140;
-        doc.setFontSize(14);
-        doc.setFont("helvetica", "bold");
-        doc.text(tx.type === 'estimate' ? "ESTIMATE" : "INVOICE", rightX, 15);
-        
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text(`No: ${tx.id}`, rightX, 22);
-        doc.text(`Date: ${formatDate(tx.date)}`, rightX, 27);
-        doc.text(`Time: ${formatTime(tx.createdAt || new Date().toISOString())}`, rightX, 32);
+              <div class="meta">
+                <div class="box">
+                  <div class="label">Billed To</div>
+                  <div class="value">${partyName}</div>
+                  <div style="font-size: 12px;">${partyMobile}</div>
+                  <div style="font-size: 12px; color: #6b7280;">${partyAddress}</div>
+                </div>
+                <div class="box text-right">
+                  <div class="label">Invoice Details</div>
+                  <div class="value">#${tx.id}</div>
+                  <div class="value">${formatDate(tx.date)}</div>
+                  <div class="badge">${tx.type.toUpperCase()}</div>
+                </div>
+              </div>
 
-        // --- 3. BILL TO (Client Details) ---
-        doc.setDrawColor(200); 
-        doc.line(14, 42, 196, 42); // Horizontal Line
+              <table>
+                <thead>
+                  <tr>
+                    <th>ITEM</th>
+                    <th class="text-right">QTY</th>
+                    <th class="text-right">PRICE</th>
+                    <th class="text-right">TOTAL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(tx.items || []).map(item => {
+                    const m = data.items.find(x => x.id === item.itemId);
+                    return `
+                      <tr>
+                        <td>
+                          <div style="font-weight:bold;">${m?.name || 'Item'}</div>
+                          <div style="font-size:10px; color:#6b7280;">${item.description || ''}</div>
+                        </td>
+                        <td class="text-right">${item.qty}</td>
+                        <td class="text-right">${item.price}</td>
+                        <td class="text-right">${(item.qty * item.price).toFixed(2)}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
 
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "bold");
-        doc.text("Bill To:", 14, 48);
-        
-        doc.setFont("helvetica", "normal");
-        doc.text(party?.name || tx.category || "Cash Customer", 14, 54);
-        if(party?.mobile) doc.text(`Contact: ${party.mobile}`, 14, 59);
-        if(party?.address) doc.text(`Address: ${party.address}`, 14, 64);
+              <div class="totals">
+                <div class="total-box">
+                  <div class="row"><span>Sub Total</span><span>${subTotal.toFixed(2)}</span></div>
+                  <div class="row"><span>Discount (${tx.discountType})</span><span>-${discount}</span></div>
+                  <div class="row big-total"><span>Grand Total</span><span>${grandTotal.toFixed(2)}</span></div>
+                  <div class="row" style="color: #059669; font-weight: bold;"><span>Paid Amount</span><span>${paidAmount.toFixed(2)}</span></div>
+                  <div class="row" style="color: #dc2626; font-weight: bold;"><span>Balance Due (Bill)</span><span>${currentDue.toFixed(2)}</span></div>
+                  <div class="row" style="margin-top: 10px; border-top: 1px dashed #ccc; padding-top: 5px;">
+                    <span style="font-size: 11px;">Total Party Due</span>
+                    <span style="font-weight: bold;">${partyTotalDue.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
 
-        // --- 4. ITEM TABLE ---
-        const tableColumn = ["#", "Item Name", "Qty", "Rate", "Amount"];
-        const tableRows = [];
+              <div class="footer">
+                <p>Thank you for your business!</p>
+                <p>Generated by SMEES Pro</p>
+              </div>
+            </body>
+          </html>
+        `;
 
-        // Add Items
-        tx.items?.forEach((item, index) => {
-            const itemMaster = data.items.find(i => i.id === item.itemId);
-            const itemName = itemMaster ? itemMaster.name : (item.description || "Item");
-            const amount = parseFloat(item.qty) * parseFloat(item.price);
-            
-            const itemData = [
-                index + 1,
-                itemName,
-                item.qty,
-                formatCurrency(item.price).replace('₹', ''), // Removing symbol for PDF font compatibility
-                formatCurrency(amount).replace('₹', '')
-            ];
-            tableRows.push(itemData);
-        });
-
-        // Generate Table
-        autoTable(doc, {
-            head: [tableColumn],
-            body: tableRows,
-            startY: 70,
-            theme: 'grid', // 'striped', 'grid', 'plain'
-            headStyles: { fillColor: [44, 62, 80], textColor: 255, fontStyle: 'bold' },
-            styles: { fontSize: 9, cellPadding: 2 },
-            columnStyles: {
-                0: { cellWidth: 10 }, // Index
-                1: { cellWidth: 'auto' }, // Name
-                2: { cellWidth: 20, halign: 'center' }, // Qty
-                3: { cellWidth: 30, halign: 'right' }, // Rate
-                4: { cellWidth: 30, halign: 'right' }  // Amount
-            }
-        });
-
-        // --- 5. TOTALS SECTION ---
-        const finalY = doc.lastAutoTable.finalY + 10;
-        const summaryX = 130; 
-        const valueX = 195;
-
-        // Helper to draw total line
-        const drawTotalLine = (label, value, y, isBold = false) => {
-            doc.setFont("helvetica", isBold ? "bold" : "normal");
-            doc.setFontSize(isBold ? 11 : 10);
-            doc.text(label, summaryX, y);
-            doc.text(formatCurrency(value).replace('₹', ''), valueX, y, { align: "right" });
-        };
-
-        let currentY = finalY;
-
-        if (tx.type !== 'payment') {
-            drawTotalLine("Sub Total:", totals.gross, currentY);
-            currentY += 6;
-
-            if (parseFloat(tx.discountValue) > 0) {
-                drawTotalLine(`Discount (${tx.discountType === '%' ? tx.discountValue + '%' : 'Amt'}):`, totals.gross - totals.final, currentY);
-                currentY += 6;
-            }
-
-            drawTotalLine("Grand Total:", totals.final, currentY, true);
-            currentY += 8;
-        } else {
-             // For Payment Receipt
-             drawTotalLine("Amount Paid:", totals.amount, currentY, true);
-             currentY += 8;
+        const win = window.open('', '_blank');
+        if (win) {
+          win.document.write(content);
+          win.document.close();
+          // Timeout to ensure styles load before printing
+          setTimeout(() => {
+              win.print();
+          }, 500);
         }
-
-        // Received & Balance (Only for Sales)
-        if (['sales'].includes(tx.type)) {
-            const received = parseFloat(tx.received || 0);
-            const balance = totals.final - received;
-            
-            if (received > 0) {
-                doc.setFont("helvetica", "normal");
-                doc.text("Received:", summaryX, currentY);
-                doc.text(formatCurrency(received).replace('₹', ''), valueX, currentY, { align: "right" });
-                currentY += 6;
-            }
-            
-            if (balance > 0) {
-                doc.setFont("helvetica", "bold");
-                doc.setTextColor(200, 0, 0); // Red color for balance
-                doc.text("Balance Due:", summaryX, currentY);
-                doc.text(formatCurrency(balance).replace('₹', ''), valueX, currentY, { align: "right" });
-                doc.setTextColor(0, 0, 0); // Reset color
-            }
-        }
-
-        // --- 6. FOOTER ---
-        const footerY = 270; // Bottom of page
-        doc.setFontSize(9);
-        doc.setFont("helvetica", "bold");
-        doc.text("Terms & Conditions:", 14, footerY - 15);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8);
-        doc.text("1. Goods once sold will not be taken back.", 14, footerY - 10);
-        doc.text("2. Interest @18% p.a. will be charged if not paid within due date.", 14, footerY - 6);
-
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "bold");
-        doc.text("For, " + (data.company.name || "Sun Electricals"), 196, footerY - 15, { align: "right" });
-        doc.setFont("helvetica", "normal");
-        doc.text("Authorized Signatory", 196, footerY, { align: "right" });
-
-        // Save PDF
-        doc.save(`${tx.type.toUpperCase()}_${tx.id}.pdf`);
       };
 
       return (
