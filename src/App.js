@@ -68,13 +68,13 @@ import {
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
-  authDomain: "smeestest.firebaseapp.com",
-  projectId: "smeestest",
-  storageBucket: "smeestest.firebasestorage.app",
-  messagingSenderId: "1086297510582",
-  appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
-  measurementId: "G-BQ6NW6D84Z"
+  apiKey: "AIzaSyA0GkAFhV6GfFsszHPJG-aPfGNiVRdBPNg",
+  authDomain: "smees-33e6c.firebaseapp.com",
+  projectId: "smees-33e6c",
+  storageBucket: "smees-33e6c.firebasestorage.app",
+  messagingSenderId: "723248995098",
+  appId: "1:723248995098:web:a61b659e31f42332656aa3",
+  measurementId: "G-JVBZZ8SHGM"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -1523,31 +1523,68 @@ if (tx.type === 'payment') {
   const TransactionList = () => {
     const [sort, setSort] = useState('DateDesc');
     const [filter, setFilter] = useState('all');
-    const [visibleCount, setVisibleCount] = useState(50); // Pagination State
+    const [visibleCount, setVisibleCount] = useState(50); 
+    
+    // 1. NEW SEARCH STATE
+    const [searchQuery, setSearchQuery] = useState(''); 
 
     useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
-    let filtered = data.transactions.filter(tx => filter === 'all' || tx.type === filter);
-    if(listPaymentMode) filtered = filtered.filter(tx => (tx.paymentMode || 'Cash') === listPaymentMode);
-    if (categoryFilter) filtered = filtered.filter(tx => tx.category === categoryFilter);
-    filtered = sortData(filtered, sort);
+    // 2. UPDATED FILTERING LOGIC
+    let filtered = data.transactions.filter(tx => {
+        // A. Existing Type/Mode Filters
+        if (filter !== 'all' && tx.type !== filter) return false;
+        if (listPaymentMode && (tx.paymentMode || 'Cash') !== listPaymentMode) return false;
+        if (categoryFilter && tx.category !== categoryFilter) return false;
 
-    // Slice data for pagination
+        // B. Dynamic Search Logic
+        if (searchQuery) {
+            const lowerQuery = searchQuery.toLowerCase();
+            const party = data.parties.find(p => p.id === tx.partyId);
+            
+            // Check Fields
+            const matchVoucher = tx.id.toLowerCase().includes(lowerQuery);
+            const matchName = party?.name?.toLowerCase().includes(lowerQuery) || tx.category?.toLowerCase().includes(lowerQuery);
+            const matchAmount = (tx.amount || 0).toString().includes(lowerQuery);
+            const matchDate = tx.date?.includes(lowerQuery); // YYYY-MM-DD format match
+
+            return matchVoucher || matchName || matchAmount || matchDate;
+        }
+
+        return true;
+    });
+
+    filtered = sortData(filtered, sort);
     const visibleData = filtered.slice(0, visibleCount);
 
     return (
       <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h1 className="text-xl font-bold">Accounting {categoryFilter && `(${categoryFilter})`}</h1>
-          <div className="flex gap-2 items-center">
-              <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option><option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option></select>
-          </div>
+        <div className="flex flex-col gap-3">
+            <div className="flex justify-between items-center">
+              <h1 className="text-xl font-bold">Accounting {categoryFilter && `(${categoryFilter})`}</h1>
+              <div className="flex gap-2 items-center">
+                  <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option><option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option></select>
+              </div>
+            </div>
+
+            {/* 3. NEW SEARCH INPUT UI */}
+            <div className="relative">
+                <Search className="absolute left-3 top-3 text-gray-400" size={16} />
+                <input 
+                    className="w-full pl-10 pr-4 py-2 bg-white border rounded-xl text-sm focus:ring-2 focus:ring-blue-500" 
+                    placeholder="Search by Name, Voucher No, Date or Amount..." 
+                    value={searchQuery} 
+                    onChange={(e) => setSearchQuery(e.target.value)} 
+                />
+            </div>
         </div>
+
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
           {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
             <button key={t} onClick={() => { setFilter(t); setCategoryFilter(null); }} className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
           ))}
         </div>
+
         <div className="space-y-3">
           {visibleData.map(tx => {
             const party = data.parties.find(p => p.id === tx.partyId);
@@ -1566,6 +1603,7 @@ if (tx.type === 'payment') {
                 <div className="flex gap-4 items-center">
                   <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                   <div>
+                    {/* Highlight search match if needed, logic is implicit here */}
                     <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
                     <div className="flex gap-1 mt-1">
@@ -2172,20 +2210,48 @@ if (tx.type === 'payment') {
                     <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
                     <p className="text-sm text-gray-600 my-4">{task.description}</p>
 
-                    {/* REQ 1: Client Details UI */}
-                    {party && (
-                        <div className="bg-white p-3 rounded-xl border mb-4 space-y-1">
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <p className="text-xs font-bold text-gray-400 uppercase">Client</p>
-                                    <p className="font-bold text-gray-800">{party.name}</p>
-                                </div>
-                                {party.lat && <a href={`https://www.google.com/maps?q=${party.lat},${party.lng}`} target="_blank" rel="noreferrer" className="p-2 bg-blue-50 text-blue-600 rounded-lg"><MapPin size={16}/></a>}
-                            </div>
-                            <a href={`tel:${party.mobile}`} className="text-sm font-bold text-blue-600 flex items-center gap-1"><Phone size={14}/> {party.mobile}</a>
-                            {party.address && <p className="text-xs text-gray-500">{party.address}</p>}
-                        </div>
-                    )}
+                    {/* REQ 1: Client Details UI (Updated for Multiple Contacts) */}
+{party && (() => {
+    const displayAddress = task.address || party.address;
+    const locationLabel = task.locationLabel || '';
+    
+    // Logic: Agar task me selectedContacts hain to wo dikhao, nahi to Party ka default mobile
+    const contactsToShow = (task.selectedContacts && task.selectedContacts.length > 0) 
+        ? task.selectedContacts 
+        : [{ label: 'Primary', number: party.mobile }];
+
+    return (
+        <div className="bg-white p-3 rounded-xl border mb-4 space-y-2">
+            <div className="flex justify-between items-start">
+                <div>
+                    <p className="text-xs font-bold text-gray-400 uppercase">
+                        Client {locationLabel && <span className="text-blue-600">({locationLabel})</span>}
+                    </p>
+                    <p className="font-bold text-gray-800">{party.name}</p>
+                </div>
+                {(task.lat || party.lat) && (
+                    <a href={`https://www.google.com/maps/search/?api=1&query=${task.lat || party.lat},${task.lng || party.lng}`} target="_blank" rel="noreferrer" className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                        <MapPin size={16}/>
+                    </a>
+                )}
+            </div>
+
+            {/* Render Multiple Mobiles */}
+            <div className="space-y-1">
+                {contactsToShow.map((c, idx) => (
+                     <div key={idx} className="flex items-center gap-2">
+                        <span className="text-[10px] bg-gray-100 px-1 rounded text-gray-500 font-bold">{c.label}</span>
+                        <a href={`tel:${c.number}`} className="text-sm font-bold text-blue-600 flex items-center gap-1">
+                            <Phone size={14}/> {c.number}
+                        </a>
+                     </div>
+                ))}
+            </div>
+
+            {displayAddress && <p className="text-xs text-gray-500 border-t pt-2 mt-1">{displayAddress}</p>}
+        </div>
+    );
+})()}
                     
                     {/* Time Logs List */}
                     <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
@@ -2640,11 +2706,10 @@ if (tx.type === 'payment') {
 
         {/* ITEMS SECTION (For everything except pure Payment) */}
         {type !== 'payment' && (
-            <div className="space-y-2 pt-2 border-t">
-                <div className="flex justify-between items-center">
-                    <h4 className="text-xs font-bold text-gray-400 uppercase">Items / Services</h4>
-                    <button onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="text-blue-600 text-xs font-bold">+ Add Item</button>
-                </div>
+            <div className="space-y-3 pt-2 border-t">
+                <h4 className="text-xs font-bold text-gray-400 uppercase">Items / Services</h4>
+                
+                {/* 1. Render Items First */}
                 {tx.items.map((line, idx) => (
                     <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
                         <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
@@ -2658,38 +2723,40 @@ if (tx.type === 'payment') {
                         <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
                         
                         <div className="flex gap-2">
-                            {/* Qty Input */}
                             <div className="flex flex-col">
                                 <span className="text-[8px] text-gray-400 font-bold ml-1">QTY</span>
                                 <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} />
                             </div>
-
-                            {/* Sale Price Input */}
                             <div className="flex flex-col">
                                 <span className="text-[8px] text-gray-400 font-bold ml-1">SALE</span>
                                 <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
                             </div>
-
-                            {/* Buy Price Input (Always Visible Now) */}
-                            {/* Agar aap sirf Admin ko dikhana chahte hain to: {user.role === 'admin' && (...)} lagayein */}
                             <div className="flex flex-col">
                                 <span className="text-[8px] text-gray-400 font-bold ml-1">BUY</span>
-                                <input 
-                                    type="number" 
-                                    className="w-20 p-1 border rounded text-xs bg-yellow-50 text-gray-600" 
-                                    placeholder="Buy" 
-                                    value={line.buyPrice} 
-                                    onChange={e => updateLine(idx, 'buyPrice', e.target.value)} 
-                                />
+                                <input type="number" className="w-20 p-1 border rounded text-xs bg-yellow-50 text-gray-600" placeholder="Buy" value={line.buyPrice} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />
                             </div>
-
-                            {/* Total Display */}
                             <div className="flex-1 text-right self-end text-xs font-bold text-gray-500 pb-2">
                                 {formatCurrency(line.qty * line.price)}
                             </div>
                         </div>
                     </div>
                 ))}
+
+                {/* 2. Add Item Button Below Items */}
+                <button 
+                    onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} 
+                    className="w-full py-3 border-2 border-dashed border-blue-200 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-50 flex items-center justify-center gap-2"
+                >
+                    <Plus size={16}/> Add Item
+                </button>
+
+                {/* 3. Total Amount Display Bottom */}
+                <div className="flex justify-end pt-2 border-t border-gray-100">
+                    <div className="text-right">
+                        <span className="text-xs font-bold text-gray-400 uppercase mr-2">Sub Total</span>
+                        <span className="text-xl font-bold text-gray-800">{formatCurrency(totals.gross)}</span>
+                    </div>
+                </div>
             </div>
         )}
 
@@ -2735,7 +2802,11 @@ if (tx.type === 'payment') {
         
         {/* PAYMENT DETAILS (For Sales/Purchase/Expense) */}
         {['sales', 'purchase', 'expense'].includes(type) && (
-             <div className="p-4 bg-gray-50 rounded-xl border space-y-3 mt-2">
+             <div className="p-4 bg-gray-50 rounded-xl border space-y-3 mt-2 shadow-sm">
+                 <div className="flex justify-between items-center font-bold text-lg text-blue-900 border-b pb-2 mb-2">
+                     <span>Grand Total</span>
+                     <span>{formatCurrency(totals.final)}</span>
+                 </div>
                  <div className="flex justify-between items-center">
                      <span className="text-xs font-bold uppercase text-gray-500">{type === 'sales' ? 'Received Now' : 'Paid Now'}</span>
                      <div className="flex items-center gap-2">
@@ -2761,8 +2832,6 @@ if (tx.type === 'payment') {
                 if(!tx.partyId) return alert("Party is Required"); 
                 if(type === 'expense' && !tx.category) return alert("Category is Required");
                 
-                // FIX: Override 'amount' with recalculated 'totals.final' for item-based transactions.
-                // This ensures that if items changed during edit, the total amount updates correctly.
                 const finalRecord = {
                     ...tx,
                     ...totals,
@@ -2780,8 +2849,20 @@ if (tx.type === 'payment') {
   };
 
   const TaskForm = ({ record }) => {
-    const [form, setForm] = useState(record ? { ...record, itemsUsed: record.itemsUsed || [], assignedStaff: record.assignedStaff || [] } : { name: '', partyId: '', description: '', status: 'To Do', dueDate: '', assignedStaff: [], itemsUsed: [], address: '', mobile: '', lat: '', lng: '', locationLabel: '' });
+    // TaskForm ke andar
+const [form, setForm] = useState(record ? { 
+    ...record, 
+    itemsUsed: record.itemsUsed || [], 
+    assignedStaff: record.assignedStaff || [],
+    selectedContacts: record.selectedContacts || [] // <--- NEW ARRAY
+} : { 
+    name: '', partyId: '', description: '', status: 'To Do', dueDate: '', 
+    assignedStaff: [], itemsUsed: [], 
+    address: '', mobile: '', lat: '', lng: '', locationLabel: '', 
+    selectedContacts: [] // <--- NEW ARRAY
+});
     const [showLocPicker, setShowLocPicker] = useState(false); // Local state for location picker
+    const [showMobilePicker, setShowMobilePicker] = useState(false);// mobile number picker
     
     const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
     const selectedParty = data.parties.find(p => p.id === form.partyId);
@@ -2795,11 +2876,26 @@ if (tx.type === 'payment') {
             mobile: loc.mobile || selectedParty?.mobile || '',
             lat: loc.lat || '',
             lng: loc.lng || '',
-            locationLabel: loc.label
+            locationLabel: loc.label,
         });
         setShowLocPicker(false);
     };
-
+    // --- NEW: Toggle Mobile Number Logic ---
+const toggleMobile = (mob) => {
+    const exists = form.selectedContacts.find(c => c.number === mob.number);
+    let newContacts;
+    
+    if (exists) {
+        // Agar pehle se selected h to hatao (Deselect)
+        newContacts = form.selectedContacts.filter(c => c.number !== mob.number);
+    } else {
+        // Nahi h to jodo (Select)
+        newContacts = [...form.selectedContacts, { label: mob.label || 'Primary', number: mob.number }];
+    }
+    
+    setForm({ ...form, selectedContacts: newContacts });
+    // Note: setShowMobilePicker(false) yahan se hata diya taaki aap multiple select kar sakein
+};
     return (
       <div className="space-y-4">
         <input className="w-full p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Task Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
@@ -2821,6 +2917,50 @@ if (tx.type === 'payment') {
                              <MapPin size={10}/> Change
                          </button>
                     </div>
+  {/* --- UPDATED: Multiple Mobile Number Selector --- */}
+{selectedParty?.mobileNumbers?.length > 0 && (
+    <div className="mt-2 relative">
+        <div className="bg-green-50 p-2 rounded-lg border border-green-100">
+            <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-bold text-green-800">Contacts Selected:</span>
+                <button onClick={() => setShowMobilePicker(!showMobilePicker)} className="text-[10px] font-bold bg-white border px-2 py-1 rounded shadow-sm text-green-600 flex items-center gap-1">
+                    <Phone size={10}/> {showMobilePicker ? 'Done' : 'Select'}
+                </button>
+            </div>
+            
+            {/* Show Selected Tags */}
+            <div className="flex flex-wrap gap-1">
+                {form.selectedContacts.length === 0 && <span className="text-[10px] text-gray-500">None selected (Default will vary)</span>}
+                
+                {form.selectedContacts.map((c, i) => (
+                    <span key={i} className="bg-white border px-2 py-1 rounded-full text-[10px] flex items-center gap-1 font-bold text-green-700">
+                        {c.label}: {c.number}
+                        <button onClick={() => toggleMobile(c)}><X size={10}/></button>
+                    </span>
+                ))}
+            </div>
+        </div>
+        
+        {/* Dropdown List for Multi-Select */}
+        {showMobilePicker && (
+            <div className="absolute z-20 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1 max-h-40 overflow-y-auto">
+                {/* Option 1: Primary Number */}
+                <div onClick={() => toggleMobile({ label: 'Primary', number: selectedParty.mobile })} className={`p-2 cursor-pointer rounded text-xs border-b flex justify-between ${form.selectedContacts.some(c=>c.number===selectedParty.mobile) ? 'bg-green-100' : 'hover:bg-gray-50'}`}>
+                    <span><span className="font-bold">Primary:</span> {selectedParty.mobile}</span>
+                    {form.selectedContacts.some(c=>c.number===selectedParty.mobile) && <CheckCircle2 size={14} className="text-green-600"/>}
+                </div>
+
+                {/* Option 2: Extra Numbers */}
+                {selectedParty.mobileNumbers.map((mob, idx) => (
+                    <div key={idx} onClick={() => toggleMobile(mob)} className={`p-2 cursor-pointer rounded text-xs border-b flex justify-between ${form.selectedContacts.some(c=>c.number===mob.number) ? 'bg-green-100' : 'hover:bg-gray-50'}`}>
+                        <span><span className="font-bold">{mob.label}:</span> {mob.number}</span>
+                        {form.selectedContacts.some(c=>c.number===mob.number) && <CheckCircle2 size={14} className="text-green-600"/>}
+                    </div>
+                ))}
+            </div>
+        )}
+    </div>
+)}
                     {showLocPicker && (
                         <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1">
                             <div onClick={() => handleLocationSelect({ label: '', address: selectedParty.address, mobile: selectedParty.mobile, lat: selectedParty.lat, lng: selectedParty.lng })} className="p-2 hover:bg-gray-50 cursor-pointer rounded text-xs border-b">
@@ -2840,7 +2980,34 @@ if (tx.type === 'payment') {
         </div>
 
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-20" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
-        <div className="space-y-2"><div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4><button onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="text-blue-600 text-xs font-bold">+ Add</button></div>{form.itemsUsed.map((line, idx) => (<div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2"><button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button><SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} /><input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} /><div className="flex gap-2"><input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} /><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} /><input type="number" className="w-20 p-1 border rounded text-xs bg-gray-100" placeholder="Buy" value={line.buyPrice} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} /></div></div>))}</div>
+        
+        {/* MODIFIED TASK FORM ITEMS SECTION */}
+        <div className="space-y-2">
+            <h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4>
+            
+            {/* List Items */}
+            {form.itemsUsed.map((line, idx) => (
+                <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
+                    <button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
+                    <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} />
+                    <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} />
+                    <div className="flex gap-2">
+                        <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
+                        <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
+                        <input type="number" className="w-20 p-1 border rounded text-xs bg-gray-100" placeholder="Buy" value={line.buyPrice} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} />
+                    </div>
+                </div>
+            ))}
+
+            {/* Add Button at Bottom */}
+            <button 
+                onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} 
+                className="w-full py-3 border-2 border-dashed border-blue-200 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-50 flex items-center justify-center gap-2"
+            >
+                <Plus size={16}/> Add Item
+            </button>
+        </div>
+
         <div className="grid grid-cols-2 gap-4"><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /><select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.status} onChange={e => setForm({...form, status: e.target.value})}><option>To Do</option><option>In Progress</option><option>Done</option></select></div>
         <button onClick={() => saveRecord('tasks', form, 'task')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
       </div>
@@ -2939,10 +3106,12 @@ if (tx.type === 'payment') {
         address: '', lat: '', lng: '', reference: '', 
         openingBal: '', type: 'DR', // type maps to opening balance type (DR/CR)
         locations: [], // Array to store multiple addresses
+        mobileNumbers: [],
         ...(record || {}) 
     });
 
     const [newLoc, setNewLoc] = useState({ label: '', address: '', mobile: '', lat: '', lng: '' });
+    const [newMobile, setNewMobile] = useState({ label: '', number: '' });
 
     const addLocation = () => {
         if (!newLoc.label || !newLoc.address) return alert("Label and Address are required");
@@ -2953,6 +3122,16 @@ if (tx.type === 'payment') {
     const removeLocation = (idx) => {
         setForm(prev => ({ ...prev, locations: prev.locations.filter((_, i) => i !== idx) }));
     };
+    // --- Mobile Number Logic ---
+const addMobile = () => {
+    if (!newMobile.label || !newMobile.number) return alert("Label and Number are required");
+    setForm(prev => ({ ...prev, mobileNumbers: [...(prev.mobileNumbers || []), newMobile] }));
+    setNewMobile({ label: '', number: '' });
+};
+
+const removeMobile = (idx) => {
+    setForm(prev => ({ ...prev, mobileNumbers: prev.mobileNumbers.filter((_, i) => i !== idx) }));
+};
 
     return (
         <div className="space-y-4">
@@ -2961,6 +3140,39 @@ if (tx.type === 'payment') {
                  <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
                  <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Ref By" value={form.reference} onChange={e => setForm({...form, reference: e.target.value})} />
             </div>
+            {/* --- Multiple Mobile Numbers Section --- */}
+<div className="p-3 bg-green-50 rounded-xl border border-green-100 space-y-3">
+    <p className="text-xs font-bold text-green-600 uppercase flex items-center gap-2"><Phone size={12}/> Multiple Contacts</p>
+    
+    {/* List of Added Mobiles */}
+    {(form.mobileNumbers || []).map((mob, idx) => (
+        <div key={idx} className="bg-white p-2 rounded-lg border flex justify-between items-center text-xs">
+            <div>
+                <span className="font-bold text-green-700 bg-green-100 px-1 rounded mr-2">{mob.label}</span>
+                <span className="text-gray-700 font-bold">{mob.number}</span>
+            </div>
+            <button onClick={() => removeMobile(idx)} className="text-red-500 p-1 hover:bg-red-50 rounded"><X size={14}/></button>
+        </div>
+    ))}
+
+    {/* Add New Mobile Inputs */}
+    <div className="flex gap-2 pt-2 border-t border-green-200">
+        <input 
+            className="w-1/3 p-2 border rounded-lg text-xs" 
+            placeholder="Label (e.g. Manager)" 
+            value={newMobile.label} 
+            onChange={e => setNewMobile({...newMobile, label: e.target.value})} 
+        />
+        <input 
+            className="flex-1 p-2 border rounded-lg text-xs" 
+            placeholder="Mobile Number" 
+            type="tel"
+            value={newMobile.number} 
+            onChange={e => setNewMobile({...newMobile, number: e.target.value})} 
+        />
+        <button onClick={addMobile} className="px-4 bg-green-600 text-white rounded-lg font-bold text-xs">Add</button>
+    </div>
+</div>
             
             <div className="p-3 bg-gray-50 rounded-xl border space-y-3">
                 <p className="text-xs font-bold text-gray-500 uppercase">Primary Address</p>
@@ -2994,9 +3206,20 @@ if (tx.type === 'payment') {
                         <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Address" value={newLoc.address} onChange={e => setNewLoc({...newLoc, address: e.target.value})} />
                     </div>
                     <div className="flex gap-2">
-                        <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Site Mobile" value={newLoc.mobile} onChange={e => setNewLoc({...newLoc, mobile: e.target.value})} />
-                        <button onClick={addLocation} className="px-4 bg-blue-600 text-white rounded-lg font-bold text-xs">Add</button>
-                    </div>
+                        <input 
+        className="flex-1 p-2 border rounded-lg text-xs" 
+        placeholder="Lat" 
+        value={newLoc.lat} 
+        onChange={e => setNewLoc({...newLoc, lat: e.target.value})} 
+    />
+    <input 
+        className="flex-1 p-2 border rounded-lg text-xs" 
+        placeholder="Lng" 
+        value={newLoc.lng} 
+        onChange={e => setNewLoc({...newLoc, lng: e.target.value})} 
+    />
+    <button onClick={addLocation} className="px-4 bg-blue-600 text-white rounded-lg font-bold text-xs">Add</button>
+</div>
                 </div>
             </div>
 
