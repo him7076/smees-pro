@@ -3425,7 +3425,7 @@ const removeMobile = (idx) => {
             setSelectedTimeLog={setSelectedTimeLog} 
             handleCloseUI={handleCloseUI} 
             saveRecord={saveRecord}           // <--- Ye line honi chahiye
-            setEditingTimeLog={setEditingTimeLog} // <--- Ye line honi chahiye
+            setEditingTimeLog={setEditingTimeLog} // <--- Ye line honi chahiye hai
         />
       )}
     </div>
