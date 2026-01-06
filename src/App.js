@@ -68,13 +68,13 @@ import {
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
-  authDomain: "smeestest.firebaseapp.com",
-  projectId: "smeestest",
-  storageBucket: "smeestest.firebasestorage.app",
-  messagingSenderId: "1086297510582",
-  appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
-  measurementId: "G-BQ6NW6D84Z"
+  apiKey: "AIzaSyA0GkAFhV6GfFsszHPJG-aPfGNiVRdBPNg",
+  authDomain: "smees-33e6c.firebaseapp.com",
+  projectId: "smees-33e6c",
+  storageBucket: "smees-33e6c.firebasestorage.app",
+  messagingSenderId: "723248995098",
+  appId: "1:723248995098:web:a61b659e31f42332656aa3",
+  measurementId: "G-JVBZZ8SHGM"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -1636,16 +1636,18 @@ if (tx.type === 'payment') {
     );
   };
 
-  // FIX #3: Expenses Breakdown with Date Filters
+  // FIX #3 & #4: Expenses Breakdown with Date Filters & Net Discount Logic
   const ExpensesBreakdown = () => {
       const [eFilter, setEFilter] = useState('Monthly');
       const [eDates, setEDates] = useState({ start: '', end: '' });
 
-      const filteredExpenses = data.transactions.filter(t => {
+      // 1. First filter ALL transactions by Date (Not just expenses)
+      const dateFilteredTxs = data.transactions.filter(t => {
           if (t.status === 'Cancelled') return false;
-          if (t.type !== 'expense') return false;
+          
           const d = new Date(t.date);
           const now = new Date();
+          
           if (eFilter === 'Today') return d.toDateString() === now.toDateString();
           if (eFilter === 'Weekly') {
               const start = new Date(now); start.setDate(now.getDate() - now.getDay()); start.setHours(0,0,0,0);
@@ -1654,14 +1656,55 @@ if (tx.type === 'payment') {
           if (eFilter === 'Monthly') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
           if (eFilter === 'Yearly') return d.getFullYear() === now.getFullYear();
           if (eFilter === 'Custom' && eDates.start && eDates.end) return d >= new Date(eDates.start) && d <= new Date(eDates.end);
+          
           return true; // All
       });
 
-      const byCategory = filteredExpenses.reduce((acc, curr) => {
+      // 2. Calculate Expenses by Category (Existing Logic)
+      const expenseTxs = dateFilteredTxs.filter(t => t.type === 'expense');
+      
+      const byCategory = expenseTxs.reduce((acc, curr) => {
           const cat = curr.category || 'Uncategorized';
           acc[cat] = (acc[cat] || 0) + parseFloat(curr.finalTotal || curr.amount || 0);
           return acc;
       }, {});
+
+      // Calculate Total Expense for Display
+      const totalExpenseAmount = Object.values(byCategory).reduce((a, b) => a + b, 0);
+
+      // 3. Calculate Net Discount (New Requirement)
+      // Formula: (Purchase + Expense + PaymentOut) - (Sale + PaymentIn)
+      let netDiscount = 0;
+      
+      dateFilteredTxs.forEach(tx => {
+          let discVal = parseFloat(tx.discountValue || 0);
+          
+          // If discount is 0, skip
+          if(discVal <= 0) return;
+
+          // If type is %, calculate amount
+          if (tx.discountType === '%') {
+              let baseAmount = 0;
+              if (tx.items && tx.items.length > 0) {
+                   // For Item based (Sale/Purchase)
+                   baseAmount = tx.items.reduce((acc, i) => acc + (parseFloat(i.qty || 0) * parseFloat(i.price || 0)), 0);
+              } else {
+                   // For direct amount (Payment/Expense)
+                   baseAmount = parseFloat(tx.amount || 0);
+              }
+              discVal = (baseAmount * discVal) / 100;
+          }
+
+          // Apply Formula
+          if (tx.type === 'purchase' || tx.type === 'expense') {
+              netDiscount += discVal; // Saved money (Positive)
+          } else if (tx.type === 'sales') {
+              netDiscount -= discVal; // Lost money (Negative)
+          } else if (tx.type === 'payment') {
+              if (tx.subType === 'out') netDiscount += discVal; // Discount received (Positive)
+              else netDiscount -= discVal; // Discount given (Negative)
+          }
+      });
 
       return (
           <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
@@ -1692,14 +1735,35 @@ if (tx.type === 'payment') {
                   <div onClick={() => { setListFilter('expense'); setCategoryFilter(null); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-center items-center p-3 bg-blue-50 rounded-xl border border-blue-200 cursor-pointer mb-2 text-blue-700 font-bold text-sm">
                       Show All Expenses List
                   </div>
+
+                  {/* Net Discount Row (New Feature) */}
+                  <div className="flex justify-between items-center p-4 bg-purple-50 rounded-xl border border-purple-100">
+                      <div className="flex items-center gap-2">
+                          <span className="p-1 bg-purple-200 rounded text-purple-700"><ReceiptText size={14}/></span>
+                          <span className="font-bold text-purple-900">Net Discount Savings</span>
+                      </div>
+                      <span className={`font-black ${netDiscount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {netDiscount >= 0 ? '+' : ''}{formatCurrency(netDiscount)}
+                      </span>
+                  </div>
+
+                  {/* Categories List */}
                   {Object.entries(byCategory).map(([cat, total]) => (
-                      // FIX #3: Interactive Expense Categories
                       <div key={cat} onClick={() => { setListFilter('expense'); setCategoryFilter(cat); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border cursor-pointer hover:bg-gray-100">
-                          <span className="font-bold">{cat}</span>
+                          <span className="font-bold text-gray-700">{cat}</span>
                           <span className="font-bold text-red-600">{formatCurrency(total)}</span>
                       </div>
                   ))}
-                  {filteredExpenses.length === 0 && <p className="text-center text-gray-400 mt-10">No expenses recorded for this period</p>}
+
+                  {/* Total Expenses Row */}
+                  {totalExpenseAmount > 0 && (
+                      <div className="flex justify-between items-center p-4 bg-red-50 rounded-xl border border-red-100 mt-4">
+                          <span className="font-black text-red-900 uppercase text-xs">Total Expenses</span>
+                          <span className="font-black text-xl text-red-700">{formatCurrency(totalExpenseAmount)}</span>
+                      </div>
+                  )}
+
+                  {expenseTxs.length === 0 && <p className="text-center text-gray-400 mt-10">No expenses recorded for this period</p>}
               </div>
           </div>
       );
@@ -2598,14 +2662,35 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
       return data.transactions.filter(t => t.partyId === tx.partyId && t.id !== tx.id && t.type !== 'estimate' && ( (['sales', 'purchase', 'expense'].includes(t.type) && getBillLogic(t).status !== 'PAID') || (t.type === 'payment' && getBillLogic(t).status !== 'FULLY USED') ) );
     }, [tx.partyId, data.transactions]);
 
-    const updateLine = (idx, field, val) => {
-        const newItems = [...tx.items]; newItems[idx][field] = val;
-        if(field==='itemId') {
-            const item = data.items.find(i=>i.id===val);
-            if(item) { newItems[idx].price = type==='purchase'?item.buyPrice:item.sellPrice; newItems[idx].buyPrice = item.buyPrice; newItems[idx].description = item.description || ''; }
+    // TransactionForm component ke andar
+const updateLine = (idx, field, val) => {
+    const newItems = [...tx.items];
+    newItems[idx][field] = val;
+
+    if (field === 'itemId') {
+        const item = data.items.find(i => i.id === val);
+        if (item) {
+            // --- 1. Last Price Fetch Logic ---
+            // Find the most recent transaction where this item was used
+            const lastTx = data.transactions
+                .filter(t => t.status !== 'Cancelled' && t.items?.some(line => line.itemId === val))
+                .sort((a, b) => new Date(b.date) - new Date(a.date))[0]; // Sort by date desc
+
+            const lastItemData = lastTx?.items.find(line => line.itemId === val);
+
+            // Determine default prices (Master vs Last Used)
+            // Agar last transaction mila to uska price lo, nahi to master ka
+            const autoSellPrice = lastItemData ? lastItemData.price : item.sellPrice;
+            const autoBuyPrice = lastItemData ? (lastItemData.buyPrice || item.buyPrice) : item.buyPrice;
+
+            // Type ke hisab se set karo
+            newItems[idx].price = type === 'purchase' ? autoBuyPrice : autoSellPrice;
+            newItems[idx].buyPrice = autoBuyPrice;
+            newItems[idx].description = item.description || '';
         }
-        setTx({...tx, items: newItems});
-    };
+    }
+    setTx({ ...tx, items: newItems });
+};
 
     const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
     const partyOptions = data.parties.map(p => ({ ...p, subText: partyBalances[p.id] ? formatCurrency(Math.abs(partyBalances[p.id])) + (partyBalances[p.id]>0?' DR':' CR') : 'Settled', subColor: partyBalances[p.id]>0?'text-green-600':partyBalances[p.id]<0?'text-red-600':'text-gray-400' }));
@@ -2752,10 +2837,10 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                 <span className="text-[8px] text-gray-400 font-bold ml-1">SALE</span>
                                 <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
                             </div>
-                            <div className="flex flex-col">
+                           {type === 'sales' && ( <div className="flex flex-col">
                                 <span className="text-[8px] text-gray-400 font-bold ml-1">BUY</span>
                                 <input type="number" className="w-20 p-1 border rounded text-xs bg-yellow-50 text-gray-600" placeholder="Buy" value={line.buyPrice} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />
-                            </div>
+                            </div>)}
                             <div className="flex-1 text-right self-end text-xs font-bold text-gray-500 pb-2">
                                 {formatCurrency(line.qty * line.price)}
                             </div>
@@ -2888,7 +2973,29 @@ const [form, setForm] = useState(record ? {
     const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
     const selectedParty = data.parties.find(p => p.id === form.partyId);
     
-    const updateItem = (idx, field, val) => { const n = [...form.itemsUsed]; n[idx][field] = val; if(field==='itemId') { const item = data.items.find(i=>i.id===val); if(item) { n[idx].price = item.sellPrice; n[idx].buyPrice = item.buyPrice; n[idx].description = item.description || ''; } } setForm({...form, itemsUsed: n}); };
+    // TaskForm component ke andar
+const updateItem = (idx, field, val) => {
+    const n = [...form.itemsUsed];
+    n[idx][field] = val;
+
+    if (field === 'itemId') {
+        const item = data.items.find(i => i.id === val);
+        if (item) {
+            // --- Last Price Fetch Logic for Tasks ---
+            const lastTx = data.transactions
+                .filter(t => t.status !== 'Cancelled' && t.items?.some(line => line.itemId === val))
+                .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+
+            const lastItemData = lastTx?.items.find(line => line.itemId === val);
+
+            // Task me humesha Sell Price hi dikhana hota h as Price
+            n[idx].price = lastItemData ? lastItemData.price : item.sellPrice;
+            n[idx].buyPrice = lastItemData ? (lastItemData.buyPrice || item.buyPrice) : item.buyPrice;
+            n[idx].description = item.description || '';
+        }
+    }
+    setForm({ ...form, itemsUsed: n });
+};
     
     const handleLocationSelect = (loc) => {
         setForm({
@@ -3425,7 +3532,7 @@ const removeMobile = (idx) => {
             setSelectedTimeLog={setSelectedTimeLog} 
             handleCloseUI={handleCloseUI} 
             saveRecord={saveRecord}           // <--- Ye line honi chahiye
-            setEditingTimeLog={setEditingTimeLog} // <--- Ye line honi chahiye hai
+            setEditingTimeLog={setEditingTimeLog} // <--- Ye line honi chahiye
         />
       )}
     </div>
