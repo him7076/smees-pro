@@ -76,6 +76,7 @@ const firebaseConfig = {
   appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
   measurementId: "G-BQ6NW6D84Z"
 };
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -2174,6 +2175,8 @@ if (tx.type === 'payment') {
             if (user.role === 'admin') return true; 
             return s.id === user.id; 
         });
+        // Check if CURRENT USER has an active timer
+const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.end);
 
         return (
           <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
@@ -2322,6 +2325,25 @@ if (tx.type === 'payment') {
                     </button>
                 )}
             </div>
+            {/* --- FLOATING TIMER BUTTON (NEW) --- */}
+<button
+    onClick={() => toggleTimer(user.id)}
+    className={`fixed bottom-6 right-6 z-[70] shadow-2xl flex items-center justify-center gap-2 px-6 py-4 rounded-full transition-all active:scale-90 font-black text-white tracking-widest ${
+        isMyTimerRunning 
+        ? 'bg-red-600 shadow-red-200 animate-pulse' 
+        : 'bg-green-600 shadow-green-200'
+    }`}
+>
+    {isMyTimerRunning ? (
+        <>
+            <Square size={20} fill="currentColor" /> STOP
+        </>
+    ) : (
+        <>
+            <Play size={20} fill="currentColor" /> START
+        </>
+    )}
+</button>
           </div>
         );
     }
