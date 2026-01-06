@@ -1640,6 +1640,7 @@ if (tx.type === 'payment') {
   const ExpensesBreakdown = () => {
       const [eFilter, setEFilter] = useState('Monthly');
       const [eDates, setEDates] = useState({ start: '', end: '' });
+      const [showDiscountDetails, setShowDiscountDetails] = useState(false); // Toggle for details view
 
       // 1. First filter ALL transactions by Date (Not just expenses)
       const dateFilteredTxs = data.transactions.filter(t => {
@@ -1672,9 +1673,9 @@ if (tx.type === 'payment') {
       // Calculate Total Expense for Display
       const totalExpenseAmount = Object.values(byCategory).reduce((a, b) => a + b, 0);
 
-      // 3. Calculate Net Discount (New Requirement)
-      // Formula: (Purchase + Expense + PaymentOut) - (Sale + PaymentIn)
+      // 3. Calculate Net Discount and Collect Transactions
       let netDiscount = 0;
+      const discountTransactions = [];
       
       dateFilteredTxs.forEach(tx => {
           let discVal = parseFloat(tx.discountValue || 0);
@@ -1682,48 +1683,63 @@ if (tx.type === 'payment') {
           // If discount is 0, skip
           if(discVal <= 0) return;
 
-          // If type is %, calculate amount
-          if (tx.discountType === '%') {
+          // If type is %, calculate amount (EXCLUDING PAYMENTS which are always Amt)
+          if (tx.discountType === '%' && tx.type !== 'payment') {
               let baseAmount = 0;
               if (tx.items && tx.items.length > 0) {
                    // For Item based (Sale/Purchase)
                    baseAmount = tx.items.reduce((acc, i) => acc + (parseFloat(i.qty || 0) * parseFloat(i.price || 0)), 0);
               } else {
-                   // For direct amount (Payment/Expense)
+                   // For direct amount (Expense)
                    baseAmount = parseFloat(tx.amount || 0);
               }
               discVal = (baseAmount * discVal) / 100;
           }
 
+          let impact = 'neutral';
           // Apply Formula
           if (tx.type === 'purchase' || tx.type === 'expense') {
               netDiscount += discVal; // Saved money (Positive)
+              impact = 'plus';
           } else if (tx.type === 'sales') {
               netDiscount -= discVal; // Lost money (Negative)
+              impact = 'minus';
           } else if (tx.type === 'payment') {
-              if (tx.subType === 'out') netDiscount += discVal; // Discount received (Positive)
-              else netDiscount -= discVal; // Discount given (Negative)
+              if (tx.subType === 'out') {
+                  netDiscount += discVal; // Discount received (Positive)
+                  impact = 'plus';
+              } else {
+                  netDiscount -= discVal; // Discount given (Negative)
+                  impact = 'minus';
+              }
+          }
+
+          if(impact !== 'neutral') {
+              discountTransactions.push({ ...tx, calcDiscount: discVal, impact });
           }
       });
 
       return (
           <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
               <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
-                  <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-                  <h2 className="font-bold text-lg">Expenses Breakdown</h2>
+                  <button onClick={() => showDiscountDetails ? setShowDiscountDetails(false) : handleCloseUI()} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                  <h2 className="font-bold text-lg">{showDiscountDetails ? 'Discount Details' : 'Expenses Breakdown'}</h2>
                   
                   {/* Date Filter Dropdown */}
-                  <select value={eFilter} onChange={(e)=>setEFilter(e.target.value)} className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none">
-                      <option value="All">All Time</option>
-                      <option value="Today">Today</option>
-                      <option value="Weekly">Weekly</option>
-                      <option value="Monthly">Month</option>
-                      <option value="Yearly">Year</option>
-                      <option value="Custom">Custom</option>
-                  </select>
+                  {!showDiscountDetails && (
+                      <select value={eFilter} onChange={(e)=>setEFilter(e.target.value)} className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none">
+                          <option value="All">All Time</option>
+                          <option value="Today">Today</option>
+                          <option value="Weekly">Weekly</option>
+                          <option value="Monthly">Month</option>
+                          <option value="Yearly">Year</option>
+                          <option value="Custom">Custom</option>
+                      </select>
+                  )}
+                  {showDiscountDetails && <div className="w-10"></div>}
               </div>
               
-              {eFilter === 'Custom' && (
+              {!showDiscountDetails && eFilter === 'Custom' && (
                   <div className="flex gap-2 p-2 bg-gray-50 justify-center border-b">
                       <input type="date" className="p-1 rounded border text-xs" value={eDates.start} onChange={e=>setEDates({...eDates, start:e.target.value})} />
                       <input type="date" className="p-1 rounded border text-xs" value={eDates.end} onChange={e=>setEDates({...eDates, end:e.target.value})} />
@@ -1731,39 +1747,75 @@ if (tx.type === 'payment') {
               )}
 
               <div className="p-4 space-y-4">
-                  {/* Show All Button */}
-                  <div onClick={() => { setListFilter('expense'); setCategoryFilter(null); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-center items-center p-3 bg-blue-50 rounded-xl border border-blue-200 cursor-pointer mb-2 text-blue-700 font-bold text-sm">
-                      Show All Expenses List
-                  </div>
-
-                  {/* Net Discount Row (New Feature) */}
-                  <div className="flex justify-between items-center p-4 bg-purple-50 rounded-xl border border-purple-100">
-                      <div className="flex items-center gap-2">
-                          <span className="p-1 bg-purple-200 rounded text-purple-700"><ReceiptText size={14}/></span>
-                          <span className="font-bold text-purple-900">Net Discount Savings</span>
+                  {showDiscountDetails ? (
+                      // DETAILED VIEW FOR DISCOUNTS
+                      <div className="space-y-3">
+                          <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 text-center mb-4">
+                              <p className="text-xs font-bold text-purple-900 uppercase">Net Discount (Savings)</p>
+                              <p className={`text-2xl font-black ${netDiscount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                  {netDiscount >= 0 ? '+' : ''}{formatCurrency(netDiscount)}
+                              </p>
+                          </div>
+                          
+                          {discountTransactions.sort((a,b) => new Date(b.date) - new Date(a.date)).map(tx => (
+                              <div key={tx.id} onClick={() => setViewDetail({ type: 'transaction', id: tx.id })} className="p-3 border rounded-xl bg-white shadow-sm cursor-pointer hover:bg-gray-50 flex justify-between items-center active:scale-95 transition-transform">
+                                  <div>
+                                      <p className="font-bold text-sm text-gray-800 uppercase">{tx.type} #{tx.id}</p>
+                                      <p className="text-xs text-gray-500">{formatDate(tx.date)}</p>
+                                  </div>
+                                  <div className={`text-right font-bold ${tx.impact === 'plus' ? 'text-green-600' : 'text-red-600'}`}>
+                                      <p className="text-[10px] uppercase text-gray-400 font-extrabold tracking-wide mb-0.5">
+                                        {tx.impact === 'plus' ? 'SAVINGS' : 'GIVEN'}
+                                      </p>
+                                      <span className="text-lg">
+                                        {tx.impact === 'plus' ? '+' : '-'}{formatCurrency(tx.calcDiscount)}
+                                      </span>
+                                  </div>
+                              </div>
+                          ))}
+                          {discountTransactions.length === 0 && <p className="text-center text-gray-400 py-10">No discount transactions found in this period.</p>}
                       </div>
-                      <span className={`font-black ${netDiscount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {netDiscount >= 0 ? '+' : ''}{formatCurrency(netDiscount)}
-                      </span>
-                  </div>
+                  ) : (
+                      // SUMMARY VIEW
+                      <>
+                          {/* Show All Button */}
+                          <div onClick={() => { setListFilter('expense'); setCategoryFilter(null); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-center items-center p-3 bg-blue-50 rounded-xl border border-blue-200 cursor-pointer mb-2 text-blue-700 font-bold text-sm">
+                              Show All Expenses List
+                          </div>
 
-                  {/* Categories List */}
-                  {Object.entries(byCategory).map(([cat, total]) => (
-                      <div key={cat} onClick={() => { setListFilter('expense'); setCategoryFilter(cat); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border cursor-pointer hover:bg-gray-100">
-                          <span className="font-bold text-gray-700">{cat}</span>
-                          <span className="font-bold text-red-600">{formatCurrency(total)}</span>
-                      </div>
-                  ))}
+                          {/* Net Discount Row (Interactive) */}
+                          <div onClick={() => setShowDiscountDetails(true)} className="flex justify-between items-center p-4 bg-purple-50 rounded-xl border border-purple-100 cursor-pointer hover:bg-purple-100 transition-colors">
+                              <div className="flex items-center gap-2">
+                                  <span className="p-1 bg-purple-200 rounded text-purple-700"><ReceiptText size={14}/></span>
+                                  <span className="font-bold text-purple-900">Net Discount Savings</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                  <span className={`font-black ${netDiscount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                      {netDiscount >= 0 ? '+' : ''}{formatCurrency(netDiscount)}
+                                  </span>
+                                  <ChevronRight size={16} className="text-purple-300"/>
+                              </div>
+                          </div>
 
-                  {/* Total Expenses Row */}
-                  {totalExpenseAmount > 0 && (
-                      <div className="flex justify-between items-center p-4 bg-red-50 rounded-xl border border-red-100 mt-4">
-                          <span className="font-black text-red-900 uppercase text-xs">Total Expenses</span>
-                          <span className="font-black text-xl text-red-700">{formatCurrency(totalExpenseAmount)}</span>
-                      </div>
+                          {/* Categories List */}
+                          {Object.entries(byCategory).map(([cat, total]) => (
+                              <div key={cat} onClick={() => { setListFilter('expense'); setCategoryFilter(cat); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border cursor-pointer hover:bg-gray-100">
+                                  <span className="font-bold text-gray-700">{cat}</span>
+                                  <span className="font-bold text-red-600">{formatCurrency(total)}</span>
+                              </div>
+                          ))}
+
+                          {/* Total Expenses Row */}
+                          {totalExpenseAmount > 0 && (
+                              <div className="flex justify-between items-center p-4 bg-red-50 rounded-xl border border-red-100 mt-4">
+                                  <span className="font-black text-red-900 uppercase text-xs">Total Expenses</span>
+                                  <span className="font-black text-xl text-red-700">{formatCurrency(totalExpenseAmount)}</span>
+                              </div>
+                          )}
+
+                          {expenseTxs.length === 0 && <p className="text-center text-gray-400 mt-10">No expenses recorded for this period</p>}
+                      </>
                   )}
-
-                  {expenseTxs.length === 0 && <p className="text-center text-gray-400 mt-10">No expenses recorded for this period</p>}
               </div>
           </div>
       );
@@ -2938,10 +2990,20 @@ const updateLine = (idx, field, val) => {
                 if(!tx.partyId) return alert("Party is Required"); 
                 if(type === 'expense' && !tx.category) return alert("Category is Required");
                 
+                // Calculate Net Amount for Payments
+                let finalAmount = type === 'payment' ? parseFloat(tx.amount || 0) : totals.final;
+                
+                if (type === 'payment') {
+                    const gross = parseFloat(tx.amount || 0);
+                    let disc = parseFloat(tx.discountValue || 0);
+                    if (tx.discountType === '%') disc = (gross * disc) / 100;
+                    finalAmount = gross - disc;
+                }
+
                 const finalRecord = {
                     ...tx,
                     ...totals,
-                    amount: type === 'payment' ? tx.amount : totals.final
+                    amount: finalAmount
                 };
 
                 saveRecord('transactions', finalRecord, tx.type); 
