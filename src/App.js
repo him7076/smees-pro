@@ -14,7 +14,8 @@ import {
   query, 
   where,
   orderBy,
-  limit
+  limit,
+  onSnapshot
 } from "firebase/firestore";
 import { 
   LayoutDashboard, 
@@ -763,6 +764,64 @@ const syncData = async (isBackground = false) => {
         syncData();
     }
   }, [user]);
+  // --- STEP 2: NOTIFICATION LOGIC (Paste this inside App component) ---
+  useEffect(() => {
+    // 1. Check if User is Admin
+    if (!user || user.role !== 'admin') return;
+
+    // 2. Request Browser Permission
+    if (Notification.permission !== "granted") {
+      Notification.requestPermission();
+    }
+
+    // 3. Listen to Task Changes Real-time
+    // Note: 'tasks' collection par nazar rakhenge
+    const q = query(collection(db, "tasks"));
+    
+    let isFirstLoad = true;
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      // Ignore initial load (puraana data load hone par notification nahi bajna chahiye)
+      if (isFirstLoad) {
+        isFirstLoad = false;
+        return;
+      }
+
+      snapshot.docChanges().forEach((change) => {
+        // Sirf tab jab task 'modify' hua ho (add/remove par nahi)
+        if (change.type === "modified") {
+          const task = change.doc.data();
+          const logs = task.timeLogs || [];
+          
+          // Agar logs exist karte hain
+          if (logs.length > 0) {
+            const lastLog = logs[logs.length - 1];
+            
+            // Check karein ki ye abhi ka change hai (Comparison logic basic rakha hai)
+            const partyName = data.parties.find(p => p.id === task.partyId)?.name || "Client";
+            
+            // Agar 'end' time null hai to START hua, nahi to STOP hua
+            const action = lastLog.end ? "STOPPED" : "STARTED";
+            
+            // Toast Notification (Green/Red strip in app)
+            showToast(`Staff: ${lastLog.staffName} ${action} Task: ${task.name}`);
+
+            // System Notification (Browser/Windows Notification)
+            if (Notification.permission === "granted") {
+               const notifBody = `Client: ${partyName}\nTask: ${task.name}`;
+               new Notification(`SMEES: ${lastLog.staffName} ${action}`, {
+                 body: notifBody,
+                 // Aap chaho to koi icon ka URL yahan daal sakte ho
+                 // icon: "https://example.com/icon.png" 
+               });
+            }
+          }
+        }
+      });
+    });
+
+    return () => unsubscribe();
+  }, [user, data.parties]); // Jab user login kare ya parties load ho tab reset kare
 
   useEffect(() => {
       const handlePopState = () => {
