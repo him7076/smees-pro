@@ -706,7 +706,7 @@ const syncData = async (isBackground = false) => {
       
       // 1. Determine Collections based on Role
       // Base collections for everyone (Staff needs these)
-      let masters = ['staff', 'tasks', 'attendance'];
+      let masters = ['staff', 'tasks', 'attendance', 'parties', 'items'];
       
       // Admin gets full access to masters (Parties/Items are read-heavy)
       if (isAdmin) {
