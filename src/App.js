@@ -716,117 +716,92 @@ export default function App() {
 const [lastDoc, setLastDoc] = useState(null); // Pagination tracker
 const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
 
-const syncData = async (isBackground = false, loadMore = false) => {
+// --- FIX: SMART INCREMENTAL SYNC ---
+  const syncData = async (isBackground = false) => {
     if (!user) return;
-    
-    // Agar background sync nahi hai to loading dikhayein
-    if (!isBackground && !loadMore) setLoading(true);
-    
+    if (!isBackground) setLoading(true);
+
     try {
-      // 1. Setup: Kya hum purana data load kar rahe hain ya naya sync kar rahe hain?
-      let newData = loadMore ? { ...data } : { ...INITIAL_DATA };
+      // 1. Local Storage se purana data uthao
+      let currentData = { ...data };
+      const lastSyncTime = localStorage.getItem('smees_last_sync');
       
-      // --- A. MASTERS SYNC (Parties, Items, Staff) ---
-      // Ye sirf tab chalega jab 'Load More' NAHI daba ho (yani Fresh Sync)
-      if (!loadMore) {
-          const isAdmin = user.role === 'admin';
-          // Parties aur Items ab Staff ko bhi milenge (Task details ke liye)
-          let masters = ['staff', 'tasks', 'attendance', 'parties', 'items']; 
-          
-          for (const col of masters) {
-            // Note: Persistence ki wajah se ye cache se hi aayega agar net band hai
-            const querySnapshot = await getDocs(collection(db, col));
-            newData[col] = querySnapshot.docs.map(doc => doc.data());
-          }
-          
-          // Settings fetch
-          const companySnap = await getDocs(collection(db, "settings"));
-          companySnap.forEach(doc => {
-            if (doc.id === 'company') newData.company = doc.data();
-            if (doc.id === 'counters') newData.counters = { ...INITIAL_DATA.counters, ...doc.data() };
-            if (doc.id === 'categories') newData.categories = { ...INITIAL_DATA.categories, ...doc.data() };
-          });
+      // 2. Agar ye first time hai (no local data), to sab kuch fetch karo
+      // Agar pehle sync ho chuka hai, to sirf Updated data lao
+      const isFirstRun = !lastSyncTime || data.transactions.length === 0;
+
+      const collectionsToSync = [
+         { name: 'staff', ref: 'staff' },
+         { name: 'tasks', ref: 'tasks' },
+         { name: 'attendance', ref: 'attendance' },
+         { name: 'parties', ref: 'parties' },
+         { name: 'items', ref: 'items' },
+         { name: 'transactions', ref: 'transactions' }
+      ];
+
+      // Admin check
+      if (user.role !== 'admin') {
+          // Staff ke liye transactions skip karein
+          collectionsToSync.pop(); 
       }
 
-      // --- B. TRANSACTIONS PAGINATION (किस्तों में डेटा) ---
-      if (user.role === 'admin') {
-          let txQuery;
-          const pageSize = 50; // Ek baar me 50 transactions
-
-          if (loadMore) {
-              // LOGIC: Current data me sabse purani date dhundo
-              // Taki hum uske baad ka data server se maang sakein
-              let lastDate = new Date().toISOString(); // Default aaj
-              
-              if (data.transactions.length > 0) {
-                  // Transactions ko Date wise sort karke sabse last wala nikalo
-                  const sortedTx = [...data.transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
-                  const lastTx = sortedTx[sortedTx.length - 1];
-                  lastDate = lastTx.date;
-              }
-
-              // Query: Is date ke baad wale (purane) records lao
-              txQuery = query(
-                  collection(db, "transactions"), 
-                  orderBy("date", "desc"), // Latest pehle
-                  startAfter(lastDate),    // <--- FIX: Direct Date Value use karein (Snapshot nahi)
-                  limit(pageSize)
-              );
-          } else {
-              // Fresh Load: Pehle 50 layein
-              txQuery = query(
-                  collection(db, "transactions"), 
-                  orderBy("date", "desc"),
-                  limit(pageSize)
-              );
-          }
-
-          const txSnap = await getDocs(txQuery);
+      for (const col of collectionsToSync) {
+          let q;
           
-          // Check karein ki aur data bacha hai ya nahi (Button chupane ke liye)
-          if (txSnap.docs.length < pageSize) {
-              setIsMoreDataAvailable(false);
+          if (!isFirstRun && col.name !== 'settings') {
+             // SMART SYNC: Sirf wo records lao jo last sync ke baad update huye hain
+             // Note: 'updatedAt' field hona zaruri hai (jo humne Step 4 me add kiya tha)
+             q = query(collection(db, col.name), where("updatedAt", ">", lastSyncTime));
           } else {
-              setIsMoreDataAvailable(true);
+             // FULL SYNC: Pehli baar sab kuch lao
+             q = query(collection(db, col.name));
           }
 
-          const newTransactions = txSnap.docs.map(doc => doc.data());
-
-          if (loadMore) {
-              // Purane data me naya data jodein
-              newData.transactions = [...data.transactions, ...newTransactions];
+          const snapshot = await getDocs(q);
+          
+          if (!snapshot.empty) {
+              const fetchedDocs = snapshot.docs.map(doc => doc.data());
               
-              // Duplicates hatayein (Safety check: Agar galti se same data aa jaye)
-              const uniqueTx = new Map();
-              newData.transactions.forEach(item => uniqueTx.set(item.id, item));
-              newData.transactions = Array.from(uniqueTx.values());
+              // MERGE LOGIC: Purane data me naya mix karo
+              // Agar ID match kare to update karo, nahi to add karo
+              const existingMap = new Map(currentData[col.name].map(item => [item.id, item]));
+              fetchedDocs.forEach(item => existingMap.set(item.id, item));
               
-          } else {
-              newData.transactions = newTransactions;
+              currentData[col.name] = Array.from(existingMap.values());
           }
-      } else {
-          // Staff ke liye transactions hidden
-          newData.transactions = [];
       }
 
-      // Local Storage Update
-      localStorage.setItem('smees_data', JSON.stringify(newData));
-      setData(newData);
+      // Settings hamesha fresh lao
+      const companySnap = await getDocs(collection(db, "settings"));
+      companySnap.forEach(doc => {
+        if (doc.id === 'company') currentData.company = doc.data();
+        if (doc.id === 'counters') currentData.counters = { ...INITIAL_DATA.counters, ...doc.data() };
+        if (doc.id === 'categories') currentData.categories = { ...INITIAL_DATA.categories, ...doc.data() };
+      });
+
+      // 3. Save Data & New Time
+      const now = new Date().toISOString();
+      localStorage.setItem('smees_data', JSON.stringify(currentData));
+      localStorage.setItem('smees_last_sync', now);
       
-      if (!isBackground) showToast(loadMore ? "Older Transactions Loaded" : "Data Synced");
+      setData(currentData);
       
-    } catch (error) { 
-        console.error("Sync Error Details:", error); 
-        // Specific error message dikhayein
-        if (error.message.includes("requires an index")) {
-            alert("Firebase Index Missing: Open Console (F12) and click the link from Firebase to create the index.");
-        } else {
-            showToast("Connection Error", "error"); 
-        }
-    } finally { 
-        if (!isBackground) setLoading(false); 
+      if (!isBackground) {
+          const msg = isFirstRun ? "Full Data Downloaded" : "App Updated with Latest Changes";
+          showToast(msg);
+      }
+
+    } catch (error) {
+      console.error("Sync Error:", error);
+      // Agar index error aaye to alert karo
+      if (error.message.includes("requires an index")) {
+          alert("PLEASE CREATE INDEX: Open Console (F12) to see the Firebase link.");
+      }
+      showToast("Sync Failed. Check Internet.", "error");
+    } finally {
+      if (!isBackground) setLoading(false);
     }
-};
+  };
 
   // REQ 3: Smart Auto-Sync Logic
   useEffect(() => {
@@ -1721,6 +1696,7 @@ if (tx.type === 'payment') {
     // 3. NEW: Calculate Dynamic Total for filtered results
     const filteredTotal = filtered.reduce((acc, tx) => acc + parseFloat(tx.amount || tx.finalTotal || 0), 0);
 
+
     filtered = sortData(filtered, sort);
     const visibleData = filtered.slice(0, visibleCount);
 
@@ -1813,15 +1789,18 @@ if (tx.type === 'payment') {
           
           {/* --- PAGINATION BUTTONS --- */}
 <div className="flex flex-col gap-2 mt-4">
-    {/* 1. Client Side "Load More" (Jo data aa chuka h usme scroll) */}
-    {visibleCount < filtered.length && (
+    {/* --- CLIENT SIDE LOAD MORE --- */}
+{visibleCount < filtered.length && (
+    <div className="mt-4 text-center">
+        <p className="text-xs text-gray-400 mb-2">Showing {visibleCount} of {filtered.length}</p>
         <button 
             onClick={() => setVisibleCount(prev => prev + 50)} 
             className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-200"
         >
-            Show More Loaded Results ({filtered.length - visibleCount} hidden)
+            Load More Transactions
         </button>
-    )}
+    </div>
+)}
 
     {/* 2. Server Side "Load More" (Firebase se purana data lana) */}
     {isMoreDataAvailable && (
