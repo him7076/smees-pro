@@ -15,7 +15,9 @@ import {
   where,
   orderBy,
   limit,
-  onSnapshot
+  onSnapshot,
+  enableIndexedDbPersistence,
+  startAfter
 } from "firebase/firestore";
 import { 
   LayoutDashboard, 
@@ -632,6 +634,22 @@ export default function App() {
   // Initialize with default values (null / INITIAL_DATA) to prevent Prop ID Mismatch
   const [user, setUser] = useState(null);
   const [data, setData] = useState(INITIAL_DATA);
+  // --- FIX 1: OFFLINE PERSISTENCE (Cache) ---
+  useEffect(() => {
+    const enableOffline = async () => {
+      try {
+        await enableIndexedDbPersistence(db);
+        console.log("Offline persistence enabled");
+      } catch (err) {
+        if (err.code == 'failed-precondition') {
+            console.log("Multiple tabs open, persistence can only be enabled in one tab at a a time.");
+        } else if (err.code == 'unimplemented') {
+            console.log("The current browser does not support all of the features required to enable persistence");
+        }
+      }
+    };
+    enableOffline();
+  }, []);
 
   // Load from LocalStorage ONLY on the client-side after mount
   useEffect(() => {
@@ -694,58 +712,92 @@ export default function App() {
   }, [data.tasks]);
 
   // Initial Setup useEffect
-  // REQ 2: Updated Fetch Logic (syncData) with Background Sync Support & Role Optimization
-const syncData = async (isBackground = false) => {
+  // --- FIX 2 & 3: SMART SYNC & PAGINATION LOGIC ---
+const [lastDoc, setLastDoc] = useState(null); // Pagination tracker
+const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
+
+const syncData = async (isBackground = false, loadMore = false) => {
     if (!user) return;
     
-    // Only show loading if not background sync
-    if (!isBackground) setLoading(true);
+    // Background sync nahi hai to loading dikhayein
+    if (!isBackground && !loadMore) setLoading(true);
     
     try {
-      const newData = { ...INITIAL_DATA };
-      const isAdmin = user.role === 'admin';
+      // Agar 'Load More' nahi hai (yani Fresh Sync hai), to purana data aur local data merge karein
+      let newData = loadMore ? { ...data } : { ...INITIAL_DATA };
       
-      // 1. Determine Collections based on Role
-      // Base collections for everyone (Staff needs these)
-      let masters = ['staff', 'tasks', 'attendance', 'parties', 'items'];
-      
-      // Admin gets full access to masters (Parties/Items are read-heavy)
-      if (isAdmin) {
-          masters = [...masters, 'parties', 'items'];
-      }
-
-      // Fetch determined master collections
-      for (const col of masters) {
-          const querySnapshot = await getDocs(collection(db, col));
-          newData[col] = querySnapshot.docs.map(doc => doc.data());
-      }
-
-      // 2. Fetch Transactions (Admins Only - Optimized: Last 3 Months)
-      if (isAdmin) {
-          const threeMonthsAgo = new Date();
-          threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-          const dateStr = threeMonthsAgo.toISOString().split('T')[0];
+      // --- MASTERS SYNC (Parties, Items, Staff) ---
+      // Inhe hum har baar check karenge, lekin Persistence hone ki wajah se 
+      // Firebase inhe dubara download nahi karega agar ye change nahi huye hain.
+      // (Sirf Fresh Sync par run karein, Load More par nahi)
+      if (!loadMore) {
+          const isAdmin = user.role === 'admin';
+          let masters = ['staff', 'tasks', 'attendance', 'parties', 'items']; // Staff ke liye bhi parties kholi hain
           
-          const txQuery = query(collection(db, "transactions"), where("date", ">=", dateStr));
+          for (const col of masters) {
+            const querySnapshot = await getDocs(collection(db, col));
+            newData[col] = querySnapshot.docs.map(doc => doc.data());
+          }
+          
+          // Settings fetch
+          const companySnap = await getDocs(collection(db, "settings"));
+          companySnap.forEach(doc => {
+            if (doc.id === 'company') newData.company = doc.data();
+            if (doc.id === 'counters') newData.counters = { ...INITIAL_DATA.counters, ...doc.data() };
+            if (doc.id === 'categories') newData.categories = { ...INITIAL_DATA.categories, ...doc.data() };
+          });
+      }
+
+      // --- TRANSACTIONS PAGINATION (किस्तों में डेटा) ---
+      if (user.role === 'admin') {
+          let txQuery;
+          const pageSize = 50; // Ek baar me 50 transactions
+
+          if (loadMore && lastDoc) {
+              // Agle 50 layein
+              txQuery = query(
+                  collection(db, "transactions"), 
+                  orderBy("date", "desc"), // Latest pehle
+                  startAfter(lastDoc),
+                  limit(pageSize)
+              );
+          } else {
+              // Pehle 50 layein
+              txQuery = query(
+                  collection(db, "transactions"), 
+                  orderBy("date", "desc"),
+                  limit(pageSize)
+              );
+          }
+
           const txSnap = await getDocs(txQuery);
-          newData.transactions = txSnap.docs.map(doc => doc.data());
+          
+          // Pagination ke liye last document save karein
+          const lastVisible = txSnap.docs[txSnap.docs.length - 1];
+          setLastDoc(lastVisible);
+          
+          // Check karein aur data bacha hai kya
+          setIsMoreDataAvailable(txSnap.docs.length === pageSize);
+
+          const newTransactions = txSnap.docs.map(doc => doc.data());
+
+          if (loadMore) {
+              // Purane data me naya data jodein
+              newData.transactions = [...data.transactions, ...newTransactions];
+              // Duplicates hatayein (Safety check)
+              newData.transactions = [...new Map(newData.transactions.map(item => [item.id, item])).values()];
+          } else {
+              newData.transactions = newTransactions;
+          }
       } else {
-          // Staff gets no transactions to save reads
           newData.transactions = [];
       }
 
-      // 3. Fetch Settings (For Everyone - Company info/counters needed globally)
-      const companySnap = await getDocs(collection(db, "settings"));
-      companySnap.forEach(doc => {
-          if (doc.id === 'company') newData.company = doc.data();
-          if (doc.id === 'counters') newData.counters = { ...INITIAL_DATA.counters, ...doc.data() };
-          if (doc.id === 'categories') newData.categories = { ...INITIAL_DATA.categories, ...doc.data() };
-      });
-      
+      // Local Storage Update
       localStorage.setItem('smees_data', JSON.stringify(newData));
       setData(newData);
       
-      if (!isBackground) showToast(isAdmin ? "Data Synced (Admin Mode)" : "Data Synced (Staff Mode)");
+      if (!isBackground) showToast(loadMore ? "More Data Loaded" : "Data Synced Successfully");
       
     } catch (error) { 
         console.error(error); 
@@ -999,39 +1051,67 @@ if (tx.type === 'payment') {
     }
   };
 
-  const saveRecord = async (collectionName, record, idType) => {
+ const saveRecord = async (collectionName, record, idType) => {
     if (!user) return;
     let newData = { ...data };
     let finalId = record.id;
     let newCounters = null;
 
+    // --- NEW CHANGE START: Timestamp Logic ---
+    // Aaj ka current time (ISO format me)
+    const timestamp = new Date().toISOString(); 
+    // --- NEW CHANGE END ---
+
     if (record.id) {
+      // --- CASE 1: EDITING (Purana Record) ---
+      // Hum purane record me 'updatedAt' add kar rahe hain
+      record = { ...record, updatedAt: timestamp }; 
+      
       newData[collectionName] = data[collectionName].map(r => r.id === record.id ? record : r);
+      
+      // (Task conversion logic wesa hi rahega)
       if (collectionName === 'transactions' && record.type === 'sales' && record.convertedFromTask) {
          const task = newData.tasks.find(t => t.id === record.convertedFromTask);
          if (task) {
            task.itemsUsed = record.items.map(i => ({ itemId: i.itemId, qty: i.qty, price: i.price, buyPrice: i.buyPrice, description: i.description }));
-           newData.tasks = newData.tasks.map(t => t.id === task.id ? task : t);
-           setDoc(doc(db, "tasks", task.id), task);
+           // Task update hua, to uska bhi time update karo
+           const updatedTask = { ...task, updatedAt: timestamp }; 
+           newData.tasks = newData.tasks.map(t => t.id === task.id ? updatedTask : t);
+           setDoc(doc(db, "tasks", task.id), updatedTask);
          }
       }
     } else {
+      // --- CASE 2: CREATING (Naya Record) ---
       const { id, nextCounters } = getNextId(data, idType);
-      const createdField = collectionName === 'tasks' ? { taskCreatedAt: new Date().toISOString() } : {};
-      record = { ...record, id, createdAt: new Date().toISOString(), ...createdField };
+      const createdField = collectionName === 'tasks' ? { taskCreatedAt: timestamp } : {};
+      
+      // Yahan hum 'createdAt' aur 'updatedAt' dono daal rahe hain
+      record = { 
+          ...record, 
+          id, 
+          createdAt: timestamp, 
+          updatedAt: timestamp, // <--- YE ZARURI HAI SMART SYNC KE LIYE
+          ...createdField 
+      };
+      
       newData[collectionName] = [...data[collectionName], record];
       newData.counters = nextCounters; 
       newCounters = nextCounters;
       finalId = id;
     }
+    
     const safeRecord = cleanData(record);
+    
+    // ... (Baki ka code same rahega: setData, setDoc, Toast etc.) ...
     setData(newData); setModal({ type: null, data: null }); handleCloseUI(); showToast("Saved");
+    
     try {
         await setDoc(doc(db, collectionName, finalId.toString()), safeRecord);
         if (newCounters) await setDoc(doc(db, "settings", "counters"), newCounters);
         
         // REQ: Use Targeted Sync instead of full sync
-        await refreshSingleRecord(collectionName, finalId);
+        // Note: Yahan hum abhi full sync nahi kar rahe, local state update ho chuka hai
+        // await refreshSingleRecord(collectionName, finalId); <--- Isse hata bhi sakte hain agar local update sahi hai
     } catch (e) { console.error(e); showToast("Save Error", "error"); }
     return finalId; 
   };
@@ -1710,13 +1790,28 @@ if (tx.type === 'payment') {
             );
           })}
           
-          {visibleCount < filtered.length && (
-            <button 
-                onClick={() => setVisibleCount(prev => prev + 50)} 
-                className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-200">
-                Load More ({filtered.length - visibleCount} remaining)
-            </button>
-          )}
+          {/* --- PAGINATION BUTTONS --- */}
+<div className="flex flex-col gap-2 mt-4">
+    {/* 1. Client Side "Load More" (Jo data aa chuka h usme scroll) */}
+    {visibleCount < filtered.length && (
+        <button 
+            onClick={() => setVisibleCount(prev => prev + 50)} 
+            className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-200"
+        >
+            Show More Loaded Results ({filtered.length - visibleCount} hidden)
+        </button>
+    )}
+
+    {/* 2. Server Side "Load More" (Firebase se purana data lana) */}
+    {isMoreDataAvailable && (
+        <button 
+            onClick={() => syncData(false, true)} // True means Load More Mode
+            className="w-full py-3 border-2 border-dashed border-blue-300 text-blue-600 font-bold rounded-xl text-sm hover:bg-blue-50 flex items-center justify-center gap-2"
+        >
+            <RefreshCw size={16} /> Download Older Transactions from Server
+        </button>
+    )}
+</div>
         </div>
       </div>
     );
