@@ -650,51 +650,7 @@ export default function App() {
     };
     enableOffline();
   }, []);
-  // --- REPAIR SCRIPT: START ---
-  // Isse paste karein, App chalayen, Alert aane ka wait karein, phir isse DELETE kar dein.
-  useEffect(() => {
-    const fixDatabase = async () => {
-      if (!user) return; 
-      
-      // Sirf tab chalo agar pehle fix nahi kiya
-      const isFixed = localStorage.getItem('db_fixed_v1');
-      if (isFixed) return;
-
-      console.log("Fixing Database...");
-      const cols = ['transactions', 'parties', 'items', 'tasks', 'staff'];
-      const now = new Date().toISOString();
-      let fixedCount = 0;
-
-      for (const colName of cols) {
-        const q = query(collection(db, colName));
-        const snapshot = await getDocs(q);
-        
-        for (const docSnap of snapshot.docs) {
-          const d = docSnap.data();
-          if (!d.updatedAt) {
-            // Agar updatedAt nahi hai, to add karo
-            await setDoc(doc(db, colName, docSnap.id), { ...d, updatedAt: d.createdAt || now }, { merge: true });
-            fixedCount++;
-          }
-        }
-      }
-      
-      if(fixedCount > 0) {
-          alert(`Database Repaired! Updated ${fixedCount} records. Please reload.`);
-          localStorage.setItem('db_fixed_v1', 'true');
-          // Purana sync time uda do taaki fresh data aaye
-          localStorage.removeItem('smees_last_sync');
-          window.location.reload();
-      } else {
-          localStorage.setItem('db_fixed_v1', 'true');
-      }
-    };
-    
-    // Thoda ruk kar chalo
-    setTimeout(() => fixDatabase(), 3000);
-  }, [user]);
-  // --- REPAIR SCRIPT: END ---
-
+  
   // Load from LocalStorage ONLY on the client-side after mount
   useEffect(() => {
     // Load User
