@@ -650,6 +650,50 @@ export default function App() {
     };
     enableOffline();
   }, []);
+  // --- REPAIR SCRIPT: START ---
+  // Isse paste karein, App chalayen, Alert aane ka wait karein, phir isse DELETE kar dein.
+  useEffect(() => {
+    const fixDatabase = async () => {
+      if (!user) return; 
+      
+      // Sirf tab chalo agar pehle fix nahi kiya
+      const isFixed = localStorage.getItem('db_fixed_v1');
+      if (isFixed) return;
+
+      console.log("Fixing Database...");
+      const cols = ['transactions', 'parties', 'items', 'tasks', 'staff'];
+      const now = new Date().toISOString();
+      let fixedCount = 0;
+
+      for (const colName of cols) {
+        const q = query(collection(db, colName));
+        const snapshot = await getDocs(q);
+        
+        for (const docSnap of snapshot.docs) {
+          const d = docSnap.data();
+          if (!d.updatedAt) {
+            // Agar updatedAt nahi hai, to add karo
+            await setDoc(doc(db, colName, docSnap.id), { ...d, updatedAt: d.createdAt || now }, { merge: true });
+            fixedCount++;
+          }
+        }
+      }
+      
+      if(fixedCount > 0) {
+          alert(`Database Repaired! Updated ${fixedCount} records. Please reload.`);
+          localStorage.setItem('db_fixed_v1', 'true');
+          // Purana sync time uda do taaki fresh data aaye
+          localStorage.removeItem('smees_last_sync');
+          window.location.reload();
+      } else {
+          localStorage.setItem('db_fixed_v1', 'true');
+      }
+    };
+    
+    // Thoda ruk kar chalo
+    setTimeout(() => fixDatabase(), 3000);
+  }, [user]);
+  // --- REPAIR SCRIPT: END ---
 
   // Load from LocalStorage ONLY on the client-side after mount
   useEffect(() => {
@@ -716,30 +760,29 @@ export default function App() {
 const [lastDoc, setLastDoc] = useState(null); // Pagination tracker
 const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
 
-// --- FIX: SMART INCREMENTAL SYNC ---
+// --- UPDATED SYNCDATA (Paste in place of old syncData) ---
   const syncData = async (isBackground = false) => {
     if (!user) return;
     if (!isBackground) setLoading(true);
 
     try {
       // 1. Local Storage se purana data uthao
-      // Hum direct state 'data' use nahi kar rahe kyunki mount hone par wo reset ho sakta hai
       const localStr = localStorage.getItem('smees_data');
       let currentData = localStr ? JSON.parse(localStr) : { ...INITIAL_DATA };
       
       const lastSyncTime = localStorage.getItem('smees_last_sync');
       
-      // 2. Decide: Full Sync or Smart Sync?
-      // Agar transactions khali hain ya lastSyncTime nahi h, to Full Sync karo
+      // 2. Check: Kya pehli baar chala rahe hain?
+      // Agar lastSyncTime nahi hai YA transactions khali hain, to Full Sync karo
       const isFirstRun = !lastSyncTime || !currentData.transactions || currentData.transactions.length === 0;
 
       const collectionsToSync = [
-         { name: 'staff', ref: 'staff' },
-         { name: 'tasks', ref: 'tasks' },
-         { name: 'attendance', ref: 'attendance' },
-         { name: 'parties', ref: 'parties' },
-         { name: 'items', ref: 'items' },
-         { name: 'transactions', ref: 'transactions' }
+         { name: 'staff' }, 
+         { name: 'tasks' }, 
+         { name: 'attendance' },
+         { name: 'parties' }, 
+         { name: 'items' }, 
+         { name: 'transactions' }
       ];
 
       // Admin check
@@ -750,12 +793,14 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
       for (const col of collectionsToSync) {
           let q;
           
-          if (!isFirstRun && col.name !== 'settings') {
-             // SMART SYNC: Sirf wo records lao jo last sync ke baad update huye hain
-             // Isse reads bachenge aur data fast load hoga
+          // SAFETY CHECK: Agar 'updatedAt' field database me nahi hai to error aayega.
+          // Isliye Step 2 wala code chalana zaruri hai.
+          
+          if (!isFirstRun && lastSyncTime) {
+             // SMART SYNC: Sirf naya data lao
              q = query(collection(db, col.name), where("updatedAt", ">", lastSyncTime));
           } else {
-             // FULL SYNC: Pehli baar sab kuch lao (One time heavy read, phir life time relief)
+             // FULL SYNC: Sab kuch lao
              q = query(collection(db, col.name));
           }
 
@@ -763,19 +808,17 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
           
           if (!snapshot.empty) {
               const fetchedDocs = snapshot.docs.map(doc => doc.data());
-              
-              // MERGE LOGIC: Purane data me naya mix karo
-              // Map use karke hum purane record ko naye se replace kar denge agar ID same hui to
               const existingArray = currentData[col.name] || [];
-              const existingMap = new Map(existingArray.map(item => [item.id, item]));
               
+              // MERGE LOGIC: Purane aur naye data ko mix karo
+              const existingMap = new Map(existingArray.map(item => [item.id, item]));
               fetchedDocs.forEach(item => existingMap.set(item.id, item));
               
               currentData[col.name] = Array.from(existingMap.values());
           }
       }
 
-      // Settings hamesha fresh lao (ye chhota data hai)
+      // Settings hamesha fresh lao
       const companySnap = await getDocs(collection(db, "settings"));
       companySnap.forEach(doc => {
         if (doc.id === 'company') currentData.company = doc.data();
@@ -791,17 +834,22 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
       setData(currentData);
       
       if (!isBackground) {
-          const msg = isFirstRun ? "Full Data Downloaded" : "App Updated with Latest Changes";
-          showToast(msg);
+          showToast("Data Synced Successfully");
       }
 
     } catch (error) {
       console.error("Sync Error:", error);
-      // Agar index error aaye to alert karo
+      
+      // Agar index error aaye
       if (error.message && error.message.includes("requires an index")) {
-          alert("PLEASE CREATE INDEX: Open Console (F12) to see the Firebase link.");
-      } else {
-          showToast("Sync Failed. Check Internet.", "error");
+          alert("PLEASE CREATE INDEX: Open Console (F12) and click the Firebase link.");
+      } 
+      // Agar 'failed-precondition' aaye matlab multiple tabs khule hain
+      else if (error.code === 'failed-precondition') {
+          console.log("Offline Persistence Active");
+      } 
+      else {
+          showToast("Sync Error. Check Internet.", "error");
       }
     } finally {
       if (!isBackground) setLoading(false);
