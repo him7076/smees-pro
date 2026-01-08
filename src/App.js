@@ -719,22 +719,22 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
 const syncData = async (isBackground = false, loadMore = false) => {
     if (!user) return;
     
-    // Background sync nahi hai to loading dikhayein
+    // Agar background sync nahi hai to loading dikhayein
     if (!isBackground && !loadMore) setLoading(true);
     
     try {
-      // Agar 'Load More' nahi hai (yani Fresh Sync hai), to purana data aur local data merge karein
+      // 1. Setup: Kya hum purana data load kar rahe hain ya naya sync kar rahe hain?
       let newData = loadMore ? { ...data } : { ...INITIAL_DATA };
       
-      // --- MASTERS SYNC (Parties, Items, Staff) ---
-      // Inhe hum har baar check karenge, lekin Persistence hone ki wajah se 
-      // Firebase inhe dubara download nahi karega agar ye change nahi huye hain.
-      // (Sirf Fresh Sync par run karein, Load More par nahi)
+      // --- A. MASTERS SYNC (Parties, Items, Staff) ---
+      // Ye sirf tab chalega jab 'Load More' NAHI daba ho (yani Fresh Sync)
       if (!loadMore) {
           const isAdmin = user.role === 'admin';
-          let masters = ['staff', 'tasks', 'attendance', 'parties', 'items']; // Staff ke liye bhi parties kholi hain
+          // Parties aur Items ab Staff ko bhi milenge (Task details ke liye)
+          let masters = ['staff', 'tasks', 'attendance', 'parties', 'items']; 
           
           for (const col of masters) {
+            // Note: Persistence ki wajah se ye cache se hi aayega agar net band hai
             const querySnapshot = await getDocs(collection(db, col));
             newData[col] = querySnapshot.docs.map(doc => doc.data());
           }
@@ -748,21 +748,32 @@ const syncData = async (isBackground = false, loadMore = false) => {
           });
       }
 
-      // --- TRANSACTIONS PAGINATION (किस्तों में डेटा) ---
+      // --- B. TRANSACTIONS PAGINATION (किस्तों में डेटा) ---
       if (user.role === 'admin') {
           let txQuery;
           const pageSize = 50; // Ek baar me 50 transactions
 
-          if (loadMore && lastDoc) {
-              // Agle 50 layein
+          if (loadMore) {
+              // LOGIC: Current data me sabse purani date dhundo
+              // Taki hum uske baad ka data server se maang sakein
+              let lastDate = new Date().toISOString(); // Default aaj
+              
+              if (data.transactions.length > 0) {
+                  // Transactions ko Date wise sort karke sabse last wala nikalo
+                  const sortedTx = [...data.transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+                  const lastTx = sortedTx[sortedTx.length - 1];
+                  lastDate = lastTx.date;
+              }
+
+              // Query: Is date ke baad wale (purane) records lao
               txQuery = query(
                   collection(db, "transactions"), 
                   orderBy("date", "desc"), // Latest pehle
-                  startAfter(lastDoc),
+                  startAfter(lastDate),    // <--- FIX: Direct Date Value use karein (Snapshot nahi)
                   limit(pageSize)
               );
           } else {
-              // Pehle 50 layein
+              // Fresh Load: Pehle 50 layein
               txQuery = query(
                   collection(db, "transactions"), 
                   orderBy("date", "desc"),
@@ -772,24 +783,29 @@ const syncData = async (isBackground = false, loadMore = false) => {
 
           const txSnap = await getDocs(txQuery);
           
-          // Pagination ke liye last document save karein
-          const lastVisible = txSnap.docs[txSnap.docs.length - 1];
-          setLastDoc(lastVisible);
-          
-          // Check karein aur data bacha hai kya
-          setIsMoreDataAvailable(txSnap.docs.length === pageSize);
+          // Check karein ki aur data bacha hai ya nahi (Button chupane ke liye)
+          if (txSnap.docs.length < pageSize) {
+              setIsMoreDataAvailable(false);
+          } else {
+              setIsMoreDataAvailable(true);
+          }
 
           const newTransactions = txSnap.docs.map(doc => doc.data());
 
           if (loadMore) {
               // Purane data me naya data jodein
               newData.transactions = [...data.transactions, ...newTransactions];
-              // Duplicates hatayein (Safety check)
-              newData.transactions = [...new Map(newData.transactions.map(item => [item.id, item])).values()];
+              
+              // Duplicates hatayein (Safety check: Agar galti se same data aa jaye)
+              const uniqueTx = new Map();
+              newData.transactions.forEach(item => uniqueTx.set(item.id, item));
+              newData.transactions = Array.from(uniqueTx.values());
+              
           } else {
               newData.transactions = newTransactions;
           }
       } else {
+          // Staff ke liye transactions hidden
           newData.transactions = [];
       }
 
@@ -797,11 +813,16 @@ const syncData = async (isBackground = false, loadMore = false) => {
       localStorage.setItem('smees_data', JSON.stringify(newData));
       setData(newData);
       
-      if (!isBackground) showToast(loadMore ? "More Data Loaded" : "Data Synced Successfully");
+      if (!isBackground) showToast(loadMore ? "Older Transactions Loaded" : "Data Synced");
       
     } catch (error) { 
-        console.error(error); 
-        showToast("Sync Error", "error"); 
+        console.error("Sync Error Details:", error); 
+        // Specific error message dikhayein
+        if (error.message.includes("requires an index")) {
+            alert("Firebase Index Missing: Open Console (F12) and click the link from Firebase to create the index.");
+        } else {
+            showToast("Connection Error", "error"); 
+        }
     } finally { 
         if (!isBackground) setLoading(false); 
     }
