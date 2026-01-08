@@ -1841,6 +1841,7 @@ if (tx.type === 'payment') {
           })}
           
           {/* --- PAGINATION BUTTONS --- */}
+{/* --- PAGINATION BUTTONS --- */}
           <div className="flex flex-col gap-2 mt-4">
             
             {/* 1. VISUAL LOAD MORE: Ye button tab dikhega jab list me aur data chupa hua ho */}
@@ -1856,18 +1857,6 @@ if (tx.type === 'payment') {
             {/* Note: Server wala button ab humne hata diya hai kyunki 
                Smart Sync ab khud background me data lata hai. */}
           </div>
-    
-
-    {/* 2. Server Side "Load More" (Firebase se purana data lana) */}
-    {isMoreDataAvailable && (
-        <button 
-            onClick={() => syncData(false, true)} // True means Load More Mode
-            className="w-full py-3 border-2 border-dashed border-blue-300 text-blue-600 font-bold rounded-xl text-sm hover:bg-blue-50 flex items-center justify-center gap-2"
-        >
-            <RefreshCw size={16} /> Download Older Transactions from Server
-        </button>
-    )}
-</div>
         </div>
       </div>
     );
