@@ -58,7 +58,7 @@ import {
   BarChart3,
   PieChart,
   LogOut,
-  Map,
+  Map as MapIcon,
   Upload,
   UserCheck,
   Coffee,
@@ -558,7 +558,7 @@ const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseU
                                 <p className="text-[10px] text-gray-500">{log.location.lat.toFixed(5)}, {log.location.lng.toFixed(5)}</p>
                             </div>
                             <a href={`https://www.google.com/maps?q=${log.location.lat},${log.location.lng}`} target="_blank" rel="noreferrer" className="p-2 bg-white rounded-lg shadow-sm text-green-700">
-                                <MapPin size={20}/>
+                                <MapIcon size={20}/>
                             </a>
                         </div>
                     )}
