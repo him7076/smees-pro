@@ -723,12 +723,15 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
 
     try {
       // 1. Local Storage se purana data uthao
-      let currentData = { ...data };
+      // Hum direct state 'data' use nahi kar rahe kyunki mount hone par wo reset ho sakta hai
+      const localStr = localStorage.getItem('smees_data');
+      let currentData = localStr ? JSON.parse(localStr) : { ...INITIAL_DATA };
+      
       const lastSyncTime = localStorage.getItem('smees_last_sync');
       
-      // 2. Agar ye first time hai (no local data), to sab kuch fetch karo
-      // Agar pehle sync ho chuka hai, to sirf Updated data lao
-      const isFirstRun = !lastSyncTime || data.transactions.length === 0;
+      // 2. Decide: Full Sync or Smart Sync?
+      // Agar transactions khali hain ya lastSyncTime nahi h, to Full Sync karo
+      const isFirstRun = !lastSyncTime || !currentData.transactions || currentData.transactions.length === 0;
 
       const collectionsToSync = [
          { name: 'staff', ref: 'staff' },
@@ -741,8 +744,7 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
 
       // Admin check
       if (user.role !== 'admin') {
-          // Staff ke liye transactions skip karein
-          collectionsToSync.pop(); 
+          collectionsToSync.pop(); // Staff ko transactions mat do
       }
 
       for (const col of collectionsToSync) {
@@ -750,10 +752,10 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
           
           if (!isFirstRun && col.name !== 'settings') {
              // SMART SYNC: Sirf wo records lao jo last sync ke baad update huye hain
-             // Note: 'updatedAt' field hona zaruri hai (jo humne Step 4 me add kiya tha)
+             // Isse reads bachenge aur data fast load hoga
              q = query(collection(db, col.name), where("updatedAt", ">", lastSyncTime));
           } else {
-             // FULL SYNC: Pehli baar sab kuch lao
+             // FULL SYNC: Pehli baar sab kuch lao (One time heavy read, phir life time relief)
              q = query(collection(db, col.name));
           }
 
@@ -763,15 +765,17 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
               const fetchedDocs = snapshot.docs.map(doc => doc.data());
               
               // MERGE LOGIC: Purane data me naya mix karo
-              // Agar ID match kare to update karo, nahi to add karo
-              const existingMap = new Map(currentData[col.name].map(item => [item.id, item]));
+              // Map use karke hum purane record ko naye se replace kar denge agar ID same hui to
+              const existingArray = currentData[col.name] || [];
+              const existingMap = new Map(existingArray.map(item => [item.id, item]));
+              
               fetchedDocs.forEach(item => existingMap.set(item.id, item));
               
               currentData[col.name] = Array.from(existingMap.values());
           }
       }
 
-      // Settings hamesha fresh lao
+      // Settings hamesha fresh lao (ye chhota data hai)
       const companySnap = await getDocs(collection(db, "settings"));
       companySnap.forEach(doc => {
         if (doc.id === 'company') currentData.company = doc.data();
@@ -794,10 +798,11 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
     } catch (error) {
       console.error("Sync Error:", error);
       // Agar index error aaye to alert karo
-      if (error.message.includes("requires an index")) {
+      if (error.message && error.message.includes("requires an index")) {
           alert("PLEASE CREATE INDEX: Open Console (F12) to see the Firebase link.");
+      } else {
+          showToast("Sync Failed. Check Internet.", "error");
       }
-      showToast("Sync Failed. Check Internet.", "error");
     } finally {
       if (!isBackground) setLoading(false);
     }
@@ -1789,18 +1794,7 @@ if (tx.type === 'payment') {
           
           {/* --- PAGINATION BUTTONS --- */}
 <div className="flex flex-col gap-2 mt-4">
-    {/* --- CLIENT SIDE LOAD MORE --- */}
-{visibleCount < filtered.length && (
-    <div className="mt-4 text-center">
-        <p className="text-xs text-gray-400 mb-2">Showing {visibleCount} of {filtered.length}</p>
-        <button 
-            onClick={() => setVisibleCount(prev => prev + 50)} 
-            className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-200"
-        >
-            Load More Transactions
-        </button>
-    </div>
-)}
+    
 
     {/* 2. Server Side "Load More" (Firebase se purana data lana) */}
     {isMoreDataAvailable && (
