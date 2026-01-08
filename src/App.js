@@ -1841,7 +1841,21 @@ if (tx.type === 'payment') {
           })}
           
           {/* --- PAGINATION BUTTONS --- */}
-<div className="flex flex-col gap-2 mt-4">
+          <div className="flex flex-col gap-2 mt-4">
+            
+            {/* 1. VISUAL LOAD MORE: Ye button tab dikhega jab list me aur data chupa hua ho */}
+            {visibleCount < filtered.length && (
+                <button 
+                    onClick={() => setVisibleCount(prev => prev + 50)} 
+                    className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-200 transition-colors"
+                >
+                    Load More Transactions ({filtered.length - visibleCount} remaining)
+                </button>
+            )}
+
+            {/* Note: Server wala button ab humne hata diya hai kyunki 
+               Smart Sync ab khud background me data lata hai. */}
+          </div>
     
 
     {/* 2. Server Side "Load More" (Firebase se purana data lana) */}
