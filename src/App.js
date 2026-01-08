@@ -69,13 +69,13 @@ import {
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
-  authDomain: "smeestest.firebaseapp.com",
-  projectId: "smeestest",
-  storageBucket: "smeestest.firebasestorage.app",
-  messagingSenderId: "1086297510582",
-  appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
-  measurementId: "G-BQ6NW6D84Z"
+  apiKey: "AIzaSyA0GkAFhV6GfFsszHPJG-aPfGNiVRdBPNg",
+  authDomain: "smees-33e6c.firebaseapp.com",
+  projectId: "smees-33e6c",
+  storageBucket: "smees-33e6c.firebasestorage.app",
+  messagingSenderId: "723248995098",
+  appId: "1:723248995098:web:a61b659e31f42332656aa3",
+  measurementId: "G-JVBZZ8SHGM"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -1583,9 +1583,8 @@ if (tx.type === 'payment') {
     const [sort, setSort] = useState('DateDesc');
     const [filter, setFilter] = useState('all');
     const [visibleCount, setVisibleCount] = useState(50); 
-    
-    // 1. NEW SEARCH STATE
     const [searchQuery, setSearchQuery] = useState(''); 
+    const [dateRange, setDateRange] = useState({ start: '', end: '' }); // NEW: Date Filter State
 
     useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
@@ -1596,22 +1595,30 @@ if (tx.type === 'payment') {
         if (listPaymentMode && (tx.paymentMode || 'Cash') !== listPaymentMode) return false;
         if (categoryFilter && tx.category !== categoryFilter) return false;
 
-        // B. Dynamic Search Logic
+        // B. NEW: Date Range Filter
+        if (dateRange.start && tx.date < dateRange.start) return false;
+        if (dateRange.end && tx.date > dateRange.end) return false;
+
+        // C. Enhanced Search Logic
         if (searchQuery) {
             const lowerQuery = searchQuery.toLowerCase();
             const party = data.parties.find(p => p.id === tx.partyId);
             
-            // Check Fields
+            // Fields to search
             const matchVoucher = tx.id.toLowerCase().includes(lowerQuery);
-            const matchName = party?.name?.toLowerCase().includes(lowerQuery) || tx.category?.toLowerCase().includes(lowerQuery);
-            const matchAmount = (tx.amount || 0).toString().includes(lowerQuery);
-            const matchDate = tx.date?.includes(lowerQuery); // YYYY-MM-DD format match
+            const matchName = (party?.name || tx.category || '').toLowerCase().includes(lowerQuery);
+            const matchDesc = (tx.description || '').toLowerCase().includes(lowerQuery);
+            const matchAddress = (party?.address || '').toLowerCase().includes(lowerQuery);
+            const matchAmount = (tx.amount || tx.finalTotal || 0).toString().includes(lowerQuery);
 
-            return matchVoucher || matchName || matchAmount || matchDate;
+            return matchVoucher || matchName || matchDesc || matchAddress || matchAmount;
         }
 
         return true;
     });
+
+    // 3. NEW: Calculate Dynamic Total for filtered results
+    const filteredTotal = filtered.reduce((acc, tx) => acc + parseFloat(tx.amount || tx.finalTotal || 0), 0);
 
     filtered = sortData(filtered, sort);
     const visibleData = filtered.slice(0, visibleCount);
@@ -1626,15 +1633,32 @@ if (tx.type === 'payment') {
               </div>
             </div>
 
-            {/* 3. NEW SEARCH INPUT UI */}
+            {/* NEW: Date Range Inputs */}
+            <div className="flex gap-2">
+                <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-blue-500" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} />
+                <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-blue-500" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
+            </div>
+
+            {/* UPDATED: Search Input */}
             <div className="relative">
-                <Search className="absolute left-3 top-3 text-gray-400" size={16} />
+                <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
                 <input 
                     className="w-full pl-10 pr-4 py-2 bg-white border rounded-xl text-sm focus:ring-2 focus:ring-blue-500" 
-                    placeholder="Search by Name, Voucher No, Date or Amount..." 
+                    placeholder="Search Name, Address, Desc, Amount..." 
                     value={searchQuery} 
                     onChange={(e) => setSearchQuery(e.target.value)} 
                 />
+            </div>
+        </div>
+
+        {/* NEW: Dynamic Total Card */}
+        <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex justify-between items-center shadow-sm">
+            <div>
+                <p className="text-[10px] font-bold text-blue-500 uppercase">Filtered Total</p>
+                <p className="text-lg font-black text-blue-800">{formatCurrency(filteredTotal)}</p>
+            </div>
+            <div className="bg-white px-3 py-1 rounded-lg text-xs font-bold text-blue-600 shadow-sm border border-blue-100">
+                Count: {filtered.length}
             </div>
         </div>
 
@@ -1662,9 +1686,12 @@ if (tx.type === 'payment') {
                 <div className="flex gap-4 items-center">
                   <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                   <div>
-                    {/* Highlight search match if needed, logic is implicit here */}
                     <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
+                    {/* Show Desc match in search */}
+                    {searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()) && (
+                        <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p>
+                    )}
                     <div className="flex gap-1 mt-1">
                         {isCancelled ? (
                            <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span>
@@ -2226,6 +2253,11 @@ if (tx.type === 'payment') {
                         <div key={i} className="flex justify-between p-3 border rounded-xl bg-white">
                           <div className="flex-1">
                               <p className="font-bold text-sm">{m?.name || 'Item'}</p>
+                              {/* DetailView me Item Name ke pass */}
+<p className="font-bold text-sm">
+    {m?.name || 'Item'} 
+    {item.brand && <span className="text-purple-600 text-[10px] ml-1">({item.brand})</span>}
+</p>
                               <p className="text-xs text-gray-500">{item.qty} x {item.price}</p>
                           </div>
                           <div className="text-right">
@@ -2480,6 +2512,20 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                             </div>
                         ))}
                     </div>
+                    {/* --- NEW CODE START: Detail View Total --- */}
+                {task.itemsUsed && task.itemsUsed.length > 0 && (
+                    <div className="flex justify-end pt-3 border-t border-gray-200 mb-2">
+                        <div className="text-right">
+                            <span className="text-xs font-bold text-gray-400 uppercase mr-2">Total Value</span>
+                            <span className="text-lg font-black text-gray-800">
+                                {formatCurrency(
+                                    task.itemsUsed.reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.price || 0)), 0)
+                                )}
+                            </span>
+                        </div>
+                    </div>
+                )}
+                {/* --- NEW CODE END --- */}
                     {task.status !== 'Converted' && (
                         <SearchableSelect 
                             placeholder="+ Add Item to Task" 
@@ -2773,31 +2819,56 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
       return data.transactions.filter(t => t.partyId === tx.partyId && t.id !== tx.id && t.type !== 'estimate' && ( (['sales', 'purchase', 'expense'].includes(t.type) && getBillLogic(t).status !== 'PAID') || (t.type === 'payment' && getBillLogic(t).status !== 'FULLY USED') ) );
     }, [tx.partyId, data.transactions]);
 
-    // TransactionForm component ke andar
+    // --- TransactionForm ke andar is function ko replace karein ---
+
 const updateLine = (idx, field, val) => {
     const newItems = [...tx.items];
     newItems[idx][field] = val;
 
-    if (field === 'itemId') {
-        const item = data.items.find(i => i.id === val);
+    // Logic: Jab Item યા Brand change ho, to rate fetch karein
+    if (field === 'itemId' || field === 'brand') {
+        const currentItemId = newItems[idx].itemId;
+        const currentBrand = field === 'brand' ? val : newItems[idx].brand;
+
+        const item = data.items.find(i => i.id === currentItemId);
+        
         if (item) {
-            // --- 1. Last Price Fetch Logic ---
-            // Find the most recent transaction where this item was used
+            // 1. Last Price Fetch Logic (Item + Brand match karein)
             const lastTx = data.transactions
-                .filter(t => t.status !== 'Cancelled' && t.items?.some(line => line.itemId === val))
-                .sort((a, b) => new Date(b.date) - new Date(a.date))[0]; // Sort by date desc
+                .filter(t => 
+                    t.status !== 'Cancelled' && 
+                    t.items?.some(line => 
+                        line.itemId === currentItemId && 
+                        (currentBrand ? line.brand?.toLowerCase() === currentBrand.toLowerCase() : true)
+                    )
+                )
+                .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
 
-            const lastItemData = lastTx?.items.find(line => line.itemId === val);
+            const lastItemData = lastTx?.items.find(line => 
+                line.itemId === currentItemId && 
+                (currentBrand ? line.brand?.toLowerCase() === currentBrand.toLowerCase() : true)
+            );
 
-            // Determine default prices (Master vs Last Used)
-            // Agar last transaction mila to uska price lo, nahi to master ka
-            const autoSellPrice = lastItemData ? lastItemData.price : item.sellPrice;
-            const autoBuyPrice = lastItemData ? (lastItemData.buyPrice || item.buyPrice) : item.buyPrice;
+            // Rate Decide karein
+            let autoSellPrice = item.sellPrice;
+            let autoBuyPrice = item.buyPrice;
 
-            // Type ke hisab se set karo
+            // Agar history mili to wahi rate use karein
+            if (lastItemData) {
+                autoSellPrice = lastItemData.price;
+                autoBuyPrice = lastItemData.buyPrice || item.buyPrice;
+            }
+
+            // Values set karein (Sirf tab jab user khud price type na kar rha ho)
+            // Yahan hum force update kar rahe hain kyu ki item/brand change hua hai
             newItems[idx].price = type === 'purchase' ? autoBuyPrice : autoSellPrice;
             newItems[idx].buyPrice = autoBuyPrice;
             newItems[idx].description = item.description || '';
+            
+            // Agar Master me default brand hai aur abhi tak select nahi kiya, to wo le lo
+            if(field === 'itemId' && !newItems[idx].brand && item.brand) {
+                newItems[idx].brand = item.brand;
+            }
         }
     }
     setTx({ ...tx, items: newItems });
@@ -2838,6 +2909,19 @@ const updateLine = (idx, field, val) => {
 
         setTx({ ...tx, linkedBills: newLinked });
     };
+    // --- TransactionForm Component ke andar (return se pehle) ---
+
+  // 1. Get all unique brands used in transactions
+  const allBrands = useMemo(() => {
+      const brands = new Set();
+      // Add brands from Item Masters
+      data.items.forEach(i => { if(i.brand) brands.add(i.brand); });
+      // Add brands from Transaction History
+      data.transactions.forEach(t => {
+          t.items?.forEach(i => { if(i.brand) brands.add(i.brand); });
+      });
+      return Array.from(brands).sort();
+  }, [data.items, data.transactions]);
 
     return (
       <div className="space-y-4">
@@ -2936,6 +3020,19 @@ const updateLine = (idx, field, val) => {
                             value={line.itemId} 
                             onChange={v => updateLine(idx, 'itemId', v)} 
                         />
+                        {/* Is code ko Item Selection (SearchableSelect) ke turant baad dalein */}
+
+{/* Brand Select Dropdown */}
+<SearchableSelect 
+    placeholder="Select Brand (Optional)"
+    options={allBrands} 
+    value={line.brand || ''} 
+    onChange={v => updateLine(idx, 'brand', v)}
+    onAddNew={() => {
+        const newBrand = prompt("Enter New Brand Name:");
+        if(newBrand) updateLine(idx, 'brand', newBrand);
+    }}
+/>
                         
                         <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
                         
@@ -3247,6 +3344,7 @@ const toggleMobile = (mob) => {
                     </div>
                 </div>
             ))}
+            
 
             {/* Add Button at Bottom */}
             <button 
@@ -3256,7 +3354,18 @@ const toggleMobile = (mob) => {
                 <Plus size={16}/> Add Item
             </button>
         </div>
-
+{/* --- NEW CODE START: Task Total Calculation --- */}
+            <div className="flex justify-end pt-2 mt-2 border-t border-gray-200">
+                <div className="text-right">
+                    <span className="text-xs font-bold text-gray-500 uppercase mr-2">Estimated Total</span>
+                    <span className="text-xl font-black text-blue-600">
+                        {formatCurrency(
+                            form.itemsUsed.reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.price || 0)), 0)
+                        )}
+                    </span>
+                </div>
+            </div>
+            {/* --- NEW CODE END --- */}
         <div className="grid grid-cols-2 gap-4"><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /><select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.status} onChange={e => setForm({...form, status: e.target.value})}><option>To Do</option><option>In Progress</option><option>Done</option></select></div>
         <button onClick={() => saveRecord('tasks', form, 'task')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
       </div>
@@ -3486,10 +3595,30 @@ const removeMobile = (idx) => {
   };
    
   const ItemForm = ({ record }) => {
-    const [form, setForm] = useState({ name: '', sellPrice: '', buyPrice: '', unit: 'pcs', openingStock: '0', type: 'Goods', ...(record || {}) });
+    const [form, setForm] = useState({ name: '', brand: '', sellPrice: '', buyPrice: '', unit: 'pcs', openingStock: '0', type: 'Goods', ...(record || {}) });
+    // --- Inside ItemForm, before return ---
+const allBrands = useMemo(() => {
+    const brands = new Set();
+    data.items.forEach(i => { if(i.brand) brands.add(i.brand); });
+    return Array.from(brands).sort();
+}, [data.items]);
     return (
        <div className="space-y-4">
          <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Item Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+         {/* Brand Input (Optional) */}
+<div className="mb-2">
+    <label className="text-xs font-bold text-gray-500 uppercase ml-1">Brand</label>
+    <SearchableSelect 
+        placeholder="Select or Create Brand"
+        options={allBrands} 
+        value={form.brand} 
+        onChange={v => setForm({...form, brand: v})}
+        onAddNew={() => {
+            const newBrand = prompt("Enter New Brand Name:");
+            if(newBrand) setForm({...form, brand: newBrand});
+        }}
+    />
+</div>
          <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option>Goods</option><option>Service</option><option>Expense Item</option></select>
          <div className="grid grid-cols-2 gap-4"><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Sell Price" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} /><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Buy Price" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} /></div>
          <div className="grid grid-cols-2 gap-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Unit (e.g. pcs)" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} /><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Opening Stock" value={form.openingStock} onChange={e => setForm({...form, openingStock: e.target.value})} /></div>
