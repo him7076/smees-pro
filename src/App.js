@@ -79,7 +79,6 @@ const firebaseConfig = {
   appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
   measurementId: "G-BQ6NW6D84Z"
 };
-
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -336,28 +335,38 @@ const ManualAttendanceModal = ({ manualAttModal, setManualAttModal, data, setDat
 
   if (!manualAttModal) return null;
    
-  const handleSave = async () => {
-      const staffId = manualAttModal.staffId || manualAttModal.id.split('-')[1]; 
-      const attId = manualAttModal.isEdit ? manualAttModal.id : `ATT-${staffId}-${form.date}`;
-      
-      const record = { 
-          staffId, 
-          date: form.date, 
-          checkIn: form.in, 
-          checkOut: form.out, 
-          lunchStart: form.lStart, 
-          lunchEnd: form.lEnd, 
-          id: attId, 
-          status: 'Present' 
-      };
-      
-      const newAtt = [...data.attendance.filter(a => a.id !== attId), record];
-      setData(prev => ({ ...prev, attendance: newAtt }));
-      await setDoc(doc(db, "attendance", attId), record);
-      setManualAttModal(false); 
-      handleCloseUI(); 
-      showToast(manualAttModal.isEdit ? "Updated" : "Added");
-  };
+  // --- FIX IN ManualAttendanceModal Component ---
+const handleSave = async () => {
+    const staffId = manualAttModal.staffId || manualAttModal.id.split('-')[1]; 
+    const attId = manualAttModal.isEdit ? manualAttModal.id : `ATT-${staffId}-${form.date}`;
+    const timestamp = new Date().toISOString(); // <--- 1. Timestamp
+
+    const record = { 
+        staffId, 
+        date: form.date, 
+        checkIn: form.in, 
+        checkOut: form.out, 
+        lunchStart: form.lStart, 
+        lunchEnd: form.lEnd, 
+        id: attId, 
+        status: 'Present',
+        updatedAt: timestamp // <--- 2. Add updatedAt here
+    };
+    
+    // Naya record hai to createdAt bhi daalo (optional but good practice)
+    if(!manualAttModal.isEdit) {
+        record.createdAt = timestamp;
+    }
+    
+    const newAtt = [...data.attendance.filter(a => a.id !== attId), record];
+    setData(prev => ({ ...prev, attendance: newAtt }));
+    
+    await setDoc(doc(db, "attendance", attId), record); // Save
+    
+    setManualAttModal(false); 
+    handleCloseUI(); 
+    showToast(manualAttModal.isEdit ? "Updated" : "Added");
+};
    
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -1288,22 +1297,44 @@ if (tx.type === 'payment') {
         return `${h}h ${mins}m`;
       };
 
-      const handleAttendance = async (type) => {
-        if (!user) return;
-        const now = new Date();
-        const todayStr = now.toISOString().split('T')[0];
-        const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
-        const existingDoc = data.attendance.find(a => a.staffId === staff.id && a.date === todayStr);
-        let attRecord = existingDoc || { staffId: staff.id, date: todayStr, checkIn: '', checkOut: '', lunchStart: '', lunchEnd: '', status: 'Present', id: `ATT-${staff.id}-${todayStr}` };
-        if (type === 'checkIn') attRecord.checkIn = timeStr;
-        if (type === 'checkOut') attRecord.checkOut = timeStr;
-        if (type === 'lunchStart') attRecord.lunchStart = timeStr;
-        if (type === 'lunchEnd') attRecord.lunchEnd = timeStr;
-        const newAtt = [...data.attendance.filter(a => a.id !== attRecord.id), attRecord];
-        setData(prev => ({ ...prev, attendance: newAtt }));
-        await setDoc(doc(db, "attendance", attRecord.id), attRecord);
-        showToast(`${type} Recorded`);
+      // --- FIX IN StaffDetailView Component ---
+const handleAttendance = async (type) => {
+    if (!user) return;
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const timestamp = new Date().toISOString(); // <--- 1. Current Time lo
+
+    const existingDoc = data.attendance.find(a => a.staffId === staff.id && a.date === todayStr);
+    
+    // Record create ya update kar rahe hain
+    let attRecord = existingDoc ? { ...existingDoc } : { 
+        staffId: staff.id, 
+        date: todayStr, 
+        checkIn: '', 
+        checkOut: '', 
+        lunchStart: '', 
+        lunchEnd: '', 
+        status: 'Present', 
+        id: `ATT-${staff.id}-${todayStr}`,
+        createdAt: timestamp // New record hai to created at
     };
+
+    if (type === 'checkIn') attRecord.checkIn = timeStr;
+    if (type === 'checkOut') attRecord.checkOut = timeStr;
+    if (type === 'lunchStart') attRecord.lunchStart = timeStr;
+    if (type === 'lunchEnd') attRecord.lunchEnd = timeStr;
+    
+    // --- 2. IMPORTANT: updatedAt set karo ---
+    attRecord.updatedAt = timestamp; 
+
+    const newAtt = [...data.attendance.filter(a => a.id !== attRecord.id), attRecord];
+    setData(prev => ({ ...prev, attendance: newAtt }));
+    
+    // Firebase me save
+    await setDoc(doc(db, "attendance", attRecord.id), attRecord);
+    showToast(`${type} Recorded`);
+};
 
     const deleteAtt = async (id) => {
         if(!window.confirm("Delete this attendance record?")) return;
@@ -2916,59 +2947,41 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     }, [tx.partyId, data.transactions]);
 
     // --- TransactionForm ke andar is function ko replace karein ---
-
 const updateLine = (idx, field, val) => {
-    const newItems = [...tx.items];
-    newItems[idx][field] = val;
+        const newItems = [...tx.items];
+        newItems[idx][field] = val;
 
-    // Logic: Jab Item યા Brand change ho, to rate fetch karein
-    if (field === 'itemId' || field === 'brand') {
-        const currentItemId = newItems[idx].itemId;
-        const currentBrand = field === 'brand' ? val : newItems[idx].brand;
-
-        const item = data.items.find(i => i.id === currentItemId);
-        
-        if (item) {
-            // 1. Last Price Fetch Logic (Item + Brand match karein)
-            const lastTx = data.transactions
-                .filter(t => 
-                    t.status !== 'Cancelled' && 
-                    t.items?.some(line => 
-                        line.itemId === currentItemId && 
-                        (currentBrand ? line.brand?.toLowerCase() === currentBrand.toLowerCase() : true)
-                    )
-                )
-                .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-
-            const lastItemData = lastTx?.items.find(line => 
-                line.itemId === currentItemId && 
-                (currentBrand ? line.brand?.toLowerCase() === currentBrand.toLowerCase() : true)
-            );
-
-            // Rate Decide karein
-            let autoSellPrice = item.sellPrice;
-            let autoBuyPrice = item.buyPrice;
-
-            // Agar history mili to wahi rate use karein
-            if (lastItemData) {
-                autoSellPrice = lastItemData.price;
-                autoBuyPrice = lastItemData.buyPrice || item.buyPrice;
-            }
-
-            // Values set karein (Sirf tab jab user khud price type na kar rha ho)
-            // Yahan hum force update kar rahe hain kyu ki item/brand change hua hai
-            newItems[idx].price = type === 'purchase' ? autoBuyPrice : autoSellPrice;
-            newItems[idx].buyPrice = autoBuyPrice;
-            newItems[idx].description = item.description || '';
-            
-            // Agar Master me default brand hai aur abhi tak select nahi kiya, to wo le lo
-            if(field === 'itemId' && !newItems[idx].brand && item.brand) {
-                newItems[idx].brand = item.brand;
+        // 1. Jab Item Change ho
+        if (field === 'itemId') {
+            const item = data.items.find(i => i.id === val);
+            if (item) {
+                newItems[idx].price = type === 'purchase' ? item.buyPrice : item.sellPrice; // Default Price
+                newItems[idx].buyPrice = item.buyPrice;
+                newItems[idx].description = item.description || '';
+                newItems[idx].brand = ''; // Reset brand when item changes
             }
         }
-    }
-    setTx({ ...tx, items: newItems });
-};
+
+        // 2. Jab Brand Change ho
+        if (field === 'brand') {
+            const item = data.items.find(i => i.id === newItems[idx].itemId);
+            if (item && item.brands) {
+                // Find specific brand logic
+                const brandData = item.brands.find(b => b.name === val);
+                if (brandData) {
+                    // Update Price based on Brand
+                    newItems[idx].price = type === 'purchase' ? brandData.buyPrice : brandData.sellPrice;
+                    newItems[idx].buyPrice = brandData.buyPrice;
+                } else if (!val) {
+                    // Agar Brand hata diya, to wapas Default Price par aajao
+                    newItems[idx].price = type === 'purchase' ? item.buyPrice : item.sellPrice;
+                    newItems[idx].buyPrice = item.buyPrice;
+                }
+            }
+        }
+        
+        setTx({ ...tx, items: newItems });
+    };
 
     const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
     const partyOptions = data.parties.map(p => ({ ...p, subText: partyBalances[p.id] ? formatCurrency(Math.abs(partyBalances[p.id])) + (partyBalances[p.id]>0?' DR':' CR') : 'Settled', subColor: partyBalances[p.id]>0?'text-green-600':partyBalances[p.id]<0?'text-red-600':'text-gray-400' }));
@@ -3107,50 +3120,60 @@ const updateLine = (idx, field, val) => {
                 <h4 className="text-xs font-bold text-gray-400 uppercase">Items / Services</h4>
                 
                 {/* 1. Render Items First */}
-                {tx.items.map((line, idx) => (
+                {/* List Items Loop */}
+            {tx.items.map((line, idx) => {
+                // Current Item ko dhundo taaki uske brands nikal sakein
+                const selectedItemMaster = data.items.find(i => i.id === line.itemId);
+                
+                // Sirf is item ke brands ki list banao
+                const specificBrandOptions = selectedItemMaster?.brands?.map(b => ({
+                    id: b.name, // SearchableSelect id mangta hai
+                    name: b.name,
+                    subText: `₹${b.sellPrice}`,
+                    subColor: 'text-green-600'
+                })) || [];
+
+                return (
                     <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
                         <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
                         
+                        {/* 1. Item Select */}
                         <SearchableSelect 
                             options={itemOptions} 
                             value={line.itemId} 
                             onChange={v => updateLine(idx, 'itemId', v)} 
+                            placeholder="Select Item"
                         />
-                        {/* Is code ko Item Selection (SearchableSelect) ke turant baad dalein */}
-
-{/* Brand Select Dropdown */}
-<SearchableSelect 
-    placeholder="Select Brand (Optional)"
-    options={allBrands} 
-    value={line.brand || ''} 
-    onChange={v => updateLine(idx, 'brand', v)}
-    onAddNew={() => {
-        const newBrand = prompt("Enter New Brand Name:");
-        if(newBrand) updateLine(idx, 'brand', newBrand);
-    }}
-/>
+                        
+                        {/* 2. Brand Select (Conditional) */}
+                        {selectedItemMaster && (
+                            <SearchableSelect 
+                                placeholder={specificBrandOptions.length > 0 ? "Select Brand/Variant" : "No Brands defined (Type manual)"}
+                                options={specificBrandOptions} 
+                                value={line.brand || ''} 
+                                onChange={v => updateLine(idx, 'brand', v)}
+                                onAddNew={() => {
+                                    const newBrand = prompt(`Add new brand for ${selectedItemMaster.name}? (Won't save to master)`);
+                                    if(newBrand) updateLine(idx, 'brand', newBrand);
+                                }}
+                            />
+                        )}
                         
                         <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
                         
                         <div className="flex gap-2">
-                            <div className="flex flex-col">
-                                <span className="text-[8px] text-gray-400 font-bold ml-1">QTY</span>
-                                <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} />
-                            </div>
-                            <div className="flex flex-col">
-                                <span className="text-[8px] text-gray-400 font-bold ml-1">SALE</span>
-                                <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
-                            </div>
-                           {type === 'sales' && ( <div className="flex flex-col">
-                                <span className="text-[8px] text-gray-400 font-bold ml-1">BUY</span>
+                            <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} />
+                            <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
+                            {type === 'sales' && (
                                 <input type="number" className="w-20 p-1 border rounded text-xs bg-yellow-50 text-gray-600" placeholder="Buy" value={line.buyPrice} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />
-                            </div>)}
+                            )}
                             <div className="flex-1 text-right self-end text-xs font-bold text-gray-500 pb-2">
                                 {formatCurrency(line.qty * line.price)}
                             </div>
                         </div>
                     </div>
-                ))}
+                );
+            })}
 
                 {/* 2. Add Item Button Below Items */}
                 <button 
@@ -3691,34 +3714,86 @@ const removeMobile = (idx) => {
   };
    
   const ItemForm = ({ record }) => {
-    const [form, setForm] = useState({ name: '', brand: '', sellPrice: '', buyPrice: '', unit: 'pcs', openingStock: '0', type: 'Goods', ...(record || {}) });
-    // --- Inside ItemForm, before return ---
-const allBrands = useMemo(() => {
-    const brands = new Set();
-    data.items.forEach(i => { if(i.brand) brands.add(i.brand); });
-    return Array.from(brands).sort();
-}, [data.items]);
+    // Default structure: brands array add kiya hai
+    const [form, setForm] = useState({ 
+        name: '', 
+        type: 'Goods', 
+        unit: 'pcs', 
+        openingStock: '0', 
+        sellPrice: '', // Base Price (Default)
+        buyPrice: '',  // Base Price (Default)
+        brands: [], // [{ name: 'Anchor', sellPrice: 20, buyPrice: 15 }]
+        ...(record || {}) 
+    });
+
+    // Helper to update specific brand in the list
+    const updateBrand = (idx, field, value) => {
+        const newBrands = [...(form.brands || [])];
+        newBrands[idx][field] = value;
+        setForm({ ...form, brands: newBrands });
+    };
+
+    // Add new empty brand row
+    const addBrandRow = () => {
+        setForm({
+            ...form,
+            brands: [...(form.brands || []), { name: '', sellPrice: form.sellPrice, buyPrice: form.buyPrice }]
+        });
+    };
+
+    // Remove brand row
+    const removeBrandRow = (idx) => {
+        const newBrands = [...(form.brands || [])];
+        newBrands.splice(idx, 1);
+        setForm({ ...form, brands: newBrands });
+    };
+
     return (
        <div className="space-y-4">
-         <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Item Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-         {/* Brand Input (Optional) */}
-<div className="mb-2">
-    <label className="text-xs font-bold text-gray-500 uppercase ml-1">Brand</label>
-    <SearchableSelect 
-        placeholder="Select or Create Brand"
-        options={allBrands} 
-        value={form.brand} 
-        onChange={v => setForm({...form, brand: v})}
-        onAddNew={() => {
-            const newBrand = prompt("Enter New Brand Name:");
-            if(newBrand) setForm({...form, brand: newBrand});
-        }}
-    />
-</div>
-         <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option>Goods</option><option>Service</option><option>Expense Item</option></select>
-         <div className="grid grid-cols-2 gap-4"><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Sell Price" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} /><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Buy Price" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} /></div>
-         <div className="grid grid-cols-2 gap-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Unit (e.g. pcs)" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} /><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Opening Stock" value={form.openingStock} onChange={e => setForm({...form, openingStock: e.target.value})} /></div>
-         <button onClick={() => saveRecord('items', form, 'item')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Item</button>
+         <div className="p-3 bg-gray-50 border rounded-xl space-y-3">
+             <label className="text-xs font-bold text-gray-400 uppercase">Basic Details</label>
+             <input className="w-full p-2 bg-white border rounded-lg" placeholder="Item Name (e.g. 6Amp Switch)" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+             <div className="grid grid-cols-2 gap-2">
+                 <select className="p-2 bg-white border rounded-lg text-sm" value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option>Goods</option><option>Service</option></select>
+                 <input className="p-2 bg-white border rounded-lg text-sm" placeholder="Unit (pcs/mtr)" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} />
+             </div>
+             <div className="grid grid-cols-2 gap-2">
+                 <div>
+                    <label className="text-[10px] text-gray-500">Default Sell Price</label>
+                    <input type="number" className="w-full p-2 bg-white border rounded-lg" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} />
+                 </div>
+                 <div>
+                    <label className="text-[10px] text-gray-500">Default Buy Price</label>
+                    <input type="number" className="w-full p-2 bg-white border rounded-lg" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} />
+                 </div>
+             </div>
+             <input type="number" className="w-full p-2 bg-white border rounded-lg text-sm" placeholder="Opening Stock" value={form.openingStock} onChange={e => setForm({...form, openingStock: e.target.value})} />
+         </div>
+
+         {/* --- BRAND / VARIANT MANAGER --- */}
+         <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl space-y-2">
+             <div className="flex justify-between items-center">
+                 <label className="text-xs font-bold text-blue-700 uppercase">Brands & Pricing</label>
+                 <button onClick={addBrandRow} className="text-[10px] bg-blue-600 text-white px-2 py-1 rounded font-bold">+ Add Brand</button>
+             </div>
+             
+             {(form.brands || []).length === 0 && <p className="text-xs text-gray-400 italic">No specific brands added. Default prices will be used.</p>}
+
+             {(form.brands || []).map((b, idx) => (
+                 <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded-lg border shadow-sm">
+                     <div className="flex-1 space-y-1">
+                         <input className="w-full p-1 border-b text-sm font-bold text-blue-900 placeholder-blue-200" placeholder="Brand Name (e.g. Havells)" value={b.name} onChange={e => updateBrand(idx, 'name', e.target.value)} />
+                         <div className="flex gap-2">
+                             <input type="number" className="w-1/2 p-1 bg-gray-50 rounded text-xs" placeholder="Sell" value={b.sellPrice} onChange={e => updateBrand(idx, 'sellPrice', e.target.value)} />
+                             <input type="number" className="w-1/2 p-1 bg-gray-50 rounded text-xs" placeholder="Buy" value={b.buyPrice} onChange={e => updateBrand(idx, 'buyPrice', e.target.value)} />
+                         </div>
+                     </div>
+                     <button onClick={() => removeBrandRow(idx)} className="text-red-400 hover:text-red-600"><X size={16}/></button>
+                 </div>
+             ))}
+         </div>
+
+         <button onClick={() => saveRecord('items', form, 'item')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200">Save Item</button>
        </div>
     );
   };
