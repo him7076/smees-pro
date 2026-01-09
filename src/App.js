@@ -1297,17 +1297,18 @@ if (tx.type === 'payment') {
         return `${h}h ${mins}m`;
       };
 
-      // --- FIX IN StaffDetailView Component ---
+  // --- FIX FOR ATTENDANCE SYNC ---
 const handleAttendance = async (type) => {
     if (!user) return;
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
     const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
-    const timestamp = new Date().toISOString(); // <--- 1. Current Time lo
+    
+    // 1. Current Timestamp Lo (ISO String for sync logic)
+    const timestamp = new Date().toISOString(); 
 
     const existingDoc = data.attendance.find(a => a.staffId === staff.id && a.date === todayStr);
     
-    // Record create ya update kar rahe hain
     let attRecord = existingDoc ? { ...existingDoc } : { 
         staffId: staff.id, 
         date: todayStr, 
@@ -1317,7 +1318,7 @@ const handleAttendance = async (type) => {
         lunchEnd: '', 
         status: 'Present', 
         id: `ATT-${staff.id}-${todayStr}`,
-        createdAt: timestamp // New record hai to created at
+        createdAt: timestamp 
     };
 
     if (type === 'checkIn') attRecord.checkIn = timeStr;
@@ -1326,12 +1327,13 @@ const handleAttendance = async (type) => {
     if (type === 'lunchEnd') attRecord.lunchEnd = timeStr;
     
     // --- 2. IMPORTANT: updatedAt set karo ---
+    // Jab tak ye update nahi hoga, Admin ko pata nahi chalega ki change hua hai
     attRecord.updatedAt = timestamp; 
 
     const newAtt = [...data.attendance.filter(a => a.id !== attRecord.id), attRecord];
     setData(prev => ({ ...prev, attendance: newAtt }));
     
-    // Firebase me save
+    // Firebase Save
     await setDoc(doc(db, "attendance", attRecord.id), attRecord);
     showToast(`${type} Recorded`);
 };
@@ -2416,62 +2418,74 @@ const handleAttendance = async (type) => {
             subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' 
         }));
         
-        const toggleTimer = (staffId) => {
-            if (!user) return;
-            const now = new Date().toISOString();
-            let newLogs = [...(task.timeLogs || [])];
-            const activeLogIndex = newLogs.findIndex(l => l.staffId === staffId && !l.end);
+ // --- FIX FOR TIMER SYNC ---
+const toggleTimer = (staffId) => {
+    if (!user) return;
+    const now = new Date().toISOString();
+    
+    // 1. Naya Update Time
+    const timestamp = new Date().toISOString(); 
 
-            if (activeLogIndex >= 0) {
-                // STOP TIMER (No location needed)
-                const start = new Date(newLogs[activeLogIndex].start); 
-                const end = new Date(now);
-                const duration = ((end - start) / 1000 / 60).toFixed(0); 
-                newLogs[activeLogIndex] = { ...newLogs[activeLogIndex], end: now, duration };
-                updateTaskLogs(newLogs);
-            } else {
-                // START TIMER
-                // 1. Check for conflicts
-                const activeTask = data.tasks.find(t => t.timeLogs && t.timeLogs.some(l => l.staffId === staffId && !l.end));
-                if (activeTask && activeTask.id !== task.id) { 
-                    pushHistory(); 
-                    setTimerConflict({ staffId, activeTaskId: activeTask.id, targetTaskId: task.id }); 
-                    return; 
-                }
-                
-                const staff = data.staff.find(s => s.id === staffId);
-                
-                // 2. Define helper to save log with or without location
-                const saveLog = (locData) => {
-                      newLogs.push({ 
-                         staffId, 
-                         staffName: staff?.name, 
-                         start: now, 
-                         end: null, 
-                         duration: 0,
-                         location: locData // Saves { lat, lng } or null
-                     });
-                    updateTaskLogs(newLogs);
-                };
+    let newLogs = [...(task.timeLogs || [])];
+    const activeLogIndex = newLogs.findIndex(l => l.staffId === staffId && !l.end);
 
-                // 3. Robust Geolocation Capture
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                        (pos) => {
-                            const { latitude, longitude } = pos.coords;
-                            saveLog({ lat: latitude, lng: longitude });
-                        },
-                        (err) => {
-                            console.error("Location Error:", err);
-                            saveLog(null); // Proceed even if location fails
-                        },
-                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-                    );
-                } else {
-                    saveLog(null);
-                }
-            }
+    if (activeLogIndex >= 0) {
+        // STOP TIMER
+        const start = new Date(newLogs[activeLogIndex].start); 
+        const end = new Date(now);
+        const duration = ((end - start) / 1000 / 60).toFixed(0); 
+        newLogs[activeLogIndex] = { ...newLogs[activeLogIndex], end: now, duration };
+        
+        // Update Task with new logs AND updatedAt
+        const updatedTask = { ...task, timeLogs: newLogs, updatedAt: timestamp };
+        updateTaskState(updatedTask); // Helper function call
+    } else {
+        // START TIMER Logic...
+        // ... (Conflict check same rahega) ...
+        const activeTask = data.tasks.find(t => t.timeLogs && t.timeLogs.some(l => l.staffId === staffId && !l.end));
+        if (activeTask && activeTask.id !== task.id) { 
+            pushHistory(); 
+            setTimerConflict({ staffId, activeTaskId: activeTask.id, targetTaskId: task.id }); 
+            return; 
+        }
+
+        const staff = data.staff.find(s => s.id === staffId);
+        
+        const saveLog = (locData) => {
+              newLogs.push({ 
+                 staffId, 
+                 staffName: staff?.name, 
+                 start: now, 
+                 end: null, 
+                 duration: 0,
+                 location: locData 
+             });
+             
+             // Update Task with new logs AND updatedAt
+             const updatedTask = { ...task, timeLogs: newLogs, updatedAt: timestamp };
+             updateTaskState(updatedTask);
         };
+        
+        // ... (Location logic same rahega) ...
+        if (navigator.geolocation) {
+             navigator.geolocation.getCurrentPosition((pos) => saveLog({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => saveLog(null));
+        } else {
+             saveLog(null);
+        }
+    }
+};
+
+// Helper function to update state and firebase
+const updateTaskState = async (updatedTask) => {
+    // 1. Local State Update
+    setData(prev => ({ 
+        ...prev, 
+        tasks: prev.tasks.map(t => t.id === updatedTask.id ? updatedTask : t) 
+    }));
+    
+    // 2. Firebase Save (updatedAt zarur hona chahiye)
+    await setDoc(doc(db, "tasks", updatedTask.id), updatedTask);
+};
 
         const updateTaskLogs = (logs) => {
             const updatedTask = { ...task, timeLogs: logs };
