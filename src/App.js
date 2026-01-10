@@ -685,6 +685,12 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [reportView, setReportView] = useState(null);
   const [statementModal, setStatementModal] = useState(null);
+
+ const [txSearchQuery, setTxSearchQuery] = useState(''); // Transaction Search ke liye
+ const [txDateRange, setTxDateRange] = useState({ start: '', end: '' }); // Date Filter ke liye
+ const [masterSearch, setMasterSearch] = useState(''); // Party/Item List Search ke liye  
+const [navStack, setNavStack] = useState([]); // Navigation History rakhne ke liye
+const scrollPos = useRef({}); // Scroll position save karne ke liye
     
   // Logic & Filter States
   const [listFilter, setListFilter] = useState('all');
@@ -889,11 +895,26 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
     return () => unsubscribe();
   }, [user, data.parties]); // Jab user login kare ya parties load ho tab reset kare
 
+  // REQ 2: Deep Linking (Open Task from URL) ke baad wala useEffect
   useEffect(() => {
       const handlePopState = () => {
           if (modal.type) setModal({ type: null, data: null });
           else if (statementModal) setStatementModal(null);
-          else if (viewDetail) setViewDetail(null);
+          
+          // --- CHANGE START: Check Navigation Stack ---
+          else if (viewDetail) {
+              if (navStack.length > 0) {
+                  // Agar stack me history hai, to piche wale view par jao
+                  const prevView = navStack[navStack.length - 1];
+                  setNavStack(prev => prev.slice(0, -1)); // Stack se last item hatao
+                  setViewDetail(prevView); // Purana view dikhao
+              } else {
+                  // Stack khali hai, tabhi list par jao
+                  setViewDetail(null); 
+              }
+          }
+          // --- CHANGE END ---
+
           else if (mastersView) { setMastersView(null); setPartyFilter(null); }
           else if (reportView) setReportView(null);
           else if (convertModal) setConvertModal(null);
@@ -902,11 +923,13 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
           else if (editingTimeLog) setEditingTimeLog(null);
           else if (manualAttModal) setManualAttModal(null);
           else if (adjustCashModal) setAdjustCashModal(null);
-          else if (selectedTimeLog) setSelectedTimeLog(null); // Handle Back Button
+          else if (selectedTimeLog) setSelectedTimeLog(null);
       };
       window.addEventListener('popstate', handlePopState);
       return () => window.removeEventListener('popstate', handlePopState);
-  }, [modal, viewDetail, mastersView, reportView, convertModal, showPnlReport, timerConflict, editingTimeLog, statementModal, manualAttModal, adjustCashModal, selectedTimeLog]);
+      
+      // IMPORTANT: Niche dependency array me 'navStack' add karna mat bhulna
+  }, [modal, viewDetail, mastersView, reportView, convertModal, showPnlReport, timerConflict, editingTimeLog, statementModal, manualAttModal, adjustCashModal, selectedTimeLog, navStack]);
 
   const pushHistory = () => window.history.pushState({ modal: true }, '');
   const handleCloseUI = () => window.history.back();
@@ -1564,8 +1587,8 @@ const handleAttendance = async (type) => {
       );
   };
 
-  const MasterList = ({ title, collection, type, onRowClick }) => {
-    const [search, setSearch] = useState('');
+  const MasterList = ({ title, collection, type, onRowClick, search, setSearch }) => {
+    
     const [sort, setSort] = useState('A-Z');
     const [selectedIds, setSelectedIds] = useState([]);
     
@@ -1697,12 +1720,11 @@ const handleAttendance = async (type) => {
     );
   };
 
-  const TransactionList = () => {
+  const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange }) => {
     const [sort, setSort] = useState('DateDesc');
     const [filter, setFilter] = useState('all');
     const [visibleCount, setVisibleCount] = useState(50); 
-    const [searchQuery, setSearchQuery] = useState(''); 
-    const [dateRange, setDateRange] = useState({ start: '', end: '' }); // NEW: Date Filter State
+    
 
     useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
@@ -2126,6 +2148,14 @@ const handleAttendance = async (type) => {
   };
 
   const DetailView = () => {
+    // --- SCROLL RESTORATION LOGIC ---
+// Jab bhi viewDetail change ho, agar purana scroll saved hai to wahan jump karo
+React.useLayoutEffect(() => {
+    const el = document.getElementById('detail-scroller');
+    if (el && viewDetail && scrollPos.current[viewDetail.id]) {
+        el.scrollTop = scrollPos.current[viewDetail.id];
+    }
+}, [viewDetail]);
     if (!viewDetail) return null;
     
     // --- TRANSACTION DETAIL ---
@@ -2735,35 +2765,52 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
       isItem ? tx.items?.some(l => l.itemId === record.id) : tx.partyId === record.id
     ).sort((a,b) => new Date(b.date) - new Date(a.date));
     
+    // ... upar ka code same ...
     const mobiles = String(record.mobile || '').split(',').map(m => m.trim()).filter(Boolean);
 
     return (
-      <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+      // 1. YAHAN ID ADD KIYA HAI "detail-scroller"
+      <div id="detail-scroller" className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
         <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
-          <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+          {/* Back button logic updated specifically for manual clicks */}
+          <button onClick={() => {
+              if(navStack.length > 0) {
+                  const prev = navStack[navStack.length-1];
+                  setNavStack(prev => prev.slice(0, -1));
+                  setViewDetail(prev);
+              } else {
+                  handleCloseUI();
+              }
+          }} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+          
           <h2 className="font-bold text-lg">{record.name}</h2>
+          {/* ... Header buttons same ... */}
           <div className="flex gap-2">
              {!isItem && <button onClick={() => { pushHistory(); setStatementModal({ partyId: record.id }); }} className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-lg flex items-center gap-1"><FileText size={12}/> Stmt</button>}
              <button onClick={() => { pushHistory(); setModal({ type: isItem ? 'item' : 'party', data: record }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
           </div>
         </div>
         
+        {/* ... Info Cards Same ... */}
         <div className="p-4 space-y-6">
            <div className="grid grid-cols-2 gap-3">
-            <div className="p-4 bg-gray-50 rounded-2xl border">
-              <p className="text-[10px] font-bold text-gray-400 uppercase">Current {isItem ? 'Stock' : 'Balance'}</p>
-              <p className={`text-2xl font-black ${!isItem && partyBalances[record.id] > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                {isItem ? `${itemStock[record.id] || 0} ${record.unit}` : formatCurrency(Math.abs(partyBalances[record.id] || 0))}
-              </p>
-              {!isItem && <p className="text-[10px] font-bold text-gray-400">{partyBalances[record.id] > 0 ? 'TO PAY' : 'TO COLLECT'}</p>}
-            </div>
-            {isItem ? (
+              {/* ... (Ye wala pura content same rahega) ... */}
+              <div className="p-4 bg-gray-50 rounded-2xl border">
+                 {/* ... content same ... */}
+                 <p className="text-[10px] font-bold text-gray-400 uppercase">Current {isItem ? 'Stock' : 'Balance'}</p>
+                 <p className={`text-2xl font-black ${!isItem && partyBalances[record.id] > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                   {isItem ? `${itemStock[record.id] || 0} ${record.unit}` : formatCurrency(Math.abs(partyBalances[record.id] || 0))}
+                 </p>
+                 {!isItem && <p className="text-[10px] font-bold text-gray-400">{partyBalances[record.id] > 0 ? 'TO PAY' : 'TO COLLECT'}</p>}
+              </div>
+              {/* ... (baki boxes same) ... */}
+              {isItem ? (
                 <div className="p-4 bg-gray-50 rounded-2xl border">
                     <p className="text-[10px] font-bold text-gray-400 uppercase">Prices</p>
                     <p className="text-sm font-bold">Sell: {formatCurrency(record.sellPrice)}</p>
                     <p className="text-sm text-gray-500">Buy: {formatCurrency(record.buyPrice)}</p>
                 </div>
-             ) : (
+              ) : (
                 <div className="p-4 bg-gray-50 rounded-2xl border space-y-1">
                     {mobiles.map((m, i) => <p key={i} className="text-sm font-bold flex items-center gap-1"><Phone size={12}/> <a href={`tel:${m}`}>{m}</a></p>)}
                     {record.address && <p className="text-xs text-gray-500 truncate">{record.address}</p>}
@@ -2771,9 +2818,10 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                         {record.lat && <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${record.lat},${record.lng}`)} className="py-2 bg-blue-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"><Navigation size={12}/> Map</button>}
                     </div>
                 </div>
-             )}
+              )}
            </div>
 
+           {/* --- TRANSACTION HISTORY LIST --- */}
            <div className="space-y-3">
              <h3 className="font-bold flex items-center gap-2 text-gray-700"><History size={18}/> Transaction History</h3>
              {history.map(tx => {
@@ -2786,7 +2834,23 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
 
                return (
-                 <div key={tx.id} onClick={() => setViewDetail({ type: 'transaction', id: tx.id })} className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
+                 <div 
+                    key={tx.id} 
+                    // 2. YAHAN ONCLICK LOGIC UPDATE KIYA HAI:
+                    onClick={() => { 
+                        // A. Scroll position save karo
+                        const el = document.getElementById('detail-scroller');
+                        if(el) scrollPos.current[record.id] = el.scrollTop;
+                        
+                        // B. Current view (Party) ko stack me daalo
+                        setNavStack(prev => [...prev, viewDetail]);
+                        
+                        // C. Naya view (Transaction) kholo
+                        pushHistory(); 
+                        setViewDetail({ type: 'transaction', id: tx.id }); 
+                    }} 
+                    className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform"
+                 >
                    <div className="flex gap-4 items-center">
                      <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                      <div>
@@ -3837,19 +3901,33 @@ const removeMobile = (idx) => {
         {loading ? <div className="flex flex-col items-center justify-center h-64 text-gray-400"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div><p className="text-sm font-bold">Syncing Data...</p></div> : (
           <>
             {activeTab === 'dashboard' && checkPermission(user, 'canViewDashboard') && <Dashboard />}
-            {activeTab === 'accounting' && checkPermission(user, 'canViewAccounts') && <TransactionList />}
+            {activeTab === 'accounting' && checkPermission(user, 'canViewAccounts') && (
+    <TransactionList 
+        searchQuery={txSearchQuery} 
+        setSearchQuery={setTxSearchQuery}
+        dateRange={txDateRange}
+        setDateRange={setTxDateRange}
+    />
+)}
             {activeTab === 'tasks' && checkPermission(user, 'canViewTasks') && <TaskModule />}
-            {activeTab === 'staff' && (
-                <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-bold text-gray-800">Staff</h2>
-                        <button onClick={() => { localStorage.removeItem('smees_user'); setUser(null); }} className="p-2 bg-red-50 text-red-600 rounded-xl flex items-center gap-2 font-bold text-xs"><LogOut size={18} /> Logout</button>
-                    </div>
-                    {mastersView === null ? (
-                        <div className="space-y-4"><MasterList title="Team Members" collection="staff" type="staff" onRowClick={(s) => { pushHistory(); setViewDetail({type: 'staff', id: s.id}); }} /></div>
-                    ) : null}
-                </div>
-            )}
+            {/* Staff Section */}
+{activeTab === 'staff' && (
+    <div className="space-y-4">
+        {/* ... Header buttons ... */}
+        {mastersView === null ? (
+            <div className="space-y-4">
+                <MasterList 
+                    title="Team Members" 
+                    collection="staff" 
+                    type="staff" 
+                    search={masterSearch}        // <--- Add This
+                    setSearch={setMasterSearch}  // <--- Add This
+                    onRowClick={(s) => { pushHistory(); setViewDetail({type: 'staff', id: s.id}); }} 
+                />
+            </div>
+        ) : null}
+    </div>
+)}
             {activeTab === 'masters' && checkPermission(user, 'canViewMasters') && (
               <div className="space-y-6">
                 {mastersView === null ? (
@@ -3883,8 +3961,8 @@ const removeMobile = (idx) => {
                 ) : (
                     <div>
                         <button onClick={handleCloseUI} className="mb-4 flex items-center gap-2 text-gray-500 font-bold hover:text-gray-800"><ArrowLeft size={18}/> Back</button>
-                        {mastersView === 'items' && <MasterList title="Items" collection="items" type="item" onRowClick={(item) => { pushHistory(); setViewDetail({type: 'item', id: item.id}); }} />}
-                        {mastersView === 'parties' && <MasterList title="Parties" collection="parties" type="party" onRowClick={(item) => { pushHistory(); setViewDetail({type: 'party', id: item.id}); }} />}
+                        {mastersView === 'items' && <MasterList title="Items" collection="items" type="item" search={masterSearch} setSearch={setMasterSearch} onRowClick={(item) => { pushHistory(); setViewDetail({type: 'item', id: item.id}); }} />}
+                        {mastersView === 'parties' && <MasterList title="Parties" collection="parties" type="party" search={masterSearch} setSearch={setMasterSearch} onRowClick={(item) => { pushHistory(); setViewDetail({type: 'party', id: item.id}); }} />}
                         {mastersView === 'expenses' && <ExpensesBreakdown />}
                         {/* REQ 3: Render Category Manager */}
                         {mastersView === 'categories' && <CategoryManager />}
