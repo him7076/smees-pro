@@ -7,16 +7,16 @@ import {
   getFirestore, 
   collection, 
   getDocs, 
-  getDoc,
+  getDoc, 
   setDoc, 
   deleteDoc, 
   doc, 
   query, 
-  where,
-  orderBy,
-  limit,
-  onSnapshot,
-  enableIndexedDbPersistence,
+  where, 
+  orderBy, 
+  limit, 
+  onSnapshot, 
+  enableIndexedDbPersistence, 
   startAfter
 } from "firebase/firestore";
 import { 
@@ -29,43 +29,43 @@ import {
   ChevronRight, 
   Trash2, 
   Package, 
-  Settings,
-  X,
-  Calendar,
-  Phone,
-  MapPin,
-  CheckCircle2,
-  AlertCircle,
-  History,
-  ShoppingCart,
-  Play,
-  Square,
-  Printer,
-  Share2,
-  TrendingUp,
-  Banknote,
-  ArrowLeft,
-  AlertTriangle,
-  Briefcase,
-  Info,
-  Clock,
-  Navigation,
-  Edit2,
-  Filter,
-  Link as LinkIcon,
-  ExternalLink,
-  FileText,
-  BarChart3,
-  PieChart,
-  LogOut,
-  Map as MapIcon,
-  Upload,
-  UserCheck,
-  Coffee,
-  LogIn,
-  Save,
-  MessageCircle,
-  MoreHorizontal,
+  Settings, 
+  X, 
+  Calendar, 
+  Phone, 
+  MapPin, 
+  CheckCircle2, 
+  AlertCircle, 
+  History, 
+  ShoppingCart, 
+  Play, 
+  Square, 
+  Printer, 
+  Share2, 
+  TrendingUp, 
+  Banknote, 
+  ArrowLeft, 
+  AlertTriangle, 
+  Briefcase, 
+  Info, 
+  Clock, 
+  Navigation, 
+  Edit2, 
+  Filter, 
+  Link as LinkIcon, 
+  ExternalLink, 
+  FileText, 
+  BarChart3, 
+  PieChart, 
+  LogOut, 
+  Map as MapIcon, 
+  Upload, 
+  UserCheck, 
+  Coffee, 
+  LogIn, 
+  Save, 
+  MessageCircle, 
+  MoreHorizontal, 
   RefreshCw
 } from 'lucide-react';
 
@@ -146,6 +146,29 @@ const getTransactionTotals = (tx) => {
   return { gross, final, paid, status, amount: parseFloat(tx.amount || 0) || final };
 };
 
+// Moved Outside App to fix Focus Issue
+const getBillStats = (bill, transactions) => {
+    if (bill.type === 'estimate') return { ...getTransactionTotals(bill), status: 'ESTIMATE', pending: 0, paid: 0 };
+    const basic = getTransactionTotals(bill);
+    const linkedAmount = transactions.filter(t => t.type === 'payment' && t.linkedBills).reduce((sum, p) => {
+         const link = p.linkedBills.find(l => l.billId === bill.id);
+         return sum + (link ? parseFloat(link.amount || 0) : 0);
+      }, 0);
+    
+    let status = 'UNPAID';
+    if(bill.type === 'payment') {
+         const used = bill.linkedBills?.reduce((sum, l) => sum + parseFloat(l.amount || 0), 0) || 0;
+         const total = parseFloat(bill.amount || 0);
+         if (used >= total - 0.1 && total > 0) status = 'FULLY USED';
+         else if (used > 0) status = 'PARTIALLY USED';
+         else status = 'UNUSED';
+         return { ...basic, used, status };
+    }
+    const totalPaid = basic.paid + linkedAmount;
+    if (totalPaid >= basic.final - 0.1) status = 'PAID'; else if (totalPaid > 0) status = 'PARTIAL';
+    return { ...basic, totalPaid, pending: basic.final - totalPaid, status };
+};
+
 const sortData = (data, criterion) => {
     if (!criterion) return data;
     const sorted = [...data];
@@ -174,7 +197,213 @@ const cleanData = (obj) => {
     return newObj;
 };
 
-// --- EXTERNALIZED SUB-COMPONENTS ---
+
+
+const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange, data, listFilter, listPaymentMode, categoryFilter, pushHistory, setViewDetail }) => {
+    const [sort, setSort] = useState('DateDesc');
+    const [filter, setFilter] = useState(listFilter);
+    const [visibleCount, setVisibleCount] = useState(50); 
+    
+    useEffect(() => { setFilter(listFilter); }, [listFilter]);
+
+    let filtered = data.transactions.filter(tx => {
+        if (filter !== 'all' && tx.type !== filter) return false;
+        if (listPaymentMode && (tx.paymentMode || 'Cash') !== listPaymentMode) return false;
+        if (categoryFilter && tx.category !== categoryFilter) return false;
+
+        if (dateRange.start && tx.date < dateRange.start) return false;
+        if (dateRange.end && tx.date > dateRange.end) return false;
+
+        if (searchQuery) {
+            const lowerQuery = searchQuery.toLowerCase();
+            const party = data.parties.find(p => p.id === tx.partyId);
+            
+            const matchVoucher = tx.id.toLowerCase().includes(lowerQuery);
+            const matchName = (party?.name || tx.category || '').toLowerCase().includes(lowerQuery);
+            const matchDesc = (tx.description || '').toLowerCase().includes(lowerQuery);
+            const matchAddress = (party?.address || '').toLowerCase().includes(lowerQuery);
+            const matchAmount = (tx.amount || tx.finalTotal || 0).toString().includes(lowerQuery);
+
+            return matchVoucher || matchName || matchDesc || matchAddress || matchAmount;
+        }
+
+        return true;
+    });
+
+    const filteredTotal = filtered.reduce((acc, tx) => acc + parseFloat(tx.amount || tx.finalTotal || 0), 0);
+
+    filtered = sortData(filtered, sort);
+    const visibleData = filtered.slice(0, visibleCount);
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3">
+            <div className="flex justify-between items-center">
+              <h1 className="text-xl font-bold">Accounting {categoryFilter && `(${categoryFilter})`}</h1>
+              <div className="flex gap-2 items-center">
+                  <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option><option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option></select>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+                <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-blue-500" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} />
+                <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-blue-500" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
+            </div>
+
+            <div className="relative">
+                <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                <input 
+                    className="w-full pl-10 pr-4 py-2 bg-white border rounded-xl text-sm focus:ring-2 focus:ring-blue-500" 
+                    placeholder="Search Name, Address, Desc, Amount..." 
+                    value={searchQuery} 
+                    onChange={(e) => setSearchQuery(e.target.value)} 
+                />
+            </div>
+        </div>
+
+        <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex justify-between items-center shadow-sm">
+            <div>
+                <p className="text-[10px] font-bold text-blue-500 uppercase">Filtered Total</p>
+                <p className="text-lg font-black text-blue-800">{formatCurrency(filteredTotal)}</p>
+            </div>
+            <div className="bg-white px-3 py-1 rounded-lg text-xs font-bold text-blue-600 shadow-sm border border-blue-100">
+                Count: {filtered.length}
+            </div>
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+          {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
+            <button key={t} onClick={() => { setSearchQuery(''); /* Reset search when tab changes optional */ }} className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
+          ))}
+        </div>
+
+        <div className="space-y-3">
+          {visibleData.map(tx => {
+            const party = data.parties.find(p => p.id === tx.partyId);
+            const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
+            const totals = getBillStats(tx, data.transactions);
+            const isCancelled = tx.status === 'Cancelled';
+            const unusedAmount = tx.type === 'payment' ? (totals.amount - (totals.used || 0)) : 0;
+
+            let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
+            if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
+            if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
+            if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+            
+            return (
+              <div key={tx.id} onClick={() => { pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className={`p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform ${isCancelled ? 'opacity-50 grayscale bg-gray-50' : ''}`}>
+                <div className="flex gap-4 items-center">
+                  <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
+                  <div>
+                    <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
+                    <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
+                    {searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()) && (
+                        <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p>
+                    )}
+                    <div className="flex gap-1 mt-1">
+                        {isCancelled ? (
+                           <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span>
+                        ) : (
+                           ['sales', 'purchase', 'expense', 'payment'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${(totals.status === 'PAID' || totals.status === 'FULLY USED') ? 'bg-green-100 text-green-700' : (totals.status === 'PARTIAL' || totals.status === 'PARTIALLY USED') ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>
+                        )}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className={`font-bold ${isCancelled ? 'text-gray-400 line-through' : isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
+                  {['sales', 'purchase'].includes(tx.type) && totals.status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
+                  {tx.type === 'payment' && !isCancelled && unusedAmount > 0.1 && <p className="text-[10px] font-bold text-orange-600">Unused: {formatCurrency(unusedAmount)}</p>}
+                </div>
+              </div>
+            );
+          })}
+          
+          <div className="flex flex-col gap-2 mt-4">
+            {visibleCount < filtered.length && (
+                <button 
+                    onClick={() => setVisibleCount(prev => prev + 50)} 
+                    className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-200 transition-colors"
+                >
+                    Load More Transactions ({filtered.length - visibleCount} remaining)
+                </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+};
+
+const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPermission }) => {
+    const [sort, setSort] = useState('DateAsc');
+    const [search, setSearch] = useState('');
+    
+    const filtered = data.tasks.filter(t => {
+        const clientName = data.parties.find(p => p.id === t.partyId)?.name || '';
+        const searchText = search.toLowerCase();
+        return t.name.toLowerCase().includes(searchText) || t.description.toLowerCase().includes(searchText) || clientName.toLowerCase().includes(searchText);
+    });
+
+    const sortedTasks = sortData(filtered, sort);
+    const pending = sortedTasks.filter(t => t.status !== 'Done' && t.status !== 'Converted');
+    const done = sortedTasks.filter(t => t.status === 'Done' || t.status === 'Converted');
+
+    const TaskItem = ({ task }) => {
+      const party = data.parties.find(p => p.id === task.partyId);
+      return (
+        <div onClick={() => { pushHistory(); setViewDetail({ type: 'task', id: task.id }); }} className="p-4 bg-white border rounded-2xl mb-2 flex justify-between items-start cursor-pointer active:scale-95 transition-transform">
+          <div className="flex-1">
+            <div className="flex flex-col gap-1 mb-1">
+                <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : task.status === 'Converted' ? 'bg-purple-500' : 'bg-orange-500'}`} />
+                    <p className="font-bold text-gray-800">{task.name}</p>
+                </div>
+                {party && (
+                      <span className="self-start text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold truncate max-w-[150px] ml-4 border border-blue-100">
+                        {party.name}
+                      </span>
+                )}
+            </div>
+            <p className="text-xs text-gray-500 line-clamp-1 ml-4">{task.description}</p>
+            <div className="flex gap-3 mt-2 ml-4 text-[10px] font-bold text-gray-400 uppercase">
+                <span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(task.dueDate)}</span>
+                <span className="flex items-center gap-1"><Users size={10} /> {task.assignedStaff?.length || 0} Staff</span>
+            </div>
+          </div>
+          <div className="text-right"><p className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full font-bold">{task.id}</p></div>
+        </div>
+      );
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+            <h1 className="text-xl font-bold">Tasks</h1>
+            <div className="flex gap-2 items-center">
+                <input className="p-2 border rounded-xl text-xs w-32" placeholder="Search tasks..." value={search} onChange={e => setSearch(e.target.value)}/>
+                <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}>
+                    <option value="DateAsc">Due Soon</option>
+                    <option value="DateDesc">Due Later</option>
+                    <option value="A-Z">A-Z</option>
+                    <option value="Z-A">Z-A</option>
+                </select>
+                {checkPermission(user, 'canEditTasks') && <button onClick={() => { pushHistory(); setModal({ type: 'task' }); }} className="p-2 bg-blue-600 text-white rounded-xl"><Plus /></button>}
+            </div>
+        </div>
+        <div>
+            <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Pending ({pending.length})</h3>
+            {pending.map(t => <TaskItem key={t.id} task={t} />)}
+        </div>
+        <div>
+            <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Completed ({done.length})</h3>
+            <div className="opacity-60">
+                {done.map(t => <TaskItem key={t.id} task={t} />)}
+            </div>
+        </div>
+      </div>
+    );
+};
+
+// --- EXTERNALIZED SUB-COMPONENTS END ---
 
 const LoginScreen = ({ setUser }) => {
   const [id, setId] = useState('');
@@ -255,16 +484,29 @@ const ConvertTaskModal = ({ task, onClose, saveRecord, setViewDetail, handleClos
           description: `Converted from Task ${task.id}. Work: ${workSummary}` 
       };
       
+      // 1. Sale Save karo aur ID lo
       const saleId = await saveRecord('transactions', newSale, 'sales');
       
+      // 2. Task Update karo
       const updatedTask = { ...task, status: 'Converted', generatedSaleId: saleId };
       await saveRecord('tasks', updatedTask, 'task');
       
+      // 3. Modal band karo
       onClose(); 
-      setViewDetail(null); 
-      handleCloseUI();
+
+      // --- FIX START: Direct Naye Invoice par jao ---
+      // List par wapas jane ki jagah, seedha naye transaction ko open karo
+      
+      // Agar NavStack use kar rahe ho to current task ko stack me daalo (Optional)
+      // setNavStack(prev => [...prev, viewDetail]); 
+      
+      // Naya view set karo
+      setViewDetail({ type: 'transaction', id: saleId }); 
+      
+      // Note: Hum handleCloseUI() call NAHI karenge taki hum detail view me hi rahein
+      // --- FIX END ---
   };
-   
+    
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
         <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
@@ -298,7 +540,7 @@ const ConvertTaskModal = ({ task, onClose, saveRecord, setViewDetail, handleClos
 
 const StatementModal = ({ isOpen, onClose }) => {
   const [dates, setDates] = useState({ start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] });
-   
+    
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -319,7 +561,7 @@ const StatementModal = ({ isOpen, onClose }) => {
 
 const ManualAttendanceModal = ({ manualAttModal, setManualAttModal, data, setData, handleCloseUI, showToast }) => {
   const [form, setForm] = useState({ date: '', in: '', out: '', lStart: '', lEnd: '' });
-   
+    
   useEffect(() => {
       if (manualAttModal) {
           const initial = manualAttModal.isEdit ? manualAttModal : { date: new Date().toISOString().split('T')[0], checkIn: '09:00', checkOut: '18:00', lunchStart: '13:00', lunchEnd: '14:00' };
@@ -334,12 +576,12 @@ const ManualAttendanceModal = ({ manualAttModal, setManualAttModal, data, setDat
   }, [manualAttModal]);
 
   if (!manualAttModal) return null;
-   
+    
   // --- FIX IN ManualAttendanceModal Component ---
 const handleSave = async () => {
     const staffId = manualAttModal.staffId || manualAttModal.id.split('-')[1]; 
     const attId = manualAttModal.isEdit ? manualAttModal.id : `ATT-${staffId}-${form.date}`;
-    const timestamp = new Date().toISOString(); // <--- 1. Timestamp
+    const timestamp = new Date().toISOString(); 
 
     const record = { 
         staffId, 
@@ -350,7 +592,7 @@ const handleSave = async () => {
         lunchEnd: form.lEnd, 
         id: attId, 
         status: 'Present',
-        updatedAt: timestamp // <--- 2. Add updatedAt here
+        updatedAt: timestamp 
     };
     
     // Naya record hai to createdAt bhi daalo (optional but good practice)
@@ -367,7 +609,7 @@ const handleSave = async () => {
     handleCloseUI(); 
     showToast(manualAttModal.isEdit ? "Updated" : "Added");
 };
-   
+    
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
@@ -543,8 +785,8 @@ const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseU
                         <p className="font-bold">{task.name}</p>
                     </div>
                     <div className="p-3 bg-gray-50 rounded-xl border">
-                         <p className="text-xs font-bold text-gray-400 uppercase">Staff</p>
-                         <p className="font-bold">{log.staffName}</p>
+                          <p className="text-xs font-bold text-gray-400 uppercase">Staff</p>
+                          <p className="font-bold">{log.staffName}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                         <div className="p-3 bg-gray-50 rounded-xl border">
@@ -557,8 +799,8 @@ const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseU
                         </div>
                     </div>
                     <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
-                         <p className="text-xs font-bold text-blue-500 uppercase">Duration</p>
-                         <p className="font-black text-xl text-blue-700">{log.duration} mins</p>
+                          <p className="text-xs font-bold text-blue-500 uppercase">Duration</p>
+                          <p className="font-black text-xl text-blue-700">{log.duration} mins</p>
                     </div>
                     {log.location && (
                         <div className="p-3 bg-green-50 rounded-xl border border-green-100 flex justify-between items-center">
@@ -574,8 +816,8 @@ const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseU
                     
                     {/* EDIT AND DELETE BUTTONS */}
                     <div className="flex gap-3 pt-2">
-                         <button onClick={handleDelete} className="flex-1 p-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Trash2 size={16}/> Delete</button>
-                         <button onClick={() => { setEditingTimeLog({ task, index }); setSelectedTimeLog(null); }} className="flex-1 p-3 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Edit2 size={16}/> Edit</button>
+                          <button onClick={handleDelete} className="flex-1 p-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Trash2 size={16}/> Delete</button>
+                          <button onClick={() => { setEditingTimeLog({ task, index }); setSelectedTimeLog(null); }} className="flex-1 p-3 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Edit2 size={16}/> Edit</button>
                     </div>
                 </div>
             </div>
@@ -636,6 +878,138 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
       )}
     </div>
   );
+};
+// --- EXTERNALIZED COMPONENTS (Fix for Keyboard Focus) ---
+
+const MasterList = ({ title, collection, type, onRowClick, search, setSearch, data, setData, user, partyBalances, itemStock, partyFilter, pushHistory, setViewDetail, setModal, syncData }) => {
+    const [sort, setSort] = useState('A-Z');
+    const [selectedIds, setSelectedIds] = useState([]);
+    
+    let listData = data[collection] || [];
+    
+    if (type === 'item') listData = listData.map(i => ({ ...i, subText: `${itemStock[i.id] || 0} ${i.unit}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
+    if (type === 'party') {
+        listData = listData.map(p => {
+           const bal = partyBalances[p.id] || 0;
+           return { ...p, subText: bal !== 0 ? formatCurrency(Math.abs(bal)) + (bal > 0 ? ' DR' : ' CR') : 'Settled', subColor: bal > 0 ? 'text-green-600' : bal < 0 ? 'text-red-600' : 'text-gray-400', balance: bal };
+        });
+        if (partyFilter === 'receivable') listData = listData.filter(p => p.balance > 0);
+        if (partyFilter === 'payable') listData = listData.filter(p => p.balance < 0);
+    }
+    if (type === 'staff') {
+        if (user.role !== 'admin') {
+            listData = listData.filter(s => s.id === user.id);
+        }
+        listData = listData.map(s => ({ ...s, subText: s.role, subColor: 'text-blue-500' }));
+    }
+
+    const filtered = sortData(listData.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(search.toLowerCase()))), sort);
+
+    const handleImport = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (!window.XLSX) return alert("Excel lib not loaded");
+
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            const bstr = evt.target.result;
+            const wb = window.XLSX.read(bstr, { type: 'binary' });
+            const jsonData = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
+            const newRecords = [];
+            const batchPromises = [];
+            let nextCounters = { ...data.counters };
+
+            for (let i = 1; i < jsonData.length; i++) {
+                const row = jsonData[i];
+                if (!row || row.length === 0) continue;
+                let record = {};
+                let id = '';
+                
+                if (type === 'party') {
+                    const num = nextCounters.party || 1000;
+                    id = `P-${num}`;
+                    nextCounters.party = num + 1;
+                    record = { id, name: row[1] || '', email: row[3] || '', mobile: row[4] || '', address: row[5] || '', lat: row[6] || '', lng: row[7] || '', reference: row[8] || '', openingBal: row[10] || 0, type: row[11] || 'DR' };
+                } else if (type === 'item') {
+                    const num = nextCounters.item || 1000;
+                    id = `I-${num}`;
+                    nextCounters.item = num + 1;
+                    record = { id, name: row[1] || '', category: row[2] || '', type: row[3] || 'Goods', sellPrice: row[4] || 0, buyPrice: row[5] || 0, unit: row[8] || 'pcs', openingStock: 0 };
+                }
+                
+                if (record.name) {
+                    newRecords.push(cleanData(record));
+                    batchPromises.push(setDoc(doc(db, collection, id), cleanData(record)));
+                }
+            }
+            
+            batchPromises.push(setDoc(doc(db, "settings", "counters"), nextCounters));
+            
+            await Promise.all(batchPromises);
+            setData(prev => ({ 
+                ...prev, 
+                [collection]: [...prev[collection], ...newRecords],
+                counters: nextCounters
+            }));
+            alert(`Imported ${newRecords.length} records successfully!`);
+        };
+        reader.readAsBinaryString(file);
+    };
+
+    const toggleSelectAll = () => setSelectedIds(selectedIds.length === filtered.length ? [] : filtered.map(i => i.id));
+    const handleBulkDelete = async () => {
+       if(!window.confirm(`Delete ${selectedIds.length} records?`)) return;
+       const ids = [...selectedIds];
+       setSelectedIds([]);
+       setData(prev => ({ ...prev, [collection]: prev[collection].filter(item => !ids.includes(item.id)) }));
+       try { await Promise.all(ids.map(id => deleteDoc(doc(db, collection, id.toString())))); } catch (e) { console.error(e); }
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2">
+              <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={filtered.length > 0 && selectedIds.length === filtered.length} onChange={toggleSelectAll} />
+              <h1 className="text-xl font-bold">{title} {partyFilter ? `(${partyFilter})` : ''}</h1>
+          </div>
+          <div className="flex gap-2">
+              {(type === 'party' || type === 'item') && checkPermission(user, 'canViewMasters') && (
+                  <label className="p-2 bg-gray-100 rounded-xl cursor-pointer"><Upload size={18} className="text-gray-600"/><input type="file" hidden accept=".xlsx, .xls" onChange={handleImport} /></label>
+              )}
+              {selectedIds.length > 0 ? (
+                  <button onClick={handleBulkDelete} className="p-2 bg-red-100 text-red-600 rounded-xl flex items-center gap-1 text-sm px-4 font-bold"><Trash2 size={16}/> ({selectedIds.length})</button>
+              ) : (
+                  checkPermission(user, 'canViewMasters') && <button onClick={() => { pushHistory(); setModal({ type }); }} className="p-2 bg-blue-600 text-white rounded-xl flex items-center gap-1 text-sm px-4"><Plus size={18} /> Add</button>
+              )}
+          </div>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+          <input 
+    autoFocus // <--- Ye line add karein
+    className="w-full pl-10 pr-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500" 
+    placeholder={`Search ${title}...`} 
+    value={search} 
+    onChange={(e) => setSearch(e.target.value)} 
+/>
+        </div>
+        <div className="space-y-2">
+          {filtered.map(item => (
+            <div key={item.id} className={`p-3 bg-white border rounded-2xl flex items-center gap-3 active:scale-95 transition-transform ${selectedIds.includes(item.id) ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50' : ''}`}>
+              <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={selectedIds.includes(item.id)} onChange={() => setSelectedIds(prev => prev.includes(item.id) ? prev.filter(i => i!==item.id) : [...prev, item.id])} />
+              <div className="flex-1" onClick={() => onRowClick ? onRowClick(item) : (pushHistory() || setViewDetail({ type, id: item.id }))}>
+                <div className="flex justify-between items-start">
+                    <div><p className="font-bold text-gray-800">{item.name}</p><p className="text-xs text-gray-500">{item.mobile || item.category || item.role}</p></div>
+                    {item.subText && <p className={`text-xs font-bold ${item.subColor}`}>{item.subText}</p>}
+                </div>
+              </div>
+              <ChevronRight className="text-gray-300" />
+            </div>
+          ))}
+          {filtered.length === 0 && <p className="text-center text-gray-400 py-10">No records found</p>}
+        </div>
+      </div>
+    );
 };
 
 export default function App() {
@@ -935,27 +1309,7 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
   const handleCloseUI = () => window.history.back();
 
   // --- LOGIC CALCULATIONS ---
-  const getBillLogic = (bill) => {
-    if (bill.type === 'estimate') return { ...getTransactionTotals(bill), status: 'ESTIMATE', pending: 0, paid: 0 };
-    const basic = getTransactionTotals(bill);
-    const linkedAmount = data.transactions.filter(t => t.type === 'payment' && t.linkedBills).reduce((sum, p) => {
-         const link = p.linkedBills.find(l => l.billId === bill.id);
-         return sum + (link ? parseFloat(link.amount || 0) : 0);
-      }, 0);
-    
-    let status = 'UNPAID';
-    if(bill.type === 'payment') {
-         const used = bill.linkedBills?.reduce((sum, l) => sum + parseFloat(l.amount || 0), 0) || 0;
-         const total = parseFloat(bill.amount || 0);
-         if (used >= total - 0.1 && total > 0) status = 'FULLY USED';
-         else if (used > 0) status = 'PARTIALLY USED';
-         else status = 'UNUSED';
-         return { ...basic, used, status };
-    }
-    const totalPaid = basic.paid + linkedAmount;
-    if (totalPaid >= basic.final - 0.1) status = 'PAID'; else if (totalPaid > 0) status = 'PARTIAL';
-    return { ...basic, totalPaid, pending: basic.final - totalPaid, status };
-  };
+  const getBillLogic = (bill) => getBillStats(bill, data.transactions);
 
   const partyBalances = useMemo(() => {
     const balances = {};
@@ -1320,45 +1674,64 @@ if (tx.type === 'payment') {
         return `${h}h ${mins}m`;
       };
 
-  // --- FIX FOR ATTENDANCE SYNC ---
+  // --- FIX FOR ATTENDANCE SYNC (MERGE LOGIC) ---
 const handleAttendance = async (type) => {
     if (!user) return;
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
     const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const timestamp = new Date().toISOString();
     
-    // 1. Current Timestamp Lo (ISO String for sync logic)
-    const timestamp = new Date().toISOString(); 
-
-    const existingDoc = data.attendance.find(a => a.staffId === staff.id && a.date === todayStr);
+    // ID Generate karo
+    const attId = `ATT-${staff.id}-${todayStr}`;
     
-    let attRecord = existingDoc ? { ...existingDoc } : { 
-        staffId: staff.id, 
-        date: todayStr, 
-        checkIn: '', 
-        checkOut: '', 
-        lunchStart: '', 
-        lunchEnd: '', 
-        status: 'Present', 
-        id: `ATT-${staff.id}-${todayStr}`,
-        createdAt: timestamp 
+    // Update Payload banao (Sirf wahi jo change ho rha h)
+    const updatePayload = {
+        updatedAt: timestamp
     };
 
-    if (type === 'checkIn') attRecord.checkIn = timeStr;
-    if (type === 'checkOut') attRecord.checkOut = timeStr;
-    if (type === 'lunchStart') attRecord.lunchStart = timeStr;
-    if (type === 'lunchEnd') attRecord.lunchEnd = timeStr;
-    
-    // --- 2. IMPORTANT: updatedAt set karo ---
-    // Jab tak ye update nahi hoga, Admin ko pata nahi chalega ki change hua hai
-    attRecord.updatedAt = timestamp; 
+    // Sirf specific field add karo payload me
+    if (type === 'checkIn') updatePayload.checkIn = timeStr;
+    if (type === 'checkOut') updatePayload.checkOut = timeStr;
+    if (type === 'lunchStart') updatePayload.lunchStart = timeStr;
+    if (type === 'lunchEnd') updatePayload.lunchEnd = timeStr;
 
-    const newAtt = [...data.attendance.filter(a => a.id !== attRecord.id), attRecord];
-    setData(prev => ({ ...prev, attendance: newAtt }));
+    // Local State Update (UI fast dikhane ke liye)
+    const existingDoc = data.attendance.find(a => a.id === attId);
+    let newAttRecord;
     
-    // Firebase Save
-    await setDoc(doc(db, "attendance", attRecord.id), attRecord);
-    showToast(`${type} Recorded`);
+    if (existingDoc) {
+        // Agar record hai, to purane me naya payload mix karo
+        newAttRecord = { ...existingDoc, ...updatePayload };
+    } else {
+        // Agar naya record hai, to mandatory fields bhi daalo
+        newAttRecord = {
+            id: attId,
+            staffId: staff.id,
+            date: todayStr,
+            status: 'Present',
+            createdAt: timestamp,
+            ...updatePayload
+        };
+        // Naye record ke liye hume wo fields bhi chahiye jo updatePayload me nahi hain (taki undefined na ho)
+        if(!newAttRecord.checkIn) newAttRecord.checkIn = '';
+        if(!newAttRecord.checkOut) newAttRecord.checkOut = '';
+        if(!newAttRecord.lunchStart) newAttRecord.lunchStart = '';
+        if(!newAttRecord.lunchEnd) newAttRecord.lunchEnd = '';
+    }
+
+    const newAttList = [...data.attendance.filter(a => a.id !== attId), newAttRecord];
+    setData(prev => ({ ...prev, attendance: newAttList }));
+
+    try {
+        // --- KEY FIX: merge: true ---
+        // Ye server par jo data hai usse replace nahi karega, bas nayi fields mila dega
+        await setDoc(doc(db, "attendance", attId), newAttRecord, { merge: true });
+        showToast(`${type} Recorded`);
+    } catch (e) {
+        console.error(e);
+        showToast("Error Saving Attendance", "error");
+    }
 };
 
     const deleteAtt = async (id) => {
@@ -1585,292 +1958,6 @@ const handleAttendance = async (type) => {
           </div>
         </div>
       );
-  };
-
-  const MasterList = ({ title, collection, type, onRowClick, search, setSearch }) => {
-    
-    const [sort, setSort] = useState('A-Z');
-    const [selectedIds, setSelectedIds] = useState([]);
-    
-    let listData = data[collection];
-    
-    if (type === 'item') listData = listData.map(i => ({ ...i, subText: `${itemStock[i.id] || 0} ${i.unit}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
-    if (type === 'party') {
-        listData = listData.map(p => {
-           const bal = partyBalances[p.id] || 0;
-           return { ...p, subText: bal !== 0 ? formatCurrency(Math.abs(bal)) + (bal > 0 ? ' DR' : ' CR') : 'Settled', subColor: bal > 0 ? 'text-green-600' : bal < 0 ? 'text-red-600' : 'text-gray-400', balance: bal };
-        });
-        if (partyFilter === 'receivable') listData = listData.filter(p => p.balance > 0);
-        if (partyFilter === 'payable') listData = listData.filter(p => p.balance < 0);
-    }
-    if (type === 'staff') {
-        if (user.role !== 'admin') {
-            listData = listData.filter(s => s.id === user.id);
-        }
-        listData = listData.map(s => ({ ...s, subText: s.role, subColor: 'text-blue-500' }));
-    }
-
-    const filtered = sortData(listData.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(search.toLowerCase()))), sort);
-
-    // --- IMPORT LOGIC ---
-    const handleImport = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        if (!window.XLSX) {
-            alert("Excel library is still loading. Please try again in a few seconds.");
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = async (evt) => {
-            const bstr = evt.target.result;
-            const wb = window.XLSX.read(bstr, { type: 'binary' });
-            const wsname = wb.SheetNames[0];
-            const ws = wb.Sheets[wsname];
-            const jsonData = window.XLSX.utils.sheet_to_json(ws, { header: 1 });
-            const newRecords = [];
-            const batchPromises = [];
-            let nextCounters = { ...data.counters };
-
-            for (let i = 1; i < jsonData.length; i++) {
-                const row = jsonData[i];
-                if (!row || row.length === 0) continue;
-                let record = {};
-                let id = '';
-                
-                if (type === 'party') {
-                    const num = nextCounters.party || 1000;
-                    id = `P-${num}`;
-                    nextCounters.party = num + 1;
-                    record = { id, name: row[1] || '', email: row[3] || '', mobile: row[4] || '', address: row[5] || '', lat: row[6] || '', lng: row[7] || '', reference: row[8] || '', openingBal: row[10] || 0, type: row[11] || 'DR' };
-                } else if (type === 'item') {
-                    const num = nextCounters.item || 1000;
-                    id = `I-${num}`;
-                    nextCounters.item = num + 1;
-                    record = { id, name: row[1] || '', category: row[2] || '', type: row[3] || 'Goods', sellPrice: row[4] || 0, buyPrice: row[5] || 0, unit: row[8] || 'pcs', openingStock: 0 };
-                }
-                
-                if (record.name) {
-                    newRecords.push(cleanData(record));
-                    batchPromises.push(setDoc(doc(db, collection, id), cleanData(record)));
-                }
-            }
-            
-            batchPromises.push(setDoc(doc(db, "settings", "counters"), nextCounters));
-            
-            await Promise.all(batchPromises);
-            setData(prev => ({ 
-                ...prev, 
-                [collection]: [...prev[collection], ...newRecords],
-                counters: nextCounters
-            }));
-            alert(`Imported ${newRecords.length} records successfully!`);
-        };
-        reader.readAsBinaryString(file);
-    };
-
-    const toggleSelectAll = () => setSelectedIds(selectedIds.length === filtered.length ? [] : filtered.map(i => i.id));
-    const handleBulkDelete = async () => {
-       if(!window.confirm(`Delete ${selectedIds.length} records?`)) return;
-       const ids = [...selectedIds];
-       setSelectedIds([]);
-       setData(prev => ({ ...prev, [collection]: prev[collection].filter(item => !ids.includes(item.id)) }));
-       try { await Promise.all(ids.map(id => deleteDoc(doc(db, collection, id.toString())))); } catch (e) { console.error(e); }
-    };
-
-    return (
-      <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-2">
-              <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={filtered.length > 0 && selectedIds.length === filtered.length} onChange={toggleSelectAll} />
-              <h1 className="text-xl font-bold">{title} {partyFilter ? `(${partyFilter})` : ''}</h1>
-          </div>
-          <div className="flex gap-2">
-              {(type === 'party' || type === 'item') && checkPermission(user, 'canViewMasters') && (
-                  <label className="p-2 bg-gray-100 rounded-xl cursor-pointer"><Upload size={18} className="text-gray-600"/><input type="file" hidden accept=".xlsx, .xls" onChange={handleImport} /></label>
-              )}
-              {selectedIds.length > 0 ? (
-                  <button onClick={handleBulkDelete} className="p-2 bg-red-100 text-red-600 rounded-xl flex items-center gap-1 text-sm px-4 font-bold"><Trash2 size={16}/> ({selectedIds.length})</button>
-              ) : (
-                  checkPermission(user, 'canViewMasters') && <button onClick={() => { pushHistory(); setModal({ type }); }} className="p-2 bg-blue-600 text-white rounded-xl flex items-center gap-1 text-sm px-4"><Plus size={18} /> Add</button>
-              )}
-          </div>
-        </div>
-        <div className="relative">
-          <Search className="absolute left-3 top-3 text-gray-400" size={18} />
-          <input className="w-full pl-10 pr-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500" placeholder={`Search ${title}...`} value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
-        <div className="space-y-2">
-          {filtered.map(item => (
-            <div key={item.id} className={`p-3 bg-white border rounded-2xl flex items-center gap-3 active:scale-95 transition-transform ${selectedIds.includes(item.id) ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50' : ''}`}>
-              <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={selectedIds.includes(item.id)} onChange={() => setSelectedIds(prev => prev.includes(item.id) ? prev.filter(i => i!==item.id) : [...prev, item.id])} />
-              <div className="flex-1" onClick={() => onRowClick ? onRowClick(item) : (pushHistory() || setViewDetail({ type, id: item.id }))}>
-                <div className="flex justify-between items-start">
-                    <div><p className="font-bold text-gray-800">{item.name}</p><p className="text-xs text-gray-500">{item.mobile || item.category || item.role}</p></div>
-                    {item.subText && <p className={`text-xs font-bold ${item.subColor}`}>{item.subText}</p>}
-                </div>
-              </div>
-              <ChevronRight className="text-gray-300" />
-            </div>
-          ))}
-          {filtered.length === 0 && <p className="text-center text-gray-400 py-10">No records found</p>}
-        </div>
-      </div>
-    );
-  };
-
-  const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange }) => {
-    const [sort, setSort] = useState('DateDesc');
-    const [filter, setFilter] = useState('all');
-    const [visibleCount, setVisibleCount] = useState(50); 
-    
-
-    useEffect(() => { setFilter(listFilter); }, [listFilter]);
-
-    // 2. UPDATED FILTERING LOGIC
-    let filtered = data.transactions.filter(tx => {
-        // A. Existing Type/Mode Filters
-        if (filter !== 'all' && tx.type !== filter) return false;
-        if (listPaymentMode && (tx.paymentMode || 'Cash') !== listPaymentMode) return false;
-        if (categoryFilter && tx.category !== categoryFilter) return false;
-
-        // B. NEW: Date Range Filter
-        if (dateRange.start && tx.date < dateRange.start) return false;
-        if (dateRange.end && tx.date > dateRange.end) return false;
-
-        // C. Enhanced Search Logic
-        if (searchQuery) {
-            const lowerQuery = searchQuery.toLowerCase();
-            const party = data.parties.find(p => p.id === tx.partyId);
-            
-            // Fields to search
-            const matchVoucher = tx.id.toLowerCase().includes(lowerQuery);
-            const matchName = (party?.name || tx.category || '').toLowerCase().includes(lowerQuery);
-            const matchDesc = (tx.description || '').toLowerCase().includes(lowerQuery);
-            const matchAddress = (party?.address || '').toLowerCase().includes(lowerQuery);
-            const matchAmount = (tx.amount || tx.finalTotal || 0).toString().includes(lowerQuery);
-
-            return matchVoucher || matchName || matchDesc || matchAddress || matchAmount;
-        }
-
-        return true;
-    });
-
-    // 3. NEW: Calculate Dynamic Total for filtered results
-    const filteredTotal = filtered.reduce((acc, tx) => acc + parseFloat(tx.amount || tx.finalTotal || 0), 0);
-
-
-    filtered = sortData(filtered, sort);
-    const visibleData = filtered.slice(0, visibleCount);
-
-    return (
-      <div className="space-y-4">
-        <div className="flex flex-col gap-3">
-            <div className="flex justify-between items-center">
-              <h1 className="text-xl font-bold">Accounting {categoryFilter && `(${categoryFilter})`}</h1>
-              <div className="flex gap-2 items-center">
-                  <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option><option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option></select>
-              </div>
-            </div>
-
-            {/* NEW: Date Range Inputs */}
-            <div className="flex gap-2">
-                <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-blue-500" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} />
-                <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-blue-500" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
-            </div>
-
-            {/* UPDATED: Search Input */}
-            <div className="relative">
-                <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-                <input 
-                    className="w-full pl-10 pr-4 py-2 bg-white border rounded-xl text-sm focus:ring-2 focus:ring-blue-500" 
-                    placeholder="Search Name, Address, Desc, Amount..." 
-                    value={searchQuery} 
-                    onChange={(e) => setSearchQuery(e.target.value)} 
-                />
-            </div>
-        </div>
-
-        {/* NEW: Dynamic Total Card */}
-        <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex justify-between items-center shadow-sm">
-            <div>
-                <p className="text-[10px] font-bold text-blue-500 uppercase">Filtered Total</p>
-                <p className="text-lg font-black text-blue-800">{formatCurrency(filteredTotal)}</p>
-            </div>
-            <div className="bg-white px-3 py-1 rounded-lg text-xs font-bold text-blue-600 shadow-sm border border-blue-100">
-                Count: {filtered.length}
-            </div>
-        </div>
-
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
-            <button key={t} onClick={() => { setFilter(t); setCategoryFilter(null); }} className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
-          ))}
-        </div>
-
-        <div className="space-y-3">
-          {visibleData.map(tx => {
-            const party = data.parties.find(p => p.id === tx.partyId);
-            const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
-            const totals = getBillLogic(tx);
-            const isCancelled = tx.status === 'Cancelled';
-            const unusedAmount = tx.type === 'payment' ? (totals.amount - (totals.used || 0)) : 0;
-
-            let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
-            if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
-            if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
-            if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
-            
-            return (
-              <div key={tx.id} onClick={() => { pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className={`p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform ${isCancelled ? 'opacity-50 grayscale bg-gray-50' : ''}`}>
-                <div className="flex gap-4 items-center">
-                  <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
-                  <div>
-                    <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
-                    <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
-                    {/* Show Desc match in search */}
-                    {searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()) && (
-                        <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p>
-                    )}
-                    <div className="flex gap-1 mt-1">
-                        {isCancelled ? (
-                           <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span>
-                        ) : (
-                           ['sales', 'purchase', 'expense', 'payment'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${(totals.status === 'PAID' || totals.status === 'FULLY USED') ? 'bg-green-100 text-green-700' : (totals.status === 'PARTIAL' || totals.status === 'PARTIALLY USED') ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>
-                        )}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className={`font-bold ${isCancelled ? 'text-gray-400 line-through' : isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
-                  {['sales', 'purchase'].includes(tx.type) && totals.status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
-                  {tx.type === 'payment' && !isCancelled && unusedAmount > 0.1 && <p className="text-[10px] font-bold text-orange-600">Unused: {formatCurrency(unusedAmount)}</p>}
-                </div>
-              </div>
-            );
-          })}
-          
-          {/* --- PAGINATION BUTTONS --- */}
-{/* --- PAGINATION BUTTONS --- */}
-          <div className="flex flex-col gap-2 mt-4">
-            
-            {/* 1. VISUAL LOAD MORE: Ye button tab dikhega jab list me aur data chupa hua ho */}
-            {visibleCount < filtered.length && (
-                <button 
-                    onClick={() => setVisibleCount(prev => prev + 50)} 
-                    className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-200 transition-colors"
-                >
-                    Load More Transactions ({filtered.length - visibleCount} remaining)
-                </button>
-            )}
-
-            {/* Note: Server wala button ab humne hata diya hai kyunki 
-               Smart Sync ab khud background me data lata hai. */}
-          </div>
-        </div>
-      </div>
-    );
   };
 
   // FIX #3 & #4: Expenses Breakdown with Date Filters & Net Discount Logic
@@ -2163,7 +2250,7 @@ React.useLayoutEffect(() => {
       const tx = data.transactions.find(t => t.id === viewDetail.id);
       if (!tx) return null;
       const party = data.parties.find(p => p.id === tx.partyId);
-      const totals = getBillLogic(tx);
+      const totals = getBillStats(tx, data.transactions);
       const isPayment = tx.type === 'payment';
       const paymentMode = tx.paymentMode || 'Cash';
 
@@ -2448,60 +2535,91 @@ React.useLayoutEffect(() => {
             subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' 
         }));
         
- // --- FIX FOR TIMER SYNC ---
-const toggleTimer = (staffId) => {
+ // --- FIX FOR TIMER SYNC (FETCH BEFORE SAVE) ---
+const toggleTimer = async (staffId) => {
     if (!user) return;
-    const now = new Date().toISOString();
     
-    // 1. Naya Update Time
-    const timestamp = new Date().toISOString(); 
+    // UI par loading dikhane ke liye toast
+    showToast("Updating Timer...", "info");
 
-    let newLogs = [...(task.timeLogs || [])];
-    const activeLogIndex = newLogs.findIndex(l => l.staffId === staffId && !l.end);
-
-    if (activeLogIndex >= 0) {
-        // STOP TIMER
-        const start = new Date(newLogs[activeLogIndex].start); 
-        const end = new Date(now);
-        const duration = ((end - start) / 1000 / 60).toFixed(0); 
-        newLogs[activeLogIndex] = { ...newLogs[activeLogIndex], end: now, duration };
+    try {
+        const taskRef = doc(db, "tasks", task.id);
         
-        // Update Task with new logs AND updatedAt
-        const updatedTask = { ...task, timeLogs: newLogs, updatedAt: timestamp };
-        updateTaskState(updatedTask); // Helper function call
-    } else {
-        // START TIMER Logic...
-        // ... (Conflict check same rahega) ...
-        const activeTask = data.tasks.find(t => t.timeLogs && t.timeLogs.some(l => l.staffId === staffId && !l.end));
-        if (activeTask && activeTask.id !== task.id) { 
-            pushHistory(); 
-            setTimerConflict({ staffId, activeTaskId: activeTask.id, targetTaskId: task.id }); 
-            return; 
+        // 1. Sabse pehle LATEST data server se lao (Taaki purana data overwrite na ho)
+        const taskSnap = await getDoc(taskRef);
+        
+        if (!taskSnap.exists()) {
+            showToast("Task not found!", "error");
+            return;
         }
 
-        const staff = data.staff.find(s => s.id === staffId);
-        
-        const saveLog = (locData) => {
-              newLogs.push({ 
+        const latestTask = taskSnap.data();
+        const now = new Date().toISOString();
+        const timestamp = new Date().toISOString();
+
+        let newLogs = [...(latestTask.timeLogs || [])];
+        const activeLogIndex = newLogs.findIndex(l => l.staffId === staffId && !l.end);
+
+        let actionType = "";
+
+        if (activeLogIndex >= 0) {
+            // STOP TIMER logic on LATEST data
+            const start = new Date(newLogs[activeLogIndex].start); 
+            const end = new Date(now);
+            const duration = ((end - start) / 1000 / 60).toFixed(0); 
+            newLogs[activeLogIndex] = { ...newLogs[activeLogIndex], end: now, duration };
+            actionType = "Stopped";
+        } else {
+            // START TIMER logic
+            // Conflict check abhi bhi local data se kar sakte hain UX ke liye
+            const activeTask = data.tasks.find(t => t.timeLogs && t.timeLogs.some(l => l.staffId === staffId && !l.end));
+            if (activeTask && activeTask.id !== task.id) { 
+                pushHistory(); 
+                setTimerConflict({ staffId, activeTaskId: activeTask.id, targetTaskId: task.id }); 
+                return; 
+            }
+
+            const staffMember = data.staff.find(s => s.id === staffId);
+            
+            // Location fetch logic same rahega
+            const getLocation = () => new Promise((resolve) => {
+                if (navigator.geolocation) {
+                     navigator.geolocation.getCurrentPosition(
+                         (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }), 
+                         () => resolve(null)
+                     );
+                } else resolve(null);
+            });
+
+            const locData = await getLocation();
+
+            newLogs.push({ 
                  staffId, 
-                 staffName: staff?.name, 
+                 staffName: staffMember?.name || 'Staff', 
                  start: now, 
                  end: null, 
                  duration: 0,
                  location: locData 
-             });
-             
-             // Update Task with new logs AND updatedAt
-             const updatedTask = { ...task, timeLogs: newLogs, updatedAt: timestamp };
-             updateTaskState(updatedTask);
-        };
-        
-        // ... (Location logic same rahega) ...
-        if (navigator.geolocation) {
-             navigator.geolocation.getCurrentPosition((pos) => saveLog({ lat: pos.coords.latitude, lng: pos.coords.longitude }), () => saveLog(null));
-        } else {
-             saveLog(null);
+            });
+            actionType = "Started";
         }
+
+        const updatedTask = { ...latestTask, timeLogs: newLogs, updatedAt: timestamp };
+        
+        // 2. Ab Save karo
+        await setDoc(taskRef, updatedTask);
+
+        // 3. Local State update karo
+        setData(prev => ({ 
+            ...prev, 
+            tasks: prev.tasks.map(t => t.id === updatedTask.id ? updatedTask : t) 
+        }));
+
+        showToast(`Timer ${actionType}`);
+
+    } catch (e) {
+        console.error("Timer Error:", e);
+        showToast("Error syncing timer. Try again.", "error");
     }
 };
 
@@ -2619,12 +2737,12 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
             {/* Render Multiple Mobiles */}
             <div className="space-y-1">
                 {contactsToShow.map((c, idx) => (
-                     <div key={idx} className="flex items-center gap-2">
+                      <div key={idx} className="flex items-center gap-2">
                         <span className="text-[10px] bg-gray-100 px-1 rounded text-gray-500 font-bold">{c.label}</span>
                         <a href={`tel:${c.number}`} className="text-sm font-bold text-blue-600 flex items-center gap-1">
                             <Phone size={14}/> {c.number}
                         </a>
-                     </div>
+                      </div>
                 ))}
             </div>
 
@@ -2825,7 +2943,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
            <div className="space-y-3">
              <h3 className="font-bold flex items-center gap-2 text-gray-700"><History size={18}/> Transaction History</h3>
              {history.map(tx => {
-               const totals = getBillLogic(tx);
+               const totals = getBillStats(tx, data.transactions);
                const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
                
                let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
@@ -2935,26 +3053,26 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
               <div className="space-y-2">
                   {(data.categories.expense || []).map((cat, idx) => (
                       <div key={idx} className="p-3 bg-white border rounded-xl flex justify-between items-center">
-                         {editingCat?.original === cat ? (
-                             <div className="flex flex-1 gap-2 mr-2">
-                                 <input 
-                                     className="flex-1 p-2 border rounded-lg text-sm" 
-                                     value={editingCat.current} 
-                                     autoFocus
-                                     onChange={e => setEditingCat({ ...editingCat, current: e.target.value })}
-                                 />
-                                 <button onClick={() => handleUpdate(cat, editingCat.current)} className="p-2 bg-green-100 text-green-600 rounded-lg"><CheckCircle2 size={16}/></button>
-                                 <button onClick={() => setEditingCat(null)} className="p-2 bg-gray-100 text-gray-600 rounded-lg"><X size={16}/></button>
-                             </div>
-                         ) : (
-                             <>
-                                 <span className="font-bold text-gray-800">{cat}</span>
-                                 <div className="flex gap-2">
-                                     <button onClick={() => setEditingCat({ original: cat, current: cat })} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit2 size={16}/></button>
-                                     <button onClick={() => handleDelete(cat)} className="p-2 bg-red-50 text-red-600 rounded-lg"><Trash2 size={16}/></button>
-                                 </div>
-                             </>
-                         )}
+                          {editingCat?.original === cat ? (
+                              <div className="flex flex-1 gap-2 mr-2">
+                                  <input 
+                                      className="flex-1 p-2 border rounded-lg text-sm" 
+                                      value={editingCat.current} 
+                                      autoFocus
+                                      onChange={e => setEditingCat({ ...editingCat, current: e.target.value })}
+                                  />
+                                  <button onClick={() => handleUpdate(cat, editingCat.current)} className="p-2 bg-green-100 text-green-600 rounded-lg"><CheckCircle2 size={16}/></button>
+                                  <button onClick={() => setEditingCat(null)} className="p-2 bg-gray-100 text-gray-600 rounded-lg"><X size={16}/></button>
+                              </div>
+                          ) : (
+                              <>
+                                  <span className="font-bold text-gray-800">{cat}</span>
+                                  <div className="flex gap-2">
+                                      <button onClick={() => setEditingCat({ original: cat, current: cat })} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit2 size={16}/></button>
+                                      <button onClick={() => handleDelete(cat)} className="p-2 bg-red-50 text-red-600 rounded-lg"><Trash2 size={16}/></button>
+                                  </div>
+                              </>
+                          )}
                       </div>
                   ))}
                   {(data.categories.expense || []).length === 0 && <p className="text-center text-gray-400">No categories found.</p>}
@@ -3021,7 +3139,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     
     const unpaidBills = useMemo(() => {
       if (!tx.partyId) return [];
-      return data.transactions.filter(t => t.partyId === tx.partyId && t.id !== tx.id && t.type !== 'estimate' && ( (['sales', 'purchase', 'expense'].includes(t.type) && getBillLogic(t).status !== 'PAID') || (t.type === 'payment' && getBillLogic(t).status !== 'FULLY USED') ) );
+      return data.transactions.filter(t => t.partyId === tx.partyId && t.id !== tx.id && t.type !== 'estimate' && ( (['sales', 'purchase', 'expense'].includes(t.type) && getBillStats(t, data.transactions).status !== 'PAID') || (t.type === 'payment' && getBillStats(t, data.transactions).status !== 'FULLY USED') ) );
     }, [tx.partyId, data.transactions]);
 
     // --- TransactionForm ke andar is function ko replace karein ---
@@ -3297,9 +3415,9 @@ const updateLine = (idx, field, val) => {
                             <div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0">
                                 <div className="text-[10px]">
                                     <p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p>
-                                    <p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillLogic(b).final)} <br/> 
+                                    <p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillStats(b, data.transactions).final)} <br/> 
                                     <span className="text-red-600">
-                                        Due: {formatCurrency(b.type === 'payment' ? (getBillLogic(b).amount - getBillLogic(b).used) : getBillLogic(b).pending)}
+                                        Due: {formatCurrency(b.type === 'payment' ? (getBillStats(b, data.transactions).amount - getBillStats(b, data.transactions).used) : getBillStats(b, data.transactions).pending)}
                                     </span>
                                     </p>
                                 </div>
@@ -3569,76 +3687,6 @@ const toggleMobile = (mob) => {
     );
   };
 
-  const TaskModule = () => {
-    const [sort, setSort] = useState('DateAsc');
-    const [search, setSearch] = useState('');
-    
-    const filtered = data.tasks.filter(t => {
-        const clientName = data.parties.find(p => p.id === t.partyId)?.name || '';
-        const searchText = search.toLowerCase();
-        return t.name.toLowerCase().includes(searchText) || t.description.toLowerCase().includes(searchText) || clientName.toLowerCase().includes(searchText);
-    });
-
-    const sortedTasks = sortData(filtered, sort);
-    const pending = sortedTasks.filter(t => t.status !== 'Done' && t.status !== 'Converted');
-    const done = sortedTasks.filter(t => t.status === 'Done' || t.status === 'Converted');
-
-    const TaskItem = ({ task }) => {
-      const party = data.parties.find(p => p.id === task.partyId);
-      return (
-        <div onClick={() => { pushHistory(); setViewDetail({ type: 'task', id: task.id }); }} className="p-4 bg-white border rounded-2xl mb-2 flex justify-between items-start cursor-pointer active:scale-95 transition-transform">
-          <div className="flex-1">
-            <div className="flex flex-col gap-1 mb-1">
-                <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : task.status === 'Converted' ? 'bg-purple-500' : 'bg-orange-500'}`} />
-                    <p className="font-bold text-gray-800">{task.name}</p>
-                </div>
-                {party && (
-                     <span className="self-start text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold truncate max-w-[150px] ml-4 border border-blue-100">
-                       {party.name}
-                     </span>
-                )}
-            </div>
-            <p className="text-xs text-gray-500 line-clamp-1 ml-4">{task.description}</p>
-            <div className="flex gap-3 mt-2 ml-4 text-[10px] font-bold text-gray-400 uppercase">
-                <span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(task.dueDate)}</span>
-                <span className="flex items-center gap-1"><Users size={10} /> {task.assignedStaff?.length || 0} Staff</span>
-            </div>
-          </div>
-          <div className="text-right"><p className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full font-bold">{task.id}</p></div>
-        </div>
-      );
-    };
-
-    return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-            <h1 className="text-xl font-bold">Tasks</h1>
-            <div className="flex gap-2 items-center">
-                <input className="p-2 border rounded-xl text-xs w-32" placeholder="Search tasks..." value={search} onChange={e => setSearch(e.target.value)}/>
-                <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}>
-                    <option value="DateAsc">Due Soon</option>
-                    <option value="DateDesc">Due Later</option>
-                    <option value="A-Z">A-Z</option>
-                    <option value="Z-A">Z-A</option>
-                </select>
-                {checkPermission(user, 'canEditTasks') && <button onClick={() => { pushHistory(); setModal({ type: 'task' }); }} className="p-2 bg-blue-600 text-white rounded-xl"><Plus /></button>}
-            </div>
-        </div>
-        <div>
-            <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Pending ({pending.length})</h3>
-            {pending.map(t => <TaskItem key={t.id} task={t} />)}
-        </div>
-        <div>
-            <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Completed ({done.length})</h3>
-            <div className="opacity-60">
-                {done.map(t => <TaskItem key={t.id} task={t} />)}
-            </div>
-        </div>
-      </div>
-    );
-  };
-
   const StaffForm = ({ record }) => {
     const [form, setForm] = useState({ name: '', mobile: '', role: 'Staff', active: true, loginId: '', password: '', permissions: { canViewAccounts: false, canViewMasters: false, canViewTasks: true, canEditTasks: false, canViewDashboard: true }, ...(record || {}) });
     const togglePerm = (p) => setForm({ ...form, permissions: { ...form.permissions, [p]: !form.permissions[p] } });
@@ -3733,8 +3781,8 @@ const removeMobile = (idx) => {
                 <p className="text-xs font-bold text-gray-500 uppercase">Primary Address</p>
                 <textarea className="w-full p-3 bg-white border rounded-xl" placeholder="Main Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
                 <div className="grid grid-cols-2 gap-4">
-                     <input className="w-full p-3 bg-white border rounded-xl" placeholder="Latitude" value={form.lat} onChange={e => setForm({...form, lat: e.target.value})} />
-                     <input className="w-full p-3 bg-white border rounded-xl" placeholder="Longitude" value={form.lng} onChange={e => setForm({...form, lng: e.target.value})} />
+                      <input className="w-full p-3 bg-white border rounded-xl" placeholder="Latitude" value={form.lat} onChange={e => setForm({...form, lat: e.target.value})} />
+                      <input className="w-full p-3 bg-white border rounded-xl" placeholder="Longitude" value={form.lng} onChange={e => setForm({...form, lng: e.target.value})} />
                 </div>
             </div>
 
@@ -3790,7 +3838,7 @@ const removeMobile = (idx) => {
         </div>
     );
   };
-   
+    
   const ItemForm = ({ record }) => {
     // Default structure: brands array add kiya hai
     const [form, setForm] = useState({ 
@@ -3875,7 +3923,7 @@ const removeMobile = (idx) => {
        </div>
     );
   };
-   
+    
   const CompanyForm = ({ record }) => {
     const [form, setForm] = useState(data.company);
     return <div className="space-y-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Company Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} /><textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} /><button onClick={() => { setData({...data, company: form}); setModal({type:null}); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Settings</button></div>;
@@ -3901,33 +3949,61 @@ const removeMobile = (idx) => {
         {loading ? <div className="flex flex-col items-center justify-center h-64 text-gray-400"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div><p className="text-sm font-bold">Syncing Data...</p></div> : (
           <>
             {activeTab === 'dashboard' && checkPermission(user, 'canViewDashboard') && <Dashboard />}
+            
             {activeTab === 'accounting' && checkPermission(user, 'canViewAccounts') && (
-    <TransactionList 
-        searchQuery={txSearchQuery} 
-        setSearchQuery={setTxSearchQuery}
-        dateRange={txDateRange}
-        setDateRange={setTxDateRange}
-    />
-)}
-            {activeTab === 'tasks' && checkPermission(user, 'canViewTasks') && <TaskModule />}
-            {/* Staff Section */}
-{activeTab === 'staff' && (
-    <div className="space-y-4">
-        {/* ... Header buttons ... */}
-        {mastersView === null ? (
-            <div className="space-y-4">
-                <MasterList 
-                    title="Team Members" 
-                    collection="staff" 
-                    type="staff" 
-                    search={masterSearch}        // <--- Add This
-                    setSearch={setMasterSearch}  // <--- Add This
-                    onRowClick={(s) => { pushHistory(); setViewDetail({type: 'staff', id: s.id}); }} 
+                <TransactionList 
+                    searchQuery={txSearchQuery} 
+                    setSearchQuery={setTxSearchQuery}
+                    dateRange={txDateRange}
+                    setDateRange={setTxDateRange}
+                    data={data}
+                    listFilter={listFilter}
+                    listPaymentMode={listPaymentMode}
+                    categoryFilter={categoryFilter}
+                    pushHistory={pushHistory}
+                    setViewDetail={setViewDetail}
                 />
-            </div>
-        ) : null}
-    </div>
-)}
+            )}
+            
+            {activeTab === 'tasks' && checkPermission(user, 'canViewTasks') && (
+                <TaskModule 
+                    data={data}
+                    user={user}
+                    pushHistory={pushHistory}
+                    setViewDetail={setViewDetail}
+                    setModal={setModal}
+                    checkPermission={checkPermission}
+                />
+            )}
+            
+            {/* Staff Section */}
+            {activeTab === 'staff' && (
+                <div className="space-y-4">
+                    {/* ... Header buttons ... */}
+                    {mastersView === null ? (
+                        <div className="space-y-4">
+                            <MasterList 
+                                title="Team Members" 
+                                collection="staff" 
+                                type="staff" 
+                                search={masterSearch}        
+                                setSearch={setMasterSearch}  
+                                onRowClick={(s) => { pushHistory(); setViewDetail({type: 'staff', id: s.id}); }} 
+                                data={data}
+                                setData={setData}
+                                user={user}
+                                partyBalances={partyBalances}
+                                itemStock={itemStock}
+                                partyFilter={partyFilter}
+                                pushHistory={pushHistory}
+                                setViewDetail={setViewDetail}
+                                setModal={setModal}
+                                syncData={syncData}
+                            />
+                        </div>
+                    ) : null}
+                </div>
+            )}
             {activeTab === 'masters' && checkPermission(user, 'canViewMasters') && (
               <div className="space-y-6">
                 {mastersView === null ? (
@@ -3961,8 +4037,46 @@ const removeMobile = (idx) => {
                 ) : (
                     <div>
                         <button onClick={handleCloseUI} className="mb-4 flex items-center gap-2 text-gray-500 font-bold hover:text-gray-800"><ArrowLeft size={18}/> Back</button>
-                        {mastersView === 'items' && <MasterList title="Items" collection="items" type="item" search={masterSearch} setSearch={setMasterSearch} onRowClick={(item) => { pushHistory(); setViewDetail({type: 'item', id: item.id}); }} />}
-                        {mastersView === 'parties' && <MasterList title="Parties" collection="parties" type="party" search={masterSearch} setSearch={setMasterSearch} onRowClick={(item) => { pushHistory(); setViewDetail({type: 'party', id: item.id}); }} />}
+                        {mastersView === 'items' && (
+                            <MasterList 
+                                title="Items" 
+                                collection="items" 
+                                type="item" 
+                                search={masterSearch} 
+                                setSearch={setMasterSearch} 
+                                onRowClick={(item) => { pushHistory(); setViewDetail({type: 'item', id: item.id}); }} 
+                                data={data}
+                                setData={setData}
+                                user={user}
+                                partyBalances={partyBalances}
+                                itemStock={itemStock}
+                                partyFilter={partyFilter}
+                                pushHistory={pushHistory}
+                                setViewDetail={setViewDetail}
+                                setModal={setModal}
+                                syncData={syncData}
+                            />
+                        )}
+                        {mastersView === 'parties' && (
+                            <MasterList 
+                                title="Parties" 
+                                collection="parties" 
+                                type="party" 
+                                search={masterSearch} 
+                                setSearch={setMasterSearch} 
+                                onRowClick={(item) => { pushHistory(); setViewDetail({type: 'party', id: item.id}); }} 
+                                data={data}
+                                setData={setData}
+                                user={user}
+                                partyBalances={partyBalances}
+                                itemStock={itemStock}
+                                partyFilter={partyFilter}
+                                pushHistory={pushHistory}
+                                setViewDetail={setViewDetail}
+                                setModal={setModal}
+                                syncData={syncData}
+                            />
+                        )}
                         {mastersView === 'expenses' && <ExpensesBreakdown />}
                         {/* REQ 3: Render Category Manager */}
                         {mastersView === 'categories' && <CategoryManager />}
