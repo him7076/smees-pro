@@ -311,7 +311,8 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                 </div>
                 <div className="text-right">
                   <p className={`font-bold ${isCancelled ? 'text-gray-400 line-through' : isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
-                  {['sales', 'purchase'].includes(tx.type) && totals.status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
+                  {/* FIX #2: Add 'expense' here */}
+{['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
                   {tx.type === 'payment' && !isCancelled && unusedAmount > 0.1 && <p className="text-[10px] font-bold text-orange-600">Unused: {formatCurrency(unusedAmount)}</p>}
                 </div>
               </div>
@@ -1328,15 +1329,13 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
       
       // --- FIND THIS BLOCK INSIDE partyBalances ---
 if (tx.type === 'payment') {
-    // OLD CODE (Galat):
-    // const amt = parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0);
+    // FIX #11: Party Ledger = Amount + Discount
+            const payAmt = parseFloat(tx.amount || 0); 
+            const payDisc = parseFloat(tx.discountValue || 0);
+            const totalCredit = payAmt + payDisc;
 
-    // NEW CODE (Sahi):
-    // Party ke khate me pura 1000 (tx.amount) hi count hoga.
-    const amt = parseFloat(tx.amount || 0); 
-
-    if (tx.subType === 'in') balances[tx.partyId] = (balances[tx.partyId] || 0) - amt;
-    else balances[tx.partyId] = (balances[tx.partyId] || 0) + amt;
+            if (tx.subType === 'in') balances[tx.partyId] = (balances[tx.partyId] || 0) - totalCredit;
+            else balances[tx.partyId] = (balances[tx.partyId] || 0) + totalCredit;
 }
     });
     return balances;
@@ -1386,11 +1385,9 @@ if (tx.type === 'payment') {
             amt = parseFloat(tx.paid || 0);
             isIncome = false;
             affectCashBank = amt > 0;
-        }else if (tx.type === 'payment') {
-            // FIX: Explicitly calculate net cash amount
-            const total = parseFloat(tx.amount || 0);
-            const disc = parseFloat(tx.discountValue || 0);
-            amt = total - disc; 
+        } else if (tx.type === 'payment') {
+            // FIX #11: Cash/Bank = Only Amount (Discount is separate)
+            amt = parseFloat(tx.amount || 0);
 
             isIncome = tx.subType === 'in'; // in = Income, out = Expense
             affectCashBank = amt > 0;
@@ -2471,6 +2468,14 @@ React.useLayoutEffect(() => {
                     <button onClick={() => { setViewDetail({ type: 'task', id: tx.convertedFromTask }); }} className="mt-2 text-xs font-bold text-white bg-purple-600 px-3 py-1 rounded-lg flex items-center gap-1"><LinkIcon size={12}/> View Source Task</button>
                 </div>
             )}
+            {/* FIX #5: Photos Link Button in Transaction Detail */}
+            {tx.photosLink && (
+                <div className="mt-2">
+                    <a href={tx.photosLink} target="_blank" rel="noreferrer" className="w-full p-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-colors">
+                        <span>📸</span> View Attached Photos/Album
+                    </a>
+                </div>
+            )}
 
             {/* Profit Analysis Section */}
             {['sales'].includes(tx.type) && user.role === 'admin' && (
@@ -2500,10 +2505,13 @@ React.useLayoutEffect(() => {
                           <div className="flex-1">
                               <p className="font-bold text-sm">{m?.name || 'Item'}</p>
                               {/* DetailView me Item Name ke pass */}
-<p className="font-bold text-sm">
-    {m?.name || 'Item'} 
-    {item.brand && <span className="text-purple-600 text-[10px] ml-1">({item.brand})</span>}
-</p>
+<div>
+    <p className="font-bold text-sm">
+        {m?.name || 'Item'} 
+        {item.brand && <span className="text-purple-600 text-[10px] ml-1">({item.brand})</span>}
+    </p>
+    {item.description && <p className="text-[10px] text-gray-500 italic">{item.description}</p>}
+</div>
                               <p className="text-xs text-gray-500">{item.qty} x {item.price}</p>
                           </div>
                           <div className="text-right">
@@ -2707,6 +2715,14 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     <h1 className="text-xl font-black text-gray-800 mb-2">{task.name}</h1>
                     <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
                     <p className="text-sm text-gray-600 my-4">{task.description}</p>
+                    {/* FIX #5: Photos Link Button in Task Detail */}
+                    {task.photosLink && (
+                        <div className="mb-4">
+                            <a href={task.photosLink} target="_blank" rel="noreferrer" className="w-full p-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-colors">
+                                <span>📸</span> View Attached Photos/Album
+                            </a>
+                        </div>
+                    )}
 
                     {/* REQ 1: Client Details UI (Updated for Multiple Contacts) */}
 {party && (() => {
@@ -2790,7 +2806,11 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                              <div key={idx} className="p-2 border rounded-xl bg-white relative space-y-2">
                                 <button onClick={() => { const n = [...task.itemsUsed]; n.splice(idx, 1); updateTaskItems(n); }} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
                                 <div className="flex justify-between text-xs font-bold">
-                                    <span>{data.items.find(i=>i.id===line.itemId)?.name || 'Unknown Item'}</span>
+                                    {/* FIX #7: Show Item Name + Brand in Task Detail */}
+                                    <div className="flex flex-col">
+                                        <span>{data.items.find(i=>i.id===line.itemId)?.name || 'Unknown Item'}</span>
+                                        {line.brand && <span className="text-[10px] text-purple-600 font-bold">({line.brand})</span>}
+                                    </div>
                                     <span>{formatCurrency(line.qty * line.price)}</span>
                                 </div>
                                 <div className="flex gap-2">
@@ -3115,6 +3135,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     
     const [showLinking, setShowLinking] = useState(false);
     const [showLocPicker, setShowLocPicker] = useState(false); // Local state for location
+    const [linkSearch, setLinkSearch] = useState(''); // New State for Link Search
     
     // REQ 4: Calculate Voucher ID using useMemo
     const currentVoucherId = useMemo(() => {
@@ -3136,11 +3157,26 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         });
         setShowLocPicker(false);
     };
-    
     const unpaidBills = useMemo(() => {
-      if (!tx.partyId) return [];
-      return data.transactions.filter(t => t.partyId === tx.partyId && t.id !== tx.id && t.type !== 'estimate' && ( (['sales', 'purchase', 'expense'].includes(t.type) && getBillStats(t, data.transactions).status !== 'PAID') || (t.type === 'payment' && getBillStats(t, data.transactions).status !== 'FULLY USED') ) );
-    }, [tx.partyId, data.transactions]);
+    if (!tx.partyId) return [];
+    return data.transactions.filter(t => {
+        // Condition 1: Same Party
+        if (t.partyId !== tx.partyId) return false;
+        // Condition 2: Not self & Not Estimate
+        if (t.id === tx.id || t.type === 'estimate') return false;
+        
+        // FIX #10: Agar ye bill already LINKED hai is current transaction me, to dikhao bhale hi paid ho
+        const isAlreadyLinked = tx.linkedBills?.some(l => l.billId === t.id);
+        if (isAlreadyLinked) return true;
+
+        // Normal Condition: Unpaid Bills only
+        const stats = getBillStats(t, data.transactions);
+        if (['sales', 'purchase', 'expense'].includes(t.type) && stats.status !== 'PAID') return true;
+        if (t.type === 'payment' && stats.status !== 'FULLY USED') return true;
+        
+        return false;
+    });
+}, [tx.partyId, data.transactions, tx.linkedBills]);
 
     // --- TransactionForm ke andar is function ko replace karein ---
 const updateLine = (idx, field, val) => {
@@ -3184,7 +3220,13 @@ const updateLine = (idx, field, val) => {
     
     const handleLinkChange = (billId, value) => {
         const amt = parseFloat(value) || 0;
-        const maxLimit = parseFloat(tx.amount || 0);
+        // FIX #11: Allow linking up to Amount + Discount for payments
+        let maxLimit = totals.final;
+        if (type === 'payment') {
+             const baseAmt = parseFloat(tx.amount || 0);
+             const disc = parseFloat(tx.discountValue || 0);
+             maxLimit = baseAmt + disc;
+        }
 
         // 1. Basic validation: Ensure amount exists
         if (maxLimit <= 0) {
@@ -3267,31 +3309,93 @@ const updateLine = (idx, field, val) => {
                 onAddNew={() => { pushHistory(); setModal({ type: 'party' }); }} 
                 placeholder="Select Party..." 
             />
-            {/* Location Selector */}
-            {selectedParty?.locations?.length > 0 && (
+            {/* FIX #6: Multiple Contact/Location Selector */}
+            {(selectedParty?.locations?.length > 0 || selectedParty?.mobileNumbers?.length > 0) && (
                 <div className="relative mt-1 mb-2">
                     <div className="flex justify-between items-center bg-blue-50 p-2 rounded-lg border border-blue-100">
-                         <div className="text-xs text-blue-800">
-                            <span className="font-bold">Location: </span> 
-                            {tx.locationLabel ? tx.locationLabel : 'Default / Primary'}
-                            {tx.address && <div className="text-[10px] text-gray-500 truncate max-w-[200px]">{tx.address}</div>}
+                         <div className="text-xs text-blue-800 overflow-hidden">
+                            <span className="font-bold">Selected: </span> 
+                            <span className="font-bold bg-white px-1 rounded ml-1">
+                                {tx.locationLabel || 'Default'}
+                            </span>
+                            <div className="truncate max-w-[200px] text-gray-600 mt-0.5">
+                                {tx.address || selectedParty.address}
+                            </div>
+                            <div className="font-bold text-green-700 flex items-center gap-1">
+                                <Phone size={10}/> {tx.mobile || selectedParty.mobile}
+                            </div>
                          </div>
-                         <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[10px] font-bold bg-white border px-2 py-1 rounded shadow-sm text-blue-600 flex items-center gap-1">
-                             <MapPin size={10}/> Change
+                         <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[10px] font-bold bg-white border px-3 py-2 rounded-lg shadow-sm text-blue-600 whitespace-nowrap">
+                             Change
                          </button>
                     </div>
+                    
                     {showLocPicker && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1">
-                            <div onClick={() => handleLocationSelect({ label: '', address: selectedParty.address, mobile: selectedParty.mobile, lat: selectedParty.lat, lng: selectedParty.lng })} className="p-2 hover:bg-gray-50 cursor-pointer rounded text-xs border-b">
-                                <span className="font-bold text-gray-600">Default (Primary)</span>
-                                <div className="truncate">{selectedParty.address}</div>
+                        <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1 max-h-60 overflow-y-auto">
+                            {/* 1. Default Option */}
+                            <div onClick={() => handleLocationSelect({ label: '', address: selectedParty.address, mobile: selectedParty.mobile, lat: selectedParty.lat, lng: selectedParty.lng })} className="p-2 hover:bg-gray-50 border-b cursor-pointer bg-gray-50 rounded mb-1">
+                                <span className="font-bold text-xs text-gray-600">Default Details</span>
+                                <div className="text-[10px]">{selectedParty.mobile}</div>
                             </div>
-                            {selectedParty.locations.map((loc, idx) => (
-                                <div key={idx} onClick={() => handleLocationSelect(loc)} className="p-2 hover:bg-blue-50 cursor-pointer rounded text-xs">
-                                    <span className="font-bold text-blue-600">{loc.label}</span>
-                                    <div className="truncate text-gray-600">{loc.address}</div>
+                           {/* 2. Mobile Numbers List (Multi-Select Fix) */}
+                            {selectedParty.mobileNumbers?.length > 0 && (
+                                <div className="mb-2 border-b pb-2">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase">Mobile Numbers (Multi-Select)</p>
+                                        <span className="text-[9px] text-blue-400">(Tap to Add/Remove)</span>
+                                    </div>
+                                    {selectedParty.mobileNumbers.map((mob, idx) => {
+                                        // Check karein ki ye number pehle se selected h ya nahi
+                                        const isSelected = tx.mobile?.includes(mob.number);
+                                        
+                                        return (
+                                            <div 
+                                                key={`mob-${idx}`} 
+                                                onClick={(e) => {
+                                                    e.stopPropagation(); // List band hone se rokein
+                                                    
+                                                    // Logic: String ko array banao, check karo, aur wapas string bana do
+                                                    let currentNums = tx.mobile ? tx.mobile.split(', ').map(s => s.trim()).filter(Boolean) : [];
+                                                    
+                                                    if (isSelected) {
+                                                        // Agar pehle se hai, to HATAO
+                                                        currentNums = currentNums.filter(n => n !== mob.number);
+                                                    } else {
+                                                        // Agar nahi hai, to JODO
+                                                        currentNums.push(mob.number);
+                                                    }
+                                                    
+                                                    // Wapas update karein (List band nahi hogi)
+                                                    setTx({ ...tx, mobile: currentNums.join(', ') });
+                                                }} 
+                                                className={`p-2 cursor-pointer border-b flex justify-between items-center transition-colors ${isSelected ? 'bg-green-50 border-green-200' : 'hover:bg-gray-50'}`}
+                                            >
+                                                 <span className={`text-xs font-bold flex items-center gap-1 ${isSelected ? 'text-green-700' : 'text-gray-600'}`}>
+                                                    <Phone size={10}/> {mob.label}
+                                                 </span>
+                                                 <div className="flex items-center gap-2">
+                                                     <span className={`text-xs font-mono ${isSelected ? 'font-bold text-black' : 'text-gray-500'}`}>{mob.number}</span>
+                                                     {isSelected && <CheckCircle2 size={14} className="text-green-600"/>}
+                                                 </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                            ))}
+                            )}
+
+                            {/* 3. Locations List */}
+                            {selectedParty.locations?.length > 0 && (
+                                <div>
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Addresses</p>
+                                    {selectedParty.locations.map((loc, idx) => (
+                                        <div key={`loc-${idx}`} onClick={() => handleLocationSelect(loc)} className="p-2 hover:bg-blue-50 cursor-pointer border-b">
+                                            <span className="text-xs font-bold text-blue-600 flex items-center gap-1"><MapPin size={10}/> {loc.label}</span>
+                                            <div className="text-[10px] truncate text-gray-500">{loc.address}</div>
+                                            {loc.mobile && <div className="text-[10px] font-bold text-green-600">{loc.mobile}</div>}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -3408,24 +3512,7 @@ const updateLine = (idx, field, val) => {
                     <span className="text-xs font-bold text-gray-500">Discount:</span>
                     <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Amt" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})}/>
                 </div>
-                <button onClick={() => setShowLinking(!showLinking)} className="w-full p-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg">{showLinking?"Hide":"Link Bills (Advanced)"}</button>
-                {showLinking && (
-                    <div className="space-y-2 max-h-40 overflow-y-auto p-2 border rounded-xl">
-                        {unpaidBills.map(b => (
-                            <div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0">
-                                <div className="text-[10px]">
-                                    <p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p>
-                                    <p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillStats(b, data.transactions).final)} <br/> 
-                                    <span className="text-red-600">
-                                        Due: {formatCurrency(b.type === 'payment' ? (getBillStats(b, data.transactions).amount - getBillStats(b, data.transactions).used) : getBillStats(b, data.transactions).pending)}
-                                    </span>
-                                    </p>
-                                </div>
-                                <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/>
-                            </div>
-                        ))}
-                    </div>
-                )}
+  
             </div>
         )}
         
@@ -3452,9 +3539,58 @@ const updateLine = (idx, field, val) => {
                  </div>
              </div>
         )}
+{/* Payment Block yahan khatam hua */}
 
+        {/* --- NEW LINK BILLS SECTION START --- */}
+        {['payment', 'sales', 'purchase', 'expense'].includes(type) && (
+            <div className="mt-4 pt-2 border-t">
+                {/* Search Bar (Step 3 wala fix bhi yahi hai) */}
+                <button onClick={() => setShowLinking(!showLinking)} className="w-full p-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg mb-2">
+                    {showLinking ? "Hide Linked Bills" : "Link Advance/Pending Bills"}
+                </button>
+                
+                {showLinking && (
+                    <div className="space-y-2 p-2 border rounded-xl">
+                         <input 
+                            className="w-full p-2 border rounded-lg text-xs mb-2 bg-gray-50" 
+                            placeholder="Search Bill No or Amount..." 
+                            value={linkSearch} 
+                            onChange={e => setLinkSearch(e.target.value)} 
+                        />
+                        <div className="max-h-40 overflow-y-auto space-y-2">
+                            {unpaidBills.filter(b => 
+                                b.id.toLowerCase().includes(linkSearch.toLowerCase()) || 
+                                (b.amount || 0).toString().includes(linkSearch)
+                            ).map(b => (
+                                <div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0">
+                                    <div className="text-[10px]">
+                                        <p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p>
+                                        <p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillStats(b, data.transactions).final)} <br/> 
+                                        <span className="text-red-600">
+                                            Due: {formatCurrency(b.type === 'payment' ? (getBillStats(b, data.transactions).amount - getBillStats(b, data.transactions).used) : getBillStats(b, data.transactions).pending)}
+                                        </span>
+                                        </p>
+                                    </div>
+                                    <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/>
+                                </div>
+                            ))}
+                            {unpaidBills.length === 0 && <p className="text-center text-xs text-gray-400">No bills found to link.</p>}
+                        </div>
+                    </div>
+                )}
+            </div>
+        )}
+        {/* --- NEW LINK BILLS SECTION END --- */}
+
+        {/* Iske niche textarea (Notes) hona chahiye */}
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl text-sm h-16" placeholder="Notes" value={tx.description} onChange={e => setTx({...tx, description: e.target.value})} />
-        
+        {/* FIX #5: Google Photos Link Input for Transactions */}
+        <input 
+            className="w-full p-3 bg-gray-50 border rounded-xl text-sm mt-2" 
+            placeholder="Paste Google Photos/Album Link" 
+            value={tx.photosLink || ''} 
+            onChange={e => setTx({...tx, photosLink: e.target.value})} 
+        />
         {/* Save Button */}
         <button 
             onClick={() => { 
@@ -3565,75 +3701,93 @@ const toggleMobile = (mob) => {
         <div>
             <SearchableSelect label="Client" options={data.parties} value={form.partyId} onChange={v => setForm({...form, partyId: v, locationLabel: '', address: ''})} />
             
-            {/* Location Selector for Task */}
-            {selectedParty?.locations?.length > 0 && (
-                <div className="mt-1 relative">
+            {/* FIX #6 (TaskForm): Multiple Contact/Location Selector */}
+            {(selectedParty?.locations?.length > 0 || selectedParty?.mobileNumbers?.length > 0) && (
+                <div className="relative mt-1 mb-2">
                     <div className="flex justify-between items-center bg-blue-50 p-2 rounded-lg border border-blue-100">
-                         <div className="text-xs text-blue-800">
-                            <span className="font-bold">Location: </span> 
-                            {form.locationLabel ? form.locationLabel : 'Default / Primary'}
-                            {form.address && <div className="text-[10px] text-gray-500 truncate max-w-[200px]">{form.address}</div>}
+                         <div className="text-xs text-blue-800 overflow-hidden">
+                            <span className="font-bold">Selected: </span> 
+                            <span className="font-bold bg-white px-1 rounded ml-1">
+                                {form.locationLabel || 'Default'}
+                            </span>
+                            <div className="truncate max-w-[200px] text-gray-600 mt-0.5">
+                                {form.address || selectedParty.address}
+                            </div>
+                            <div className="font-bold text-green-700 flex items-center gap-1">
+                                <Phone size={10}/> {form.mobile || selectedParty.mobile}
+                            </div>
                          </div>
-                         <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[10px] font-bold bg-white border px-2 py-1 rounded shadow-sm text-blue-600 flex items-center gap-1">
-                             <MapPin size={10}/> Change
+                         <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[10px] font-bold bg-white border px-3 py-2 rounded-lg shadow-sm text-blue-600 whitespace-nowrap">
+                             Change
                          </button>
                     </div>
-  {/* --- UPDATED: Multiple Mobile Number Selector --- */}
-{selectedParty?.mobileNumbers?.length > 0 && (
-    <div className="mt-2 relative">
-        <div className="bg-green-50 p-2 rounded-lg border border-green-100">
-            <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-bold text-green-800">Contacts Selected:</span>
-                <button onClick={() => setShowMobilePicker(!showMobilePicker)} className="text-[10px] font-bold bg-white border px-2 py-1 rounded shadow-sm text-green-600 flex items-center gap-1">
-                    <Phone size={10}/> {showMobilePicker ? 'Done' : 'Select'}
-                </button>
-            </div>
-            
-            {/* Show Selected Tags */}
-            <div className="flex flex-wrap gap-1">
-                {form.selectedContacts.length === 0 && <span className="text-[10px] text-gray-500">None selected (Default will vary)</span>}
-                
-                {form.selectedContacts.map((c, i) => (
-                    <span key={i} className="bg-white border px-2 py-1 rounded-full text-[10px] flex items-center gap-1 font-bold text-green-700">
-                        {c.label}: {c.number}
-                        <button onClick={() => toggleMobile(c)}><X size={10}/></button>
-                    </span>
-                ))}
-            </div>
-        </div>
-        
-        {/* Dropdown List for Multi-Select */}
-        {showMobilePicker && (
-            <div className="absolute z-20 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1 max-h-40 overflow-y-auto">
-                {/* Option 1: Primary Number */}
-                <div onClick={() => toggleMobile({ label: 'Primary', number: selectedParty.mobile })} className={`p-2 cursor-pointer rounded text-xs border-b flex justify-between ${form.selectedContacts.some(c=>c.number===selectedParty.mobile) ? 'bg-green-100' : 'hover:bg-gray-50'}`}>
-                    <span><span className="font-bold">Primary:</span> {selectedParty.mobile}</span>
-                    {form.selectedContacts.some(c=>c.number===selectedParty.mobile) && <CheckCircle2 size={14} className="text-green-600"/>}
-                </div>
-
-                {/* Option 2: Extra Numbers */}
-                {selectedParty.mobileNumbers.map((mob, idx) => (
-                    <div key={idx} onClick={() => toggleMobile(mob)} className={`p-2 cursor-pointer rounded text-xs border-b flex justify-between ${form.selectedContacts.some(c=>c.number===mob.number) ? 'bg-green-100' : 'hover:bg-gray-50'}`}>
-                        <span><span className="font-bold">{mob.label}:</span> {mob.number}</span>
-                        {form.selectedContacts.some(c=>c.number===mob.number) && <CheckCircle2 size={14} className="text-green-600"/>}
-                    </div>
-                ))}
-            </div>
-        )}
-    </div>
-)}
+                    
                     {showLocPicker && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1">
-                            <div onClick={() => handleLocationSelect({ label: '', address: selectedParty.address, mobile: selectedParty.mobile, lat: selectedParty.lat, lng: selectedParty.lng })} className="p-2 hover:bg-gray-50 cursor-pointer rounded text-xs border-b">
-                                <span className="font-bold text-gray-600">Default (Primary)</span>
-                                <div className="truncate">{selectedParty.address}</div>
+                        <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1 max-h-60 overflow-y-auto">
+                            {/* 1. Default Option */}
+                            <div onClick={() => handleLocationSelect({ label: '', address: selectedParty.address, mobile: selectedParty.mobile, lat: selectedParty.lat, lng: selectedParty.lng })} className="p-2 hover:bg-gray-50 border-b cursor-pointer bg-gray-50 rounded mb-1">
+                                <span className="font-bold text-xs text-gray-600">Default Details</span>
+                                <div className="text-[10px]">{selectedParty.mobile}</div>
                             </div>
-                            {selectedParty.locations.map((loc, idx) => (
-                                <div key={idx} onClick={() => handleLocationSelect(loc)} className="p-2 hover:bg-blue-50 cursor-pointer rounded text-xs">
-                                    <span className="font-bold text-blue-600">{loc.label}</span>
-                                    <div className="truncate text-gray-600">{loc.address}</div>
+                            {/* 2. Mobile Numbers List (Multi-Select for TaskForm) */}
+                            {selectedParty.mobileNumbers?.length > 0 && (
+                                <div className="mb-2 border-b pb-2">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase">Mobile Numbers (Multi-Select)</p>
+                                        <span className="text-[9px] text-blue-400">(Tap to Add/Remove)</span>
+                                    </div>
+                                    {selectedParty.mobileNumbers.map((mob, idx) => {
+                                        // TaskForm ke liye Logic: Check if number exists in form.mobile string
+                                        const isSelected = form.mobile?.includes(mob.number);
+                                        
+                                        return (
+                                            <div 
+                                                key={`mob-${idx}`} 
+                                                onClick={(e) => {
+                                                    e.stopPropagation(); // List band hone se rokein
+                                                    
+                                                    // String ko array banao
+                                                    let currentNums = form.mobile ? form.mobile.split(', ').map(s => s.trim()).filter(Boolean) : [];
+                                                    
+                                                    if (isSelected) {
+                                                        // Agar pehle se hai, to HATAO
+                                                        currentNums = currentNums.filter(n => n !== mob.number);
+                                                    } else {
+                                                        // Agar nahi hai, to JODO
+                                                        currentNums.push(mob.number);
+                                                    }
+                                                    
+                                                    // Wapas string banakar form update karein
+                                                    setForm({ ...form, mobile: currentNums.join(', ') });
+                                                }} 
+                                                className={`p-2 cursor-pointer border-b flex justify-between items-center transition-colors ${isSelected ? 'bg-green-50 border-green-200' : 'hover:bg-gray-50'}`}
+                                            >
+                                                 <span className={`text-xs font-bold flex items-center gap-1 ${isSelected ? 'text-green-700' : 'text-gray-600'}`}>
+                                                    <Phone size={10}/> {mob.label}
+                                                 </span>
+                                                 <div className="flex items-center gap-2">
+                                                     <span className={`text-xs font-mono ${isSelected ? 'font-bold text-black' : 'text-gray-500'}`}>{mob.number}</span>
+                                                     {isSelected && <CheckCircle2 size={14} className="text-green-600"/>}
+                                                 </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                            ))}
+                            )}
+
+                            {/* 3. Locations List */}
+                            {selectedParty.locations?.length > 0 && (
+                                <div>
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Addresses</p>
+                                    {selectedParty.locations.map((loc, idx) => (
+                                        <div key={`loc-${idx}`} onClick={() => handleLocationSelect(loc)} className="p-2 hover:bg-blue-50 cursor-pointer border-b">
+                                            <span className="text-xs font-bold text-blue-600 flex items-center gap-1"><MapPin size={10}/> {loc.label}</span>
+                                            <div className="text-[10px] truncate text-gray-500">{loc.address}</div>
+                                            {loc.mobile && <div className="text-[10px] font-bold text-green-600">{loc.mobile}</div>}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -3641,7 +3795,13 @@ const toggleMobile = (mob) => {
         </div>
 
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-20" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
-        
+        {/* FIX #5: Google Photos Link Input for Tasks */}
+        <input 
+            className="w-full p-3 bg-gray-50 border rounded-xl text-sm mt-2" 
+            placeholder="Paste Google Photos/Album Link" 
+            value={form.photosLink || ''} 
+            onChange={e => setForm({...form, photosLink: e.target.value})} 
+        />
         {/* MODIFIED TASK FORM ITEMS SECTION */}
         <div className="space-y-2">
             <h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4>
@@ -3651,6 +3811,21 @@ const toggleMobile = (mob) => {
                 <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
                     <button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
                     <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} />
+                    {/* FIX #7: Brand Select for Task Items */}
+                    {data.items.find(i => i.id === line.itemId)?.brands?.length > 0 && (
+                        <div className="mb-2">
+                             <select 
+                                className="w-full p-2 border rounded-lg text-xs bg-blue-50 text-blue-800 font-bold outline-none"
+                                value={line.brand || ''} 
+                                onChange={(e) => updateItem(idx, 'brand', e.target.value)}
+                            >
+                                <option value="">Select Brand/Variant</option>
+                                {data.items.find(i => i.id === line.itemId).brands.map((b, bi) => (
+                                    <option key={bi} value={b.name}>{b.name} (₹{b.sellPrice})</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                     <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} />
                     <div className="flex gap-2">
                         <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
