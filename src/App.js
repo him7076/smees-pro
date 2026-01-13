@@ -272,10 +272,19 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
-            <button key={t} onClick={() => { setSearchQuery(''); /* Reset search when tab changes optional */ }} className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
-          ))}
-        </div>
+  {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
+    <button 
+        key={t} 
+        onClick={() => { 
+            setFilter(t); // <--- YE MISSING THA
+            setSearchQuery(''); 
+        }} 
+        className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
+    >
+        {t}
+    </button>
+  ))}
+</div>
 
         <div className="space-y-3">
           {visibleData.map(tx => {
@@ -2895,122 +2904,243 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         );
     }
 
-    const isItem = viewDetail.type === 'item';
-    const record = data[isItem ? 'items' : 'parties'].find(r => r.id === viewDetail.id);
-    if (!record) return null;
-
-    const history = data.transactions.filter(tx => 
-      isItem ? tx.items?.some(l => l.itemId === record.id) : tx.partyId === record.id
-    ).sort((a,b) => new Date(b.date) - new Date(a.date));
-    
-    // ... upar ka code same ...
-    const mobiles = String(record.mobile || '').split(',').map(m => m.trim()).filter(Boolean);
-
-    return (
-      // 1. YAHAN ID ADD KIYA HAI "detail-scroller"
-      <div id="detail-scroller" className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
-        <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
-          {/* Back button logic updated specifically for manual clicks */}
-          <button onClick={() => {
-              if(navStack.length > 0) {
-                  const prev = navStack[navStack.length-1];
-                  setNavStack(prev => prev.slice(0, -1));
-                  setViewDetail(prev);
-              } else {
-                  handleCloseUI();
-              }
-          }} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-          
-          <h2 className="font-bold text-lg">{record.name}</h2>
-          {/* ... Header buttons same ... */}
-          <div className="flex gap-2">
-             {!isItem && <button onClick={() => { pushHistory(); setStatementModal({ partyId: record.id }); }} className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-lg flex items-center gap-1"><FileText size={12}/> Stmt</button>}
-             <button onClick={() => { pushHistory(); setModal({ type: isItem ? 'item' : 'party', data: record }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
-          </div>
-        </div>
+    // --- 1. ITEM DETAIL VIEW (Fixed: Multi-Brand Entry & Tab View) ---
+    if (viewDetail.type === 'item') {
+        // State for Tab switching (Default 'All')
+        // Note: Hook ko conditional block me nahi daal sakte, par kyunki ye pura App component re-render hoga,
+        // hum isse 'App' component ke top level state me maan kar yahan local variable use kar rahe hain.
+        // BEHTAR SOLUTION: Isse alag component banana chahiye, par abhi quick fix ke liye:
+        // Hum 'useState' ko yahan define nahi kar sakte agar ye conditional return ke andar hai.
+        // ISLIYE: Hum 'activeBrand' state ko ItemDetailView naam ke naye component me daalenge.
         
-        {/* ... Info Cards Same ... */}
-        <div className="p-4 space-y-6">
-           <div className="grid grid-cols-2 gap-3">
-              {/* ... (Ye wala pura content same rahega) ... */}
-              <div className="p-4 bg-gray-50 rounded-2xl border">
-                 {/* ... content same ... */}
-                 <p className="text-[10px] font-bold text-gray-400 uppercase">Current {isItem ? 'Stock' : 'Balance'}</p>
-                 <p className={`text-2xl font-black ${!isItem && partyBalances[record.id] > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                   {isItem ? `${itemStock[record.id] || 0} ${record.unit}` : formatCurrency(Math.abs(partyBalances[record.id] || 0))}
-                 </p>
-                 {!isItem && <p className="text-[10px] font-bold text-gray-400">{partyBalances[record.id] > 0 ? 'TO PAY' : 'TO COLLECT'}</p>}
-              </div>
-              {/* ... (baki boxes same) ... */}
-              {isItem ? (
-                <div className="p-4 bg-gray-50 rounded-2xl border">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase">Prices</p>
-                    <p className="text-sm font-bold">Sell: {formatCurrency(record.sellPrice)}</p>
-                    <p className="text-sm text-gray-500">Buy: {formatCurrency(record.buyPrice)}</p>
-                </div>
-              ) : (
-                <div className="p-4 bg-gray-50 rounded-2xl border space-y-1">
-                    {mobiles.map((m, i) => <p key={i} className="text-sm font-bold flex items-center gap-1"><Phone size={12}/> <a href={`tel:${m}`}>{m}</a></p>)}
-                    {record.address && <p className="text-xs text-gray-500 truncate">{record.address}</p>}
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                        {record.lat && <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${record.lat},${record.lng}`)} className="py-2 bg-blue-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"><Navigation size={12}/> Map</button>}
+        // --- INTERNAL COMPONENT FOR ITEM DETAIL ---
+        const ItemDetailInner = ({ record }) => {
+            const [activeBrand, setActiveBrand] = useState('All');
+
+            // 1. Data Processing (Fix for Issue 1: Multiple entries in same bill)
+            const processedData = useMemo(() => {
+                const groups = { 'All': [] };
+                const stats = { 'All': 0 }; // To track stock per brand
+
+                // Transactions sort karein
+                const sortedTxs = data.transactions
+                    .filter(tx => tx.status !== 'Cancelled' && tx.items?.some(l => l.itemId === record.id))
+                    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                sortedTxs.forEach(tx => {
+                    // CRITICAL FIX: .find() ki jagah .filter() use kiya
+                    // Taaki agar ek bill me 2 baar item hai to dono milein
+                    const matchingLines = tx.items.filter(l => l.itemId === record.id);
+                    
+                    matchingLines.forEach(line => {
+                        const brand = line.brand || 'Uncategorized';
+                        
+                        // Calculation Logic
+                        const qty = parseFloat(line.qty || 0);
+                        const isOut = tx.type === 'sales'; // Sale hai to minus
+                        const movement = isOut ? -qty : qty;
+
+                        // 1. Add to 'All' Group
+                        groups['All'].push({ tx, line });
+                        stats['All'] += movement;
+
+                        // 2. Add to Specific Brand Group
+                        if (!groups[brand]) {
+                            groups[brand] = [];
+                            stats[brand] = 0;
+                        }
+                        groups[brand].push({ tx, line });
+                        stats[brand] += movement;
+                    });
+                });
+                return { groups, stats };
+            }, [record, data.transactions]);
+
+            const { groups, stats } = processedData;
+            const currentList = groups[activeBrand] || [];
+            
+            // Available Brands for Tabs
+            const brands = Object.keys(groups).filter(k => k !== 'All').sort();
+
+            return (
+                <div id="detail-scroller" className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+                    <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
+                        <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                        <h2 className="font-bold text-lg truncate max-w-[150px]">{record.name}</h2>
+                        <button onClick={() => { pushHistory(); setModal({ type: 'item', data: record }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
+                    </div>
+
+                    <div className="p-4 space-y-4">
+                        {/* Main Stock Card */}
+                        <div className="p-4 bg-gray-50 rounded-2xl border">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase">Total Stock</p>
+                                    <p className="text-2xl font-black text-blue-600">{itemStock[record.id] || 0} <span className="text-sm text-gray-400">{record.unit}</span></p>
+                                </div>
+                                <div className="text-right">
+                                     <p className="text-[10px] font-bold text-gray-400 uppercase">Selected: {activeBrand}</p>
+                                     <p className={`text-xl font-bold ${stats[activeBrand] < 0 ? 'text-red-500' : 'text-green-600'}`}>
+                                        {stats[activeBrand] > 0 ? '+' : ''}{stats[activeBrand]}
+                                     </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* TABS (Brand Filter) */}
+                        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                            <button 
+                                onClick={() => setActiveBrand('All')} 
+                                className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap border transition-all ${activeBrand === 'All' ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200' : 'bg-white text-gray-600 border-gray-200'}`}
+                            >
+                                Show All ({groups['All'].length})
+                            </button>
+                            {brands.map(b => (
+                                <button 
+                                    key={b} 
+                                    onClick={() => setActiveBrand(b)} 
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap border transition-all ${activeBrand === b ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200' : 'bg-white text-gray-600 border-gray-200'}`}
+                                >
+                                    {b} ({stats[b] > 0 ? '+' : ''}{stats[b]})
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* TRANSACTIONS LIST */}
+                        <div className="space-y-2">
+                            {currentList.map(({ tx, line }, idx) => {
+                                const qty = parseFloat(line.qty || 0);
+                                const isOut = tx.type === 'sales';
+                                const displayQty = isOut ? -qty : qty;
+                                const color = isOut ? 'text-red-600' : 'text-green-600';
+
+                                return (
+                                    <div key={`${tx.id}-${idx}`} onClick={() => { pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-3 bg-white border rounded-xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-bold text-gray-800 text-xs uppercase">{tx.type} #{tx.id}</span>
+                                                {/* Agar 'All' tab hai to Brand ka badge dikhao */}
+                                                {activeBrand === 'All' && line.brand && (
+                                                    <span className="text-[9px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 font-bold">{line.brand}</span>
+                                                )}
+                                            </div>
+                                            <p className="text-[10px] text-gray-500 mt-0.5">{formatDate(tx.date)} • {data.parties.find(p=>p.id===tx.partyId)?.name || 'Cash'}</p>
+                                        </div>
+                                        
+                                        <div className="text-right">
+                                            <p className={`text-lg font-black ${color}`}>
+                                                {displayQty > 0 ? '+' : ''}{displayQty} {record.unit}
+                                            </p>
+                                            <p className="text-[10px] text-gray-400 font-bold">
+                                                {formatCurrency(line.price * qty)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {currentList.length === 0 && <p className="text-center text-gray-400 py-10">No transactions in this category.</p>}
+                        </div>
                     </div>
                 </div>
-              )}
-           </div>
+            );
+        };
 
-           {/* --- TRANSACTION HISTORY LIST --- */}
-           <div className="space-y-3">
-             <h3 className="font-bold flex items-center gap-2 text-gray-700"><History size={18}/> Transaction History</h3>
-             {history.map(tx => {
-               const totals = getBillStats(tx, data.transactions);
-               const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
-               
-               let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
-               if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
-               if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
-               if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+        const record = data.items.find(r => r.id === viewDetail.id);
+        if (!record) return null;
 
-               return (
-                 <div 
-                    key={tx.id} 
-                    // 2. YAHAN ONCLICK LOGIC UPDATE KIYA HAI:
-                    onClick={() => { 
-                        // A. Scroll position save karo
-                        const el = document.getElementById('detail-scroller');
-                        if(el) scrollPos.current[record.id] = el.scrollTop;
-                        
-                        // B. Current view (Party) ko stack me daalo
-                        setNavStack(prev => [...prev, viewDetail]);
-                        
-                        // C. Naya view (Transaction) kholo
-                        pushHistory(); 
-                        setViewDetail({ type: 'transaction', id: tx.id }); 
-                    }} 
-                    className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform"
-                 >
-                   <div className="flex gap-4 items-center">
-                     <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
-                     <div>
-                       <p className="font-bold text-gray-800 uppercase text-xs">{tx.type} • {tx.paymentMode || 'Credit'}</p>
-                       <p className="text-[10px] text-gray-400 font-bold">{tx.id} • {formatDate(tx.date)}</p>
-                       <div className="flex gap-1 mt-1">
-                           {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
+        // Render Internal Component to use Hooks properly
+        return <ItemDetailInner record={record} />;
+    }
+
+    // --- 2. PARTY DETAIL VIEW (Old Logic Preserved) ---
+    if (viewDetail.type === 'party') {
+        const record = data.parties.find(r => r.id === viewDetail.id);
+        if (!record) return null;
+
+        const history = data.transactions.filter(tx => tx.partyId === record.id)
+            .sort((a,b) => new Date(b.date) - new Date(a.date));
+        
+        const mobiles = String(record.mobile || '').split(',').map(m => m.trim()).filter(Boolean);
+
+        return (
+          <div id="detail-scroller" className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
+              <button onClick={() => {
+                  if(navStack.length > 0) {
+                      const prev = navStack[navStack.length-1];
+                      setNavStack(prev => prev.slice(0, -1));
+                      setViewDetail(prev);
+                  } else { handleCloseUI(); }
+              }} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+              
+              <h2 className="font-bold text-lg">{record.name}</h2>
+              <div className="flex gap-2">
+                 <button onClick={() => { pushHistory(); setStatementModal({ partyId: record.id }); }} className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-lg flex items-center gap-1"><FileText size={12}/> Stmt</button>
+                 <button onClick={() => { pushHistory(); setModal({ type: 'party', data: record }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
+              </div>
+            </div>
+            
+            <div className="p-4 space-y-6">
+               <div className="grid grid-cols-2 gap-3">
+                   <div className="p-4 bg-gray-50 rounded-2xl border">
+                     <p className="text-[10px] font-bold text-gray-400 uppercase">Current Balance</p>
+                     <p className={`text-2xl font-black ${partyBalances[record.id] > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                       {formatCurrency(Math.abs(partyBalances[record.id] || 0))}
+                     </p>
+                     <p className="text-[10px] font-bold text-gray-400">{partyBalances[record.id] > 0 ? 'TO PAY' : 'TO COLLECT'}</p>
+                   </div>
+                   <div className="p-4 bg-gray-50 rounded-2xl border space-y-1">
+                        {mobiles.map((m, i) => <p key={i} className="text-sm font-bold flex items-center gap-1"><Phone size={12}/> <a href={`tel:${m}`}>{m}</a></p>)}
+                        {record.address && <p className="text-xs text-gray-500 truncate">{record.address}</p>}
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                            {record.lat && <button onClick={() => window.open(`http://googleusercontent.com/maps.google.com/?q=${record.lat},${record.lng}`)} className="py-2 bg-blue-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"><Navigation size={12}/> Map</button>}
+                        </div>
+                   </div>
+               </div>
+
+               <div className="space-y-3">
+                 <h3 className="font-bold flex items-center gap-2 text-gray-700"><History size={18}/> Transaction History</h3>
+                 {history.map(tx => {
+                   const totals = getBillStats(tx, data.transactions);
+                   const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
+                   let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
+                   if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
+                   if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
+                   if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+
+                   return (
+                     <div key={tx.id} onClick={() => { 
+                            const el = document.getElementById('detail-scroller');
+                            if(el) scrollPos.current[record.id] = el.scrollTop;
+                            setNavStack(prev => [...prev, viewDetail]);
+                            pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); 
+                        }} 
+                        className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
+                       <div className="flex gap-4 items-center">
+                         <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
+                         <div>
+                           <p className="font-bold text-gray-800 uppercase text-xs">{tx.type} • {tx.paymentMode || 'Credit'}</p>
+                           <p className="text-[10px] text-gray-400 font-bold">{tx.id} • {formatDate(tx.date)}</p>
+                           <div className="flex gap-1 mt-1">
+                               {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
+                           </div>
+                         </div>
+                       </div>
+                       <div className="text-right">
+                           <p className={`font-bold ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
+                         {['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && tx.status !== 'Cancelled' && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
                        </div>
                      </div>
-                   </div>
-                   <div className="text-right">
-                     <p className={`font-bold ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
-                     {['sales', 'purchase'].includes(tx.type) && totals.status !== 'PAID' && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
-                   </div>
-                 </div>
-               );
-             })}
-           </div>
-        </div>
-      </div>
-    );
-  };
+                   );
+                 })}
+               </div>
+            </div>
+          </div>
+        );
+    }
+    
+    return null;
+};
 
   // REQ 2: Category Manager Component
   const CategoryManager = () => {
