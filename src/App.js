@@ -71,13 +71,13 @@ import {
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
-  authDomain: "smeestest.firebaseapp.com",
-  projectId: "smeestest",
-  storageBucket: "smeestest.firebasestorage.app",
-  messagingSenderId: "1086297510582",
-  appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
-  measurementId: "G-BQ6NW6D84Z"
+  apiKey: "AIzaSyA0GkAFhV6GfFsszHPJG-aPfGNiVRdBPNg",
+  authDomain: "smees-33e6c.firebaseapp.com",
+  projectId: "smees-33e6c",
+  storageBucket: "smees-33e6c.firebasestorage.app",
+  messagingSenderId: "723248995098",
+  appId: "1:723248995098:web:a61b659e31f42332656aa3",
+  measurementId: "G-JVBZZ8SHGM"
 };
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -93,7 +93,8 @@ const INITIAL_DATA = {
   tasks: [],
   categories: {
     expense: ["Rent", "Electricity", "Marketing", "Salary"],
-    item: ["Electronics", "Grocery", "General", "Furniture", "Pharmacy"]
+    item: ["Electronics", "Grocery", "General", "Furniture", "Pharmacy"],
+    taskStatus: ["To Do", "In Progress", "Done"]
   },
   counters: { 
       sales: 921, 
@@ -146,26 +147,60 @@ const getTransactionTotals = (tx) => {
   return { gross, final, paid, status, amount: parseFloat(tx.amount || 0) || final };
 };
 
-// Moved Outside App to fix Focus Issue
+// --- FIX: Logic updated for Bidirectional Linking ---
 const getBillStats = (bill, transactions) => {
     if (bill.type === 'estimate') return { ...getTransactionTotals(bill), status: 'ESTIMATE', pending: 0, paid: 0 };
-    const basic = getTransactionTotals(bill);
-    const linkedAmount = transactions.filter(t => t.type === 'payment' && t.linkedBills).reduce((sum, p) => {
-         const link = p.linkedBills.find(l => l.billId === bill.id);
-         return sum + (link ? parseFloat(link.amount || 0) : 0);
-      }, 0);
     
+    const basic = getTransactionTotals(bill);
+
+    // 1. EXTERNAL LINKS: Koi Payment jo is Bill ko point kar raha ho
+    const linkedFromPayments = transactions
+        .filter(t => t.type === 'payment' && t.linkedBills && t.status !== 'Cancelled')
+        .reduce((sum, p) => {
+             const link = p.linkedBills.find(l => l.billId === bill.id);
+             return sum + (link ? parseFloat(link.amount || 0) : 0);
+        }, 0);
+
+    // 2. INTERNAL LINKS: Agar Bill khud kisi Payment ko point kar raha ho (Reverse Link)
+    // Ye sales/purchase/expense me kaam karega jo aapne "Link Bills" feature add kiya hai
+    const linkedToPayments = (bill.linkedBills || []).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
+
+    // --- PAYMENT STATUS LOGIC ---
     let status = 'UNPAID';
     if(bill.type === 'payment') {
-         const used = bill.linkedBills?.reduce((sum, l) => sum + parseFloat(l.amount || 0), 0) || 0;
-         const total = parseFloat(bill.amount || 0);
-         if (used >= total - 0.1 && total > 0) status = 'FULLY USED';
-         else if (used > 0) status = 'PARTIALLY USED';
+         // Payment ke case me 'linkedToPayments' wo hai jo Payment ne bills ko settle kiya
+         // Aur 'linkedFromPayments' wo hai jo Bills ne is Payment ko use kiya (Reverse)
+         
+         const usedInternal = linkedToPayments;
+         
+         // Check karo ki koi Sale/Purchase is payment ko use kar rhi h kya
+         const usedExternal = transactions
+            .filter(t => ['sales', 'purchase', 'expense'].includes(t.type) && t.status !== 'Cancelled' && t.linkedBills)
+            .reduce((sum, t) => {
+                const link = t.linkedBills.find(l => l.billId === bill.id);
+                return sum + (link ? parseFloat(link.amount || 0) : 0);
+            }, 0);
+
+         const totalUsed = usedInternal + usedExternal;
+         
+         // Fix: Payment Available = Amount + Discount
+         const payAmt = parseFloat(bill.amount || 0);
+         const payDisc = parseFloat(bill.discountValue || 0);
+         const totalAvailable = payAmt + payDisc;
+
+         if (totalUsed >= totalAvailable - 0.1 && totalAvailable > 0) status = 'FULLY USED';
+         else if (totalUsed > 0) status = 'PARTIALLY USED';
          else status = 'UNUSED';
-         return { ...basic, used, status };
+         
+         return { ...basic, used: totalUsed, status, totalAvailable }; 
     }
-    const totalPaid = basic.paid + linkedAmount;
-    if (totalPaid >= basic.final - 0.1) status = 'PAID'; else if (totalPaid > 0) status = 'PARTIAL';
+
+    // --- BILL (Sale/Purchase/Expense) STATUS LOGIC ---
+    const totalPaid = basic.paid + linkedFromPayments + linkedToPayments;
+    
+    if (totalPaid >= basic.final - 0.1) status = 'PAID';
+    else if (totalPaid > 0) status = 'PARTIAL';
+    
     return { ...basic, totalPaid, pending: basic.final - totalPaid, status };
 };
 
@@ -346,26 +381,56 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
 const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPermission }) => {
     const [sort, setSort] = useState('DateAsc');
     const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('All'); // NEW: Default 'All' selected
+
+    // 1. Status List for Buttons (Default + Custom + System)
+    const definedStatuses = data.categories.taskStatus || ["To Do", "In Progress", "Done"];
     
+    // Filter Options banayein (All + Statuses + Converted)
+    const filterOptions = ['All', ...definedStatuses];
+    if (!filterOptions.includes('Converted')) filterOptions.push('Converted');
+
+    // 2. Filter Logic
     const filtered = data.tasks.filter(t => {
+        // Search Logic
         const clientName = data.parties.find(p => p.id === t.partyId)?.name || '';
         const searchText = search.toLowerCase();
-        return t.name.toLowerCase().includes(searchText) || t.description.toLowerCase().includes(searchText) || clientName.toLowerCase().includes(searchText);
-    });
+        const matchesSearch = t.name.toLowerCase().includes(searchText) || t.description.toLowerCase().includes(searchText) || clientName.toLowerCase().includes(searchText);
+        if (!matchesSearch) return false;
 
+        // Status Filter Logic
+        if (statusFilter !== 'All') {
+            return t.status === statusFilter;
+        }
+        
+        // Agar 'All' select hai, to hum usually 'Converted' (Archived) tasks ko chupa dete hain
+        // Taki list bhari na dikhe. Agar dekhna ho to user 'Converted' button daba sakta hai.
+        if (statusFilter === 'All' && t.status === 'Converted') return false;
+
+        return true;
+    });
+    
     const sortedTasks = sortData(filtered, sort);
-    const pending = sortedTasks.filter(t => t.status !== 'Done' && t.status !== 'Converted');
-    const done = sortedTasks.filter(t => t.status === 'Done' || t.status === 'Converted');
 
     const TaskItem = ({ task }) => {
       const party = data.parties.find(p => p.id === task.partyId);
+      
+      // Color coding for visual help
+      let statusColor = 'bg-gray-400';
+      if(task.status === 'Done') statusColor = 'bg-green-500';
+      else if(task.status === 'In Progress') statusColor = 'bg-blue-500';
+      else if(task.status === 'To Do') statusColor = 'bg-orange-500';
+      else if(task.status === 'Converted') statusColor = 'bg-purple-500';
+
       return (
         <div onClick={() => { pushHistory(); setViewDetail({ type: 'task', id: task.id }); }} className="p-4 bg-white border rounded-2xl mb-2 flex justify-between items-start cursor-pointer active:scale-95 transition-transform">
           <div className="flex-1">
             <div className="flex flex-col gap-1 mb-1">
                 <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : task.status === 'Converted' ? 'bg-purple-500' : 'bg-orange-500'}`} />
+                    <span className={`w-2 h-2 rounded-full ${statusColor}`} />
                     <p className="font-bold text-gray-800">{task.name}</p>
+                    {/* Status Badge (Chota sa) */}
+                    <span className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border uppercase">{task.status}</span>
                 </div>
                 {party && (
                       <span className="self-start text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold truncate max-w-[150px] ml-4 border border-blue-100">
@@ -385,29 +450,37 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
     };
 
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex justify-between items-center">
             <h1 className="text-xl font-bold">Tasks</h1>
             <div className="flex gap-2 items-center">
-                <input className="p-2 border rounded-xl text-xs w-32" placeholder="Search tasks..." value={search} onChange={e => setSearch(e.target.value)}/>
+                <input className="p-2 border rounded-xl text-xs w-24" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)}/>
                 <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}>
                     <option value="DateAsc">Due Soon</option>
                     <option value="DateDesc">Due Later</option>
                     <option value="A-Z">A-Z</option>
-                    <option value="Z-A">Z-A</option>
                 </select>
                 {checkPermission(user, 'canEditTasks') && <button onClick={() => { pushHistory(); setModal({ type: 'task' }); }} className="p-2 bg-blue-600 text-white rounded-xl"><Plus /></button>}
             </div>
         </div>
-        <div>
-            <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Pending ({pending.length})</h3>
-            {pending.map(t => <TaskItem key={t.id} task={t} />)}
+
+        {/* --- NEW: STATUS BUTTONS (Horizontal Scroll like Accounting) --- */}
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            {filterOptions.map(s => (
+                <button 
+                    key={s} 
+                    onClick={() => setStatusFilter(s)} 
+                    className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap border transition-all ${statusFilter === s ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-600 border-gray-200'}`}
+                >
+                    {s}
+                </button>
+            ))}
         </div>
-        <div>
-            <h3 className="text-xs font-bold text-gray-400 uppercase mb-3">Completed ({done.length})</h3>
-            <div className="opacity-60">
-                {done.map(t => <TaskItem key={t.id} task={t} />)}
-            </div>
+
+        {/* --- FILTERED LIST --- */}
+        <div className="space-y-2 pb-20">
+            {sortedTasks.map(t => <TaskItem key={t.id} task={t} />)}
+            {sortedTasks.length === 0 && <p className="text-center text-gray-400 py-10">No tasks found in '{statusFilter}'.</p>}
         </div>
       </div>
     );
@@ -1545,6 +1618,31 @@ if (tx.type === 'payment') {
         showToast("Error cancelling", "error");
     }
   };
+  // --- NEW: Restore Cancelled Transaction ---
+  const restoreTransaction = async (id) => {
+    if (!window.confirm("Are you sure you want to RESTORE this transaction? It will affect calculations again.")) return;
+    
+    // 1. Update local state immediately
+    // Hum status ko empty string set kar rahe hain taaki 'Cancelled' check fail ho jaye aur ye wapas active ho jaye
+    const updatedTransactions = data.transactions.map(t => 
+        t.id === id ? { ...t, status: '' } : t
+    );
+    setData(prev => ({ ...prev, transactions: updatedTransactions }));
+    
+    // 2. Update Firebase
+    try {
+        const tx = data.transactions.find(t => t.id === id);
+        if (tx) {
+            await setDoc(doc(db, "transactions", id), { ...tx, status: '' });
+            // 3. Sync quietly to ensure data consistency
+            await syncData(true);
+            showToast("Transaction Restored Successfully");
+        }
+    } catch (e) {
+        console.error(e);
+        showToast("Error restoring", "error");
+    }
+  };
 
   // --- MOVED IMPORT LOGIC (From TransactionList to App Scope) ---
   const handleTransactionImport = async (e) => {
@@ -2421,13 +2519,22 @@ React.useLayoutEffect(() => {
             <div className="flex gap-2">
                {tx.status !== 'Cancelled' && <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1"><Share2 size={16}/> PDF</button>}
                
+               {/* --- FIX: Updated Buttons for Restore --- */}
                {checkPermission(user, 'canEditTasks') && (
                    <>
                        {tx.status !== 'Cancelled' ? (
                           <button onClick={() => cancelTransaction(tx.id)} className="p-2 bg-gray-100 text-gray-600 rounded-lg border hover:bg-red-50 hover:text-red-600 font-bold text-xs">Cancel</button>
                        ) : (
-                          <span className="px-2 py-2 bg-red-50 text-red-600 rounded-lg font-black text-xs border border-red-200 flex items-center">CANCELLED</span>
+                          <div className="flex items-center gap-2">
+                              <span className="px-2 py-2 bg-red-50 text-red-600 rounded-lg font-black text-xs border border-red-200">CANCELLED</span>
+                              {/* NEW RESTORE BUTTON */}
+                              <button onClick={() => restoreTransaction(tx.id)} className="px-3 py-2 bg-green-100 text-green-700 rounded-lg font-bold text-xs border border-green-200 hover:bg-green-200">
+                                  Restore
+                              </button>
+                          </div>
                        )}
+                       
+                       {/* Edit Button (Only show if NOT Cancelled) */}
                        {tx.status !== 'Cancelled' && (
                            <button onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full">Edit</button>
                        )}
@@ -3142,48 +3249,51 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     return null;
 };
 
-  // REQ 2: Category Manager Component
+  // --- UPDATED CATEGORY MANAGER (Button/Tag Style Layout) ---
   const CategoryManager = () => {
+      const [activeType, setActiveType] = useState('expense'); // 'expense' or 'taskStatus'
       const [newCat, setNewCat] = useState('');
-      const [editingCat, setEditingCat] = useState(null); // { original: 'Name', current: 'Name' }
+      const [editingCat, setEditingCat] = useState(null);
       
+      const config = activeType === 'expense' 
+          ? { title: 'Expense Categories', key: 'expense' } 
+          : { title: 'Task Statuses', key: 'taskStatus' };
+
       const handleAdd = async () => {
           if(!newCat.trim()) return;
-          const current = data.categories.expense || [];
-          if(current.some(c => c.toLowerCase() === newCat.trim().toLowerCase())) return showToast("Category already exists", "error");
+          const current = data.categories[config.key] || [];
+          if(current.some(c => c.toLowerCase() === newCat.trim().toLowerCase())) return showToast("Already exists", "error");
           
-          const updated = [...current, newCat.trim()];
-          const fullCats = { ...data.categories, expense: updated };
+          const updatedList = [...current, newCat.trim()];
+          const fullCats = { ...data.categories, [config.key]: updatedList };
           
           setData(prev => ({ ...prev, categories: fullCats }));
           await setDoc(doc(db, "settings", "categories"), fullCats);
           setNewCat('');
-          showToast("Category Added");
+          showToast("Added Successfully");
       };
 
       const handleUpdate = async (original, newName) => {
           if (!newName || !newName.trim()) return;
-          const current = data.categories.expense || [];
+          const current = data.categories[config.key] || [];
           
-          // Check duplicate (excluding self)
           if(current.some(c => c !== original && c.toLowerCase() === newName.trim().toLowerCase())) {
-              return showToast("Category already exists", "error");
+              return showToast("Already exists", "error");
           }
 
-          const updated = current.map(c => c === original ? newName.trim() : c);
-          const fullCats = { ...data.categories, expense: updated };
+          const updatedList = current.map(c => c === original ? newName.trim() : c);
+          const fullCats = { ...data.categories, [config.key]: updatedList };
           
           setData(prev => ({ ...prev, categories: fullCats }));
           await setDoc(doc(db, "settings", "categories"), fullCats);
           setEditingCat(null);
-          showToast("Category Updated");
+          showToast("Updated Successfully");
       };
 
       const handleDelete = async (catName) => {
-          if(!window.confirm(`Delete category "${catName}"?`)) return;
-          const updated = (data.categories.expense || []).filter(c => c !== catName);
-          const fullCats = { ...data.categories, expense: updated };
-
+          if(!window.confirm(`Delete "${catName}"?`)) return;
+          const updatedList = (data.categories[config.key] || []).filter(c => c !== catName);
+          const fullCats = { ...data.categories, [config.key]: updatedList };
           setData(prev => ({ ...prev, categories: fullCats }));
           await setDoc(doc(db, "settings", "categories"), fullCats);
           showToast("Deleted");
@@ -3191,41 +3301,56 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
 
       return (
         <div className="space-y-4">
-              <div className="flex justify-between items-center mb-4">
-                  <h1 className="text-xl font-bold">Expense Categories</h1>
+              {/* TABS (Side by Side Buttons) */}
+              <div className="flex bg-gray-100 p-1 rounded-xl mb-4">
+                  <button onClick={()=>setActiveType('expense')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeType==='expense' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Expense Categories</button>
+                  <button onClick={()=>setActiveType('taskStatus')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeType==='taskStatus' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Task Statuses</button>
+              </div>
+
+              <div className="flex justify-between items-center mb-2">
+                  <h1 className="text-xl font-bold">{config.title}</h1>
               </div>
               
+              {/* ADD NEW INPUT */}
               <div className="flex gap-2">
-                  <input className="flex-1 p-3 bg-gray-50 border rounded-xl" placeholder="New Category Name..." value={newCat} onChange={e=>setNewCat(e.target.value)} />
+                  <input className="flex-1 p-3 bg-gray-50 border rounded-xl" placeholder={`New ${activeType === 'expense' ? 'Category' : 'Status'}...`} value={newCat} onChange={e=>setNewCat(e.target.value)} />
                   <button onClick={handleAdd} className="p-3 bg-blue-600 text-white rounded-xl"><Plus/></button>
               </div>
 
-              <div className="space-y-2">
-                  {(data.categories.expense || []).map((cat, idx) => (
-                      <div key={idx} className="p-3 bg-white border rounded-xl flex justify-between items-center">
+              {/* LIST AREA (Changed from Vertical Stack to Flex Wrap Buttons) */}
+              <div className="flex flex-wrap gap-3 pt-2">
+                  {(data.categories[config.key] || []).map((cat, idx) => (
+                      <div key={idx} className="animate-in zoom-in duration-200">
                           {editingCat?.original === cat ? (
-                              <div className="flex flex-1 gap-2 mr-2">
+                              // EDIT MODE (Small Input Bubble)
+                              <div className="flex items-center gap-1 pl-2 pr-1 py-1 bg-blue-50 border border-blue-200 rounded-full shadow-sm">
                                   <input 
-                                      className="flex-1 p-2 border rounded-lg text-sm" 
-                                      value={editingCat.current} 
-                                      autoFocus
-                                      onChange={e => setEditingCat({ ...editingCat, current: e.target.value })}
+                                    className="bg-transparent border-none text-sm font-bold text-blue-800 w-24 focus:ring-0 px-1" 
+                                    value={editingCat.current} 
+                                    autoFocus 
+                                    onChange={e => setEditingCat({ ...editingCat, current: e.target.value })} 
                                   />
-                                  <button onClick={() => handleUpdate(cat, editingCat.current)} className="p-2 bg-green-100 text-green-600 rounded-lg"><CheckCircle2 size={16}/></button>
-                                  <button onClick={() => setEditingCat(null)} className="p-2 bg-gray-100 text-gray-600 rounded-lg"><X size={16}/></button>
+                                  <button onClick={() => handleUpdate(cat, editingCat.current)} className="p-1.5 bg-green-100 text-green-600 rounded-full hover:bg-green-200"><CheckCircle2 size={14}/></button>
+                                  <button onClick={() => setEditingCat(null)} className="p-1.5 bg-gray-100 text-gray-500 rounded-full hover:bg-gray-200"><X size={14}/></button>
                               </div>
                           ) : (
-                              <>
-                                  <span className="font-bold text-gray-800">{cat}</span>
-                                  <div className="flex gap-2">
-                                      <button onClick={() => setEditingCat({ original: cat, current: cat })} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit2 size={16}/></button>
-                                      <button onClick={() => handleDelete(cat)} className="p-2 bg-red-50 text-red-600 rounded-lg"><Trash2 size={16}/></button>
+                              // VIEW MODE (Button/Pill Style)
+                              <div className="flex items-center gap-2 pl-4 pr-2 py-2 bg-white border rounded-full shadow-sm hover:shadow-md transition-shadow group">
+                                  <span className="font-bold text-gray-700 text-sm">{cat}</span>
+                                  
+                                  {/* Edit/Delete Icons (Divider ke saath) */}
+                                  <div className="flex items-center gap-1 border-l pl-2 ml-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                                      <button onClick={() => setEditingCat({ original: cat, current: cat })} className="text-blue-500 hover:text-blue-700"><Edit2 size={12}/></button>
+                                      <button onClick={() => handleDelete(cat)} className="text-red-400 hover:text-red-600"><Trash2 size={12}/></button>
                                   </div>
-                              </>
+                              </div>
                           )}
                       </div>
                   ))}
-                  {(data.categories.expense || []).length === 0 && <p className="text-center text-gray-400">No categories found.</p>}
+                  
+                  {(data.categories[config.key] || []).length === 0 && (
+                      <p className="w-full text-center text-gray-400 py-4 italic">No items found. Add one above.</p>
+                  )}
               </div>
         </div>
       );
@@ -3289,24 +3414,39 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     };
     const unpaidBills = useMemo(() => {
     if (!tx.partyId) return [];
+    
     return data.transactions.filter(t => {
-        // Condition 1: Same Party
+        // 1. Party Match & Basic Filter
         if (t.partyId !== tx.partyId) return false;
-        // Condition 2: Not self & Not Estimate
         if (t.id === tx.id || t.type === 'estimate') return false;
+        if (t.status === 'Cancelled') return false; // Cancelled ko mat dikhao
         
-        // FIX #10: Agar ye bill already LINKED hai is current transaction me, to dikhao bhale hi paid ho
+        // 2. Already Linked Check
         const isAlreadyLinked = tx.linkedBills?.some(l => l.billId === t.id);
         if (isAlreadyLinked) return true;
 
-        // Normal Condition: Unpaid Bills only
         const stats = getBillStats(t, data.transactions);
-        if (['sales', 'purchase', 'expense'].includes(t.type) && stats.status !== 'PAID') return true;
-        if (t.type === 'payment' && stats.status !== 'FULLY USED') return true;
+
+        // 3. Logic: Agar hum PAYMENT form me hain -> To unpaid BILLS dikhao
+        if (type === 'payment') {
+             return ['sales', 'purchase', 'expense'].includes(t.type) && stats.status !== 'PAID';
+        }
+
+        // 4. Logic: Agar hum BILL form (Sale/Purchase) me hain -> To unused PAYMENTS dikhao
+        // Sales ke liye -> Payment (In)
+        // Purchase/Expense ke liye -> Payment (Out)
+        if (['sales', 'purchase', 'expense'].includes(type)) {
+             if (t.type === 'payment' && stats.status !== 'FULLY USED') {
+                 // Type check: Sale h to 'in' payment chahiye, Purchase h to 'out'
+                 if (type === 'sales' && t.subType === 'in') return true;
+                 if ((type === 'purchase' || type === 'expense') && t.subType === 'out') return true;
+                 return false;
+             }
+        }
         
         return false;
     });
-}, [tx.partyId, data.transactions, tx.linkedBills]);
+}, [tx.partyId, data.transactions, tx.linkedBills, type]); // 'type' dependency add ki
 
     // --- TransactionForm ke andar is function ko replace karein ---
 const updateLine = (idx, field, val) => {
@@ -3807,21 +3947,25 @@ const updateItem = (idx, field, val) => {
         });
         setShowLocPicker(false);
     };
-    // --- NEW: Toggle Mobile Number Logic ---
+  // --- FIX: Update both Array and String for compatibility ---
 const toggleMobile = (mob) => {
     const exists = form.selectedContacts.find(c => c.number === mob.number);
     let newContacts;
-    
+
     if (exists) {
-        // Agar pehle se selected h to hatao (Deselect)
+        // Remove contact
         newContacts = form.selectedContacts.filter(c => c.number !== mob.number);
     } else {
-        // Nahi h to jodo (Select)
+        // Add contact
         newContacts = [...form.selectedContacts, { label: mob.label || 'Primary', number: mob.number }];
     }
-    
-    setForm({ ...form, selectedContacts: newContacts });
-    // Note: setShowMobilePicker(false) yahan se hata diya taaki aap multiple select kar sakein
+
+    // Update form state (Save both specific contacts AND comma-separated string)
+    setForm({ 
+        ...form, 
+        selectedContacts: newContacts,
+        mobile: newContacts.map(c => c.number).join(', ') // String bhi update karein
+    });
 };
     return (
       <div className="space-y-4">
@@ -3867,28 +4011,16 @@ const toggleMobile = (mob) => {
                                         <span className="text-[9px] text-blue-400">(Tap to Add/Remove)</span>
                                     </div>
                                     {selectedParty.mobileNumbers.map((mob, idx) => {
-                                        // TaskForm ke liye Logic: Check if number exists in form.mobile string
-                                        const isSelected = form.mobile?.includes(mob.number);
+                                        // FIX: Check in 'selectedContacts' array instead of string
+                                        const isSelected = form.selectedContacts?.some(c => c.number === mob.number);
                                         
                                         return (
                                             <div 
                                                 key={`mob-${idx}`} 
                                                 onClick={(e) => {
-                                                    e.stopPropagation(); // List band hone se rokein
-                                                    
-                                                    // String ko array banao
-                                                    let currentNums = form.mobile ? form.mobile.split(', ').map(s => s.trim()).filter(Boolean) : [];
-                                                    
-                                                    if (isSelected) {
-                                                        // Agar pehle se hai, to HATAO
-                                                        currentNums = currentNums.filter(n => n !== mob.number);
-                                                    } else {
-                                                        // Agar nahi hai, to JODO
-                                                        currentNums.push(mob.number);
-                                                    }
-                                                    
-                                                    // Wapas string banakar form update karein
-                                                    setForm({ ...form, mobile: currentNums.join(', ') });
+                                                    e.stopPropagation();
+                                                    // FIX: Use the new toggle function
+                                                    toggleMobile(mob);
                                                 }} 
                                                 className={`p-2 cursor-pointer border-b flex justify-between items-center transition-colors ${isSelected ? 'bg-green-50 border-green-200' : 'hover:bg-gray-50'}`}
                                             >
@@ -3986,7 +4118,18 @@ const toggleMobile = (mob) => {
                 </div>
             </div>
             {/* --- NEW CODE END --- */}
-        <div className="grid grid-cols-2 gap-4"><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /><select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.status} onChange={e => setForm({...form, status: e.target.value})}><option>To Do</option><option>In Progress</option><option>Done</option></select></div>
+        <div className="grid grid-cols-2 gap-4"><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /><select 
+    className="w-full p-3 bg-gray-50 border rounded-xl" 
+    value={form.status} 
+    onChange={e => setForm({...form, status: e.target.value})}
+>
+    {/* Dynamic Options from Settings */}
+    {(data.categories.taskStatus || ["To Do", "In Progress", "Done"]).map(s => (
+        <option key={s} value={s}>{s}</option>
+    ))}
+    {/* Converted option ko hidden rakh sakte hain ya dikha sakte hain, usually manual select nahi karte */}
+    <option value="Converted">Converted (System)</option>
+</select></div>
         <button onClick={() => saveRecord('tasks', form, 'task')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
       </div>
     );
