@@ -135,16 +135,28 @@ const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('
 const formatTime = (isoString) => isoString ? new Date(isoString).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '--:--';
 
 const getTransactionTotals = (tx) => {
-  if (tx.status === 'Cancelled') return { gross: 0, final: 0, paid: 0, status: 'CANCELLED', amount: 0 };
+  // 1. CANCELLED CHECK: Agar Cancelled hai to sab 0 return karega. 
+  // Isse Party Balance, Stock, Sales, Cash/Bank sab jagah value 0 ho jayegi automatically.
+  if (tx.status === 'Cancelled') return { gross: 0, final: 0, paid: 0, status: 'CANCELLED', amount: 0, roundOff: 0 };
+
   const gross = tx.items?.reduce((acc, i) => acc + (parseFloat(i.qty || 0) * parseFloat(i.price || 0)), 0) || 0;
+  
   let discVal = parseFloat(tx.discountValue || 0);
   if (tx.discountType === '%') discVal = (gross * discVal) / 100;
-  const final = gross - discVal;
+  
+  // 2. ROUND OFF LOGIC ADDED
+  const roundOff = parseFloat(tx.roundOff || 0); 
+  
+  // Final = Gross - Discount + Round Off
+  const final = gross - discVal + roundOff;
+  
   const paid = parseFloat(tx.received || tx.paid || 0);
+  
   let status = 'UNPAID';
   if (paid >= final - 0.1 && final > 0) status = 'PAID';
   else if (paid > 0) status = 'PARTIAL';
-  return { gross, final, paid, status, amount: parseFloat(tx.amount || 0) || final };
+
+  return { gross, final, paid, status, amount: parseFloat(tx.amount || 0) || final, roundOff };
 };
 
 // --- FIX: Logic updated for Bidirectional Linking ---
@@ -962,15 +974,89 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
     </div>
   );
 };
-// --- EXTERNALIZED COMPONENTS (Fix for Keyboard Focus) ---
-
-const MasterList = ({ title, collection, type, onRowClick, search, setSearch, data, setData, user, partyBalances, itemStock, partyFilter, pushHistory, setViewDetail, setModal, syncData }) => {
+const MasterList = ({ title, collection, type, onRowClick, search, setSearch, data, setData, user, partyBalances, itemStock, partyFilter, pushHistory, setViewDetail, setModal }) => {
     const [sort, setSort] = useState('A-Z');
     const [selectedIds, setSelectedIds] = useState([]);
-    
+    const [viewMode, setViewMode] = useState('list');
+    const [selectedCat, setSelectedCat] = useState(null);
+
+    // --- REQ 2: CATEGORY MANAGEMENT LOGIC ---
+    const handleRenameCat = async (e, oldName) => {
+        e.stopPropagation();
+        const newName = prompt("Rename Category:", oldName);
+        if (!newName || newName === oldName) return;
+
+        // 1. Check duplicates
+        const catList = data.categories.item || [];
+        if (catList.includes(newName)) return alert("Category name already exists!");
+
+        // 2. Update Category List
+        const newCatList = catList.map(c => c === oldName ? newName : c);
+        
+        // 3. Update Items (Jo item purani category me thi unhe nayi me daalo)
+        const updatedItems = data.items.map(i => i.category === oldName ? { ...i, category: newName } : i);
+
+        // 4. Update Local State
+        const newData = { 
+            ...data, 
+            items: updatedItems, 
+            categories: { ...data.categories, item: newCatList } 
+        };
+        setData(newData);
+
+        // 5. Update Firebase
+        // A. Settings update
+        await setDoc(doc(db, "settings", "categories"), newData.categories);
+        // B. Items update (Background me chalne do)
+        updatedItems.forEach(i => {
+            if (i.category === newName) setDoc(doc(db, "items", i.id), i);
+        });
+    };
+
+    const handleDeleteCat = async (e, catName) => {
+        e.stopPropagation();
+        if (!window.confirm(`Delete Category "${catName}"?\n\nItems inside will become Uncategorized.`)) return;
+
+        // 1. Remove from Category List
+        const newCatList = (data.categories.item || []).filter(c => c !== catName);
+
+        // 2. Update Items (Category Blank kar do)
+        const updatedItems = data.items.map(i => i.category === catName ? { ...i, category: '' } : i);
+
+        // 3. Update Local State
+        const newData = { 
+            ...data, 
+            items: updatedItems, 
+            categories: { ...data.categories, item: newCatList } 
+        };
+        setData(newData);
+
+        // 4. Update Firebase
+        await setDoc(doc(db, "settings", "categories"), newData.categories);
+        // Update affected items in Firebase
+        updatedItems.forEach(i => {
+            if (i.category === '') setDoc(doc(db, "items", i.id), i);
+        });
+    };
+    // ----------------------------------------
+
     let listData = data[collection] || [];
-    
-    if (type === 'item') listData = listData.map(i => ({ ...i, subText: `${itemStock[i.id] || 0} ${i.unit}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
+
+    if (type === 'item') {
+        listData = listData.map(i => {
+             const isService = i.type === 'Service';
+             const stockVal = itemStock[i.id] || 0;
+             return { 
+                 ...i, 
+                 subText: isService ? 'Service (No Stock)' : `${stockVal} ${i.unit}`, 
+                 subColor: isService ? 'text-gray-400' : (stockVal < 0 ? 'text-red-500' : 'text-green-600') 
+             };
+        });
+        if (viewMode === 'category' && selectedCat) {
+            listData = listData.filter(i => (i.category || 'Uncategorized') === selectedCat);
+        }
+    }
+
     if (type === 'party') {
         listData = listData.map(p => {
            const bal = partyBalances[p.id] || 0;
@@ -979,62 +1065,50 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
         if (partyFilter === 'receivable') listData = listData.filter(p => p.balance > 0);
         if (partyFilter === 'payable') listData = listData.filter(p => p.balance < 0);
     }
-    if (type === 'staff') {
-        if (user.role !== 'admin') {
-            listData = listData.filter(s => s.id === user.id);
-        }
-        listData = listData.map(s => ({ ...s, subText: s.role, subColor: 'text-blue-500' }));
-    }
+    
+    const categoryCounts = useMemo(() => {
+        if (type !== 'item') return {};
+        const counts = {};
+        (data.items || []).forEach(i => {
+            const cat = i.category || 'Uncategorized';
+            counts[cat] = (counts[cat] || 0) + 1;
+        });
+        return counts;
+    }, [data.items, type]);
 
     const filtered = sortData(listData.filter(item => Object.values(item).some(val => String(val).toLowerCase().includes(search.toLowerCase()))), sort);
 
     const handleImport = async (e) => {
         const file = e.target.files[0];
-        if (!file) return;
-        if (!window.XLSX) return alert("Excel lib not loaded");
-
+        if (!file || !window.XLSX) return;
         const reader = new FileReader();
         reader.onload = async (evt) => {
-            const bstr = evt.target.result;
-            const wb = window.XLSX.read(bstr, { type: 'binary' });
+            const wb = window.XLSX.read(evt.target.result, { type: 'binary' });
             const jsonData = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
             const newRecords = [];
-            const batchPromises = [];
             let nextCounters = { ...data.counters };
-
             for (let i = 1; i < jsonData.length; i++) {
                 const row = jsonData[i];
                 if (!row || row.length === 0) continue;
                 let record = {};
                 let id = '';
-                
                 if (type === 'party') {
                     const num = nextCounters.party || 1000;
-                    id = `P-${num}`;
-                    nextCounters.party = num + 1;
-                    record = { id, name: row[1] || '', email: row[3] || '', mobile: row[4] || '', address: row[5] || '', lat: row[6] || '', lng: row[7] || '', reference: row[8] || '', openingBal: row[10] || 0, type: row[11] || 'DR' };
+                    id = `P-${num}`; nextCounters.party = num + 1;
+                    record = { id, name: row[1]||'', email: row[3]||'', mobile: row[4]||'', address: row[5]||'', lat: row[6]||'', lng: row[7]||'', reference: row[8]||'', openingBal: row[10]||0, type: row[11]||'DR' };
                 } else if (type === 'item') {
                     const num = nextCounters.item || 1000;
-                    id = `I-${num}`;
-                    nextCounters.item = num + 1;
-                    record = { id, name: row[1] || '', category: row[2] || '', type: row[3] || 'Goods', sellPrice: row[4] || 0, buyPrice: row[5] || 0, unit: row[8] || 'pcs', openingStock: 0 };
+                    id = `I-${num}`; nextCounters.item = num + 1;
+                    record = { id, name: row[1]||'', category: row[2]||'', type: row[3]||'Goods', sellPrice: row[4]||0, buyPrice: row[5]||0, unit: row[8]||'pcs', openingStock: 0 };
                 }
-                
-                if (record.name) {
-                    newRecords.push(cleanData(record));
-                    batchPromises.push(setDoc(doc(db, collection, id), cleanData(record)));
-                }
+                if (record.name) newRecords.push(cleanData(record));
             }
-            
-            batchPromises.push(setDoc(doc(db, "settings", "counters"), nextCounters));
-            
-            await Promise.all(batchPromises);
-            setData(prev => ({ 
-                ...prev, 
-                [collection]: [...prev[collection], ...newRecords],
-                counters: nextCounters
-            }));
-            alert(`Imported ${newRecords.length} records successfully!`);
+            await setDoc(doc(db, "settings", "counters"), nextCounters);
+            const newData = { ...data, [collection]: [...data[collection], ...newRecords], counters: nextCounters };
+            setData(newData);
+            localStorage.setItem('smees_data', JSON.stringify(newData));
+            newRecords.forEach(r => setDoc(doc(db, collection, r.id), r));
+            alert(`Imported ${newRecords.length} records!`);
         };
         reader.readAsBinaryString(file);
     };
@@ -1056,6 +1130,17 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
               <h1 className="text-xl font-bold">{title} {partyFilter ? `(${partyFilter})` : ''}</h1>
           </div>
           <div className="flex gap-2">
+              {type === 'item' && (
+                  <button 
+                    onClick={() => {
+                        if(viewMode === 'list') setViewMode('category');
+                        else { setViewMode('list'); setSelectedCat(null); }
+                    }} 
+                    className={`p-2 rounded-xl flex items-center gap-1 text-sm px-3 font-bold border ${viewMode === 'category' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-gray-100 text-gray-600'}`}
+                  >
+                    <Package size={18}/> {viewMode === 'category' ? 'Show All' : 'Categories'}
+                  </button>
+              )}
               {(type === 'party' || type === 'item') && checkPermission(user, 'canViewMasters') && (
                   <label className="p-2 bg-gray-100 rounded-xl cursor-pointer"><Upload size={18} className="text-gray-600"/><input type="file" hidden accept=".xlsx, .xls" onChange={handleImport} /></label>
               )}
@@ -1066,31 +1151,62 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
               )}
           </div>
         </div>
-        <div className="relative">
-          <Search className="absolute left-3 top-3 text-gray-400" size={18} />
-          <input 
-    autoFocus // <--- Ye line add karein
-    className="w-full pl-10 pr-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500" 
-    placeholder={`Search ${title}...`} 
-    value={search} 
-    onChange={(e) => setSearch(e.target.value)} 
-/>
-        </div>
-        <div className="space-y-2">
-          {filtered.map(item => (
-            <div key={item.id} className={`p-3 bg-white border rounded-2xl flex items-center gap-3 active:scale-95 transition-transform ${selectedIds.includes(item.id) ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50' : ''}`}>
-              <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={selectedIds.includes(item.id)} onChange={() => setSelectedIds(prev => prev.includes(item.id) ? prev.filter(i => i!==item.id) : [...prev, item.id])} />
-              <div className="flex-1" onClick={() => onRowClick ? onRowClick(item) : (pushHistory() || setViewDetail({ type, id: item.id }))}>
-                <div className="flex justify-between items-start">
-                    <div><p className="font-bold text-gray-800">{item.name}</p><p className="text-xs text-gray-500">{item.mobile || item.category || item.role}</p></div>
-                    {item.subText && <p className={`text-xs font-bold ${item.subColor}`}>{item.subText}</p>}
-                </div>
-              </div>
-              <ChevronRight className="text-gray-300" />
+
+        {type === 'item' && viewMode === 'category' && !selectedCat && (
+            <div className="grid grid-cols-2 gap-3 animate-in fade-in">
+                {Object.entries(categoryCounts).map(([cat, count]) => (
+                    <div key={cat} onClick={() => setSelectedCat(cat)} className="relative p-4 bg-white border rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:bg-blue-50 transition-colors shadow-sm group">
+                        
+                        {/* EDIT / DELETE BUTTONS FOR CATEGORY */}
+                        {cat !== 'Uncategorized' && checkPermission(user, 'canViewMasters') && (
+                            <div className="absolute top-2 right-2 flex gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={(e) => handleRenameCat(e, cat)} className="p-1.5 bg-blue-100 text-blue-600 rounded hover:bg-blue-200"><Edit2 size={12}/></button>
+                                <button onClick={(e) => handleDeleteCat(e, cat)} className="p-1.5 bg-red-100 text-red-600 rounded hover:bg-red-200"><Trash2 size={12}/></button>
+                            </div>
+                        )}
+                        
+                        <Package size={24} className="text-blue-500 mb-2 opacity-50"/>
+                        <span className="font-bold text-gray-800 text-center text-sm">{cat}</span>
+                        <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded-full mt-1">{count} Items</span>
+                    </div>
+                ))}
+                {Object.keys(categoryCounts).length === 0 && <p className="text-gray-400 col-span-2 text-center text-sm">No categories found.</p>}
             </div>
-          ))}
-          {filtered.length === 0 && <p className="text-center text-gray-400 py-10">No records found</p>}
-        </div>
+        )}
+
+        {((type !== 'item') || (type === 'item' && (viewMode === 'list' || selectedCat))) && (
+            <>
+                {selectedCat && (
+                    <button onClick={() => setSelectedCat(null)} className="flex items-center gap-1 text-xs font-bold text-gray-500 mb-2">
+                        <ArrowLeft size={14}/> Back to Categories
+                    </button>
+                )}
+                
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+                  <input autoFocus className="w-full pl-10 pr-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500" placeholder={`Search ${title}...`} value={search} onChange={(e) => setSearch(e.target.value)} />
+                </div>
+                
+                <div className="space-y-2">
+                  {filtered.map(item => (
+                    <div key={item.id} className={`p-3 bg-white border rounded-2xl flex items-center gap-3 active:scale-95 transition-transform ${selectedIds.includes(item.id) ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50' : ''}`}>
+                      <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={selectedIds.includes(item.id)} onChange={() => setSelectedIds(prev => prev.includes(item.id) ? prev.filter(i => i!==item.id) : [...prev, item.id])} />
+                      <div className="flex-1" onClick={() => onRowClick ? onRowClick(item) : (pushHistory() || setViewDetail({ type, id: item.id }))}>
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <p className="font-bold text-gray-800">{item.name}</p>
+                                <p className="text-xs text-gray-500">{item.mobile || item.category || item.role}</p>
+                            </div>
+                            {item.subText && <p className={`text-xs font-bold ${item.subColor}`}>{item.subText}</p>}
+                        </div>
+                      </div>
+                      <ChevronRight className="text-gray-300" />
+                    </div>
+                  ))}
+                  {filtered.length === 0 && <p className="text-center text-gray-400 py-10">No records found</p>}
+                </div>
+            </>
+        )}
       </div>
     );
 };
@@ -3219,110 +3335,121 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         const record = data.parties.find(r => r.id === viewDetail.id);
         if (!record) return null;
 
-        const history = data.transactions.filter(tx => tx.partyId === record.id)
-            .sort((a,b) => new Date(b.date) - new Date(a.date));
+        // --- CHANGE 2: Filter State ---
+        // Hum hook ko component ke andar define nahi kar sakte agar wo loop me hai.
+        // Isliye hum yahan ek Internal Component banayenge (Jaisa ItemDetailInner banaya tha)
         
-        const mobiles = String(record.mobile || '').split(',').map(m => m.trim()).filter(Boolean);
+        const PartyDetailInner = ({ record }) => {
+            const [filter, setFilter] = useState('All'); // All, Sales, Purchase, Expense, Payment
 
-        return (
-          <div id="detail-scroller" className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
-              <button onClick={() => {
-                  if(navStack.length > 0) {
-                      const prev = navStack[navStack.length-1];
-                      setNavStack(prev => prev.slice(0, -1));
-                      setViewDetail(prev);
-                  } else { handleCloseUI(); }
-              }} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-              
-              <h2 className="font-bold text-lg">{record.name}</h2>
-              <div className="flex gap-2">
-                 <button onClick={() => { pushHistory(); setStatementModal({ partyId: record.id }); }} className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-lg flex items-center gap-1"><FileText size={12}/> Stmt</button>
-                 <button onClick={() => { pushHistory(); setModal({ type: 'party', data: record }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
+            // Filter Logic
+            const history = data.transactions
+                .filter(tx => tx.partyId === record.id)
+                .filter(tx => {
+                    if (filter === 'All') return true;
+                    if (filter === 'Sales') return tx.type === 'sales';
+                    if (filter === 'Purchase') return tx.type === 'purchase';
+                    if (filter === 'Expense') return tx.type === 'expense';
+                    if (filter === 'Payment') return tx.type === 'payment';
+                    return true;
+                })
+                .sort((a,b) => new Date(b.date) - new Date(a.date));
+
+            const mobiles = String(record.mobile || '').split(',').map(m => m.trim()).filter(Boolean);
+
+            return (
+              <div id="detail-scroller" className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+                <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
+                  <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                  <h2 className="font-bold text-lg">{record.name}</h2>
+                  <div className="flex gap-2">
+                     <button onClick={() => { pushHistory(); setStatementModal({ partyId: record.id }); }} className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-lg flex items-center gap-1"><FileText size={12}/> Stmt</button>
+                     <button onClick={() => { pushHistory(); setModal({ type: 'party', data: record }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
+                  </div>
+                </div>
+                
+                <div className="p-4 space-y-6">
+                   {/* Balance & Info Cards (Same as before) */}
+                   <div className="grid grid-cols-2 gap-3">
+                       <div className="p-4 bg-gray-50 rounded-2xl border">
+                         <p className="text-[10px] font-bold text-gray-400 uppercase">Current Balance</p>
+                         <p className={`text-2xl font-black ${partyBalances[record.id] > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                           {formatCurrency(Math.abs(partyBalances[record.id] || 0))}
+                         </p>
+                         <p className="text-[10px] font-bold text-gray-400">{partyBalances[record.id] > 0 ? 'TO PAY' : 'TO COLLECT'}</p>
+                       </div>
+                       <div className="p-4 bg-gray-50 rounded-2xl border space-y-1">
+                            {mobiles.map((m, i) => <p key={i} className="text-sm font-bold flex items-center gap-1"><Phone size={12}/> <a href={`tel:${m}`}>{m}</a></p>)}
+                            {record.address && <p className="text-xs text-gray-500 truncate">{record.address}</p>}
+                       </div>
+                   </div>
+
+                   <div className="space-y-3">
+                     <h3 className="font-bold flex items-center gap-2 text-gray-700"><History size={18}/> Transaction History</h3>
+                     
+                     {/* CHANGE 2: Filter Buttons */}
+                     <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                        {['All', 'Sales', 'Purchase', 'Payment', 'Expense'].map(f => (
+                            <button 
+                                key={f} 
+                                onClick={() => setFilter(f)}
+                                className={`px-4 py-2 rounded-full text-xs font-bold border whitespace-nowrap ${filter === f ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600'}`}
+                            >
+                                {f}
+                            </button>
+                        ))}
+                     </div>
+
+                     {history.map(tx => {
+                       const totals = getBillStats(tx, data.transactions);
+                       const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
+                       
+                       let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
+                       if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
+                       if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
+                       if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+
+                       let displayAmount = totals.amount;
+                       if (tx.type === 'payment') {
+                           displayAmount = (parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0));
+                       }
+
+                       return (
+                         <div key={tx.id} onClick={() => { 
+                                const el = document.getElementById('detail-scroller');
+                                if(el) scrollPos.current[record.id] = el.scrollTop;
+                                setNavStack(prev => [...prev, viewDetail]);
+                                pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); 
+                            }} 
+                            className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
+                           <div className="flex gap-4 items-center">
+                             <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
+                             <div>
+                               <p className="font-bold text-gray-800 uppercase text-xs">{tx.type} • {tx.paymentMode || 'Credit'}</p>
+                               <p className="text-[10px] text-gray-400 font-bold">{tx.id} • {formatDate(tx.date)}</p>
+                               <div className="flex gap-1 mt-1">
+                                   {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
+                                   {tx.type === 'payment' && tx.discountValue > 0 && <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-blue-100 text-blue-700">Disc: {tx.discountValue}</span>}
+                               </div>
+                             </div>
+                           </div>
+                           <div className="text-right">
+                               <p className={`font-bold ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>
+                                   {isIncoming ? '+' : '-'}{formatCurrency(displayAmount)}
+                               </p>
+                               {['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && tx.status !== 'Cancelled' && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
+                           </div>
+                         </div>
+                       );
+                    })}
+                    {history.length === 0 && <p className="text-center text-gray-400 italic">No {filter} transactions found.</p>}
+                   </div>
+                </div>
               </div>
-            </div>
-            
-            <div className="p-4 space-y-6">
-               <div className="grid grid-cols-2 gap-3">
-                   <div className="p-4 bg-gray-50 rounded-2xl border">
-                     <p className="text-[10px] font-bold text-gray-400 uppercase">Current Balance</p>
-                     <p className={`text-2xl font-black ${partyBalances[record.id] > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                       {formatCurrency(Math.abs(partyBalances[record.id] || 0))}
-                     </p>
-                     <p className="text-[10px] font-bold text-gray-400">{partyBalances[record.id] > 0 ? 'TO PAY' : 'TO COLLECT'}</p>
-                   </div>
-                   <div className="p-4 bg-gray-50 rounded-2xl border space-y-1">
-                        {mobiles.map((m, i) => <p key={i} className="text-sm font-bold flex items-center gap-1"><Phone size={12}/> <a href={`tel:${m}`}>{m}</a></p>)}
-                        {record.address && <p className="text-xs text-gray-500 truncate">{record.address}</p>}
-                        <div className="grid grid-cols-2 gap-2 mt-2">
-                            {record.lat && <button onClick={() => window.open(`http://googleusercontent.com/maps.google.com/?q=${record.lat},${record.lng}`)} className="py-2 bg-blue-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"><Navigation size={12}/> Map</button>}
-                        </div>
-                   </div>
-               </div>
-
-               <div className="space-y-3">
-                 <h3 className="font-bold flex items-center gap-2 text-gray-700"><History size={18}/> Transaction History</h3>
-                 // REPLACE THIS BLOCK inside PartyDetail Component (Transaction History Loop)
-
-{history.map(tx => {
-   const totals = getBillStats(tx, data.transactions);
-   const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
-   
-   // Icons & Colors setup (No Change here)
-   let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
-   if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
-   if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
-   if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
-
-   // --- CHANGE START: Calculate Amount for Display ---
-   // Agar Payment hai to: Amount (1000) + Discount (200) = 1200 dikhao
-   // Agar Bill hai to: Normal Final Amount dikhao
-   let displayAmount = totals.amount;
-   if (tx.type === 'payment') {
-       displayAmount = (parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0));
-   }
-   // --- CHANGE END ---
-
-   return (
-     <div key={tx.id} onClick={() => { 
-            const el = document.getElementById('detail-scroller');
-            if(el) scrollPos.current[record.id] = el.scrollTop;
-            setNavStack(prev => [...prev, viewDetail]);
-            pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); 
-        }} 
-        className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
-       <div className="flex gap-4 items-center">
-         <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
-         <div>
-           <p className="font-bold text-gray-800 uppercase text-xs">{tx.type} • {tx.paymentMode || 'Credit'}</p>
-           <p className="text-[10px] text-gray-400 font-bold">{tx.id} • {formatDate(tx.date)}</p>
-           <div className="flex gap-1 mt-1">
-               {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
-               
-               {/* Agar Payment mein discount hai to yahan chota sa badge dikha sakte hain */}
-               {tx.type === 'payment' && tx.discountValue > 0 && (
-                   <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-blue-100 text-blue-700">
-                       Disc: {tx.discountValue}
-                   </span>
-               )}
-           </div>
-         </div>
-       </div>
-       <div className="text-right">
-           {/* Yahan hum calculated 'displayAmount' use karenge */}
-           <p className={`font-bold ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>
-               {isIncoming ? '+' : '-'}{formatCurrency(displayAmount)}
-           </p>
-           
-           {['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && tx.status !== 'Cancelled' && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
-       </div>
-     </div>
-   );
-})}
-               </div>
-            </div>
-          </div>
-        );
+            );
+        };
+        
+        return <PartyDetailInner record={record} />;
     }
     
     return null;
@@ -3618,7 +3745,33 @@ const updateLine = (idx, field, val) => {
       });
       return Array.from(brands).sort();
   }, [data.items, data.transactions]);
+// --- INSERT THIS INSIDE TransactionForm (Before return) ---
+    
+    // REQ 1: Auto Round Off Logic
+    useEffect(() => {
+        // Sirf tab calculate karein jab items ya discount change ho
+        // Agar user manually round off edit kar raha h to ye trigger nahi hoga (kyunki roundOff dependency me nahi h)
+        
+        const gross = tx.items?.reduce((acc, i) => acc + (parseFloat(i.qty || 0) * parseFloat(i.price || 0)), 0) || 0;
+        let discVal = parseFloat(tx.discountValue || 0);
+        if (tx.discountType === '%') discVal = (gross * discVal) / 100;
+        
+        const rawTotal = gross - discVal;
+        const roundedTotal = Math.round(rawTotal);
+        
+        // Difference nikaalein (e.g., 100.4 h to -0.4, 100.6 h to +0.4)
+        const autoRound = (roundedTotal - rawTotal).toFixed(2);
+        
+        // State update karein (sirf agar value different ho to loop se bachne ke liye)
+        // Hum check kar rahe hain ki kya naya calculation current value se alag hai?
+        // Note: Hum yahan user ka manual input overwrite karenge JAB wo ITEM add/remove karega. 
+        // Agar wo item change kiye bina round off change karega to ye effect nahi chalega (Sahi behavior).
+        if (parseFloat(tx.roundOff || 0).toFixed(2) !== autoRound) {
+            setTx(prev => ({ ...prev, roundOff: autoRound }));
+        }
+    }, [tx.items, tx.discountValue, tx.discountType]); // Dependencies: Jab ye badle tabhi recalculate karo
 
+    // ----------------------------------------------------------
     return (
       <div className="space-y-4">
         {/* REQ 4: Header with Voucher ID */}
@@ -3866,28 +4019,35 @@ const updateLine = (idx, field, val) => {
         )}
         
         {/* PAYMENT DETAILS (For Sales/Purchase/Expense) */}
-        {['sales', 'purchase', 'expense'].includes(type) && (
-             <div className="p-4 bg-gray-50 rounded-xl border space-y-3 mt-2 shadow-sm">
-                 <div className="flex justify-between items-center font-bold text-lg text-blue-900 border-b pb-2 mb-2">
-                     <span>Grand Total</span>
-                     <span>{formatCurrency(totals.final)}</span>
-                 </div>
-                 <div className="flex justify-between items-center">
-                     <span className="text-xs font-bold uppercase text-gray-500">{type === 'sales' ? 'Received Now' : 'Paid Now'}</span>
-                     <div className="flex items-center gap-2">
-                        <input type="number" className="w-24 p-2 border rounded-lg text-right font-bold" placeholder="0" value={type==='sales'?tx.received:tx.paid} onChange={e => setTx({...tx, [type==='sales'?'received':'paid']: e.target.value})} />
-                        <select className="p-2 border rounded-lg text-xs" value={tx.paymentMode} onChange={e=>setTx({...tx, paymentMode: e.target.value})}><option>Cash</option><option>Bank</option><option>UPI</option></select>
-                     </div>
-                 </div>
-                 <div className="flex justify-between items-center">
-                     <span className="text-xs font-bold uppercase text-gray-500">Discount</span>
-                     <div className="flex items-center gap-2">
-                        <input type="number" className="w-20 p-2 border rounded-lg text-right" placeholder="0" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})} />
-                        <select className="p-2 border rounded-lg text-xs" value={tx.discountType} onChange={e=>setTx({...tx, discountType: e.target.value})}><option>%</option><option>Amt</option></select>
-                     </div>
-                 </div>
+        
+{['sales', 'purchase', 'expense'].includes(type) && (
+     <div className="p-4 bg-gray-50 rounded-xl border space-y-3 mt-2 shadow-sm">
+         <div className="flex justify-between items-center font-bold text-lg text-blue-900 border-b pb-2 mb-2">
+             <span>Grand Total</span>
+             {/* Total automatically updates because getTransactionTotals now handles roundOff */}
+             <span>{formatCurrency(totals.final)}</span>
+         </div>
+         <div className="flex justify-between items-center">
+             <span className="text-xs font-bold uppercase text-gray-500">{type === 'sales' ? 'Received Now' : 'Paid Now'}</span>
+             <div className="flex items-center gap-2">
+                <input type="number" className="w-24 p-2 border rounded-lg text-right font-bold" placeholder="0" value={type==='sales'?tx.received:tx.paid} onChange={e => setTx({...tx, [type==='sales'?'received':'paid']: e.target.value})} />
+                <select className="p-2 border rounded-lg text-xs" value={tx.paymentMode} onChange={e=>setTx({...tx, paymentMode: e.target.value})}><option>Cash</option><option>Bank</option><option>UPI</option></select>
              </div>
-        )}
+         </div>
+         <div className="flex justify-between items-center">
+             <span className="text-xs font-bold uppercase text-gray-500">Discount</span>
+             <div className="flex items-center gap-2">
+                <input type="number" className="w-20 p-2 border rounded-lg text-right" placeholder="0" value={tx.discountValue} onChange={e => setTx({...tx, discountValue: e.target.value})} />
+                <select className="p-2 border rounded-lg text-xs" value={tx.discountType} onChange={e=>setTx({...tx, discountType: e.target.value})}><option>%</option><option>Amt</option></select>
+             </div>
+         </div>
+         {/* CHANGE 3: ROUND OFF INPUT */}
+         <div className="flex justify-between items-center">
+             <span className="text-xs font-bold uppercase text-gray-500">Round Off</span>
+             <input type="number" className="w-24 p-2 border rounded-lg text-right font-bold text-gray-600" placeholder="+ / -" value={tx.roundOff || ''} onChange={e => setTx({...tx, roundOff: e.target.value})} />
+         </div>
+     </div>
+)}
 {/* Payment Block yahan khatam hua */}
 
         {/* --- NEW LINK BILLS SECTION START --- */}
@@ -3899,31 +4059,78 @@ const updateLine = (idx, field, val) => {
                 </button>
                 
                 {showLinking && (
-                    <div className="space-y-2 p-2 border rounded-xl">
-                         <input 
-                            className="w-full p-2 border rounded-lg text-xs mb-2 bg-gray-50" 
+                    <div className="space-y-2 p-2 border rounded-xl bg-gray-50/50">
+                        <input 
+                            className="w-full p-2 border rounded-lg text-xs mb-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none" 
                             placeholder="Search Bill No or Amount..." 
                             value={linkSearch} 
                             onChange={e => setLinkSearch(e.target.value)} 
                         />
-                        <div className="max-h-40 overflow-y-auto space-y-2">
-                            {unpaidBills.filter(b => 
+                        <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                             {unpaidBills.filter(b => 
                                 b.id.toLowerCase().includes(linkSearch.toLowerCase()) || 
                                 (b.amount || 0).toString().includes(linkSearch)
-                            ).map(b => (
-                                <div key={b.id} className="flex justify-between items-center p-2 border-b last:border-0">
-                                    <div className="text-[10px]">
-                                        <p className="font-bold">{b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}</p>
-                                        <p>{formatDate(b.date)} • Tot: {formatCurrency(b.amount || getBillStats(b, data.transactions).final)} <br/> 
-                                        <span className="text-red-600">
-                                            Due: {formatCurrency(b.type === 'payment' ? (getBillStats(b, data.transactions).amount - getBillStats(b, data.transactions).used) : getBillStats(b, data.transactions).pending)}
-                                        </span>
-                                        </p>
+                            ).map(b => {
+                                // 1. Calculate Stats & Due Amount
+                                const stats = getBillStats(b, data.transactions);
+                                const dueAmount = b.type === 'payment' 
+                                    ? (stats.amount - stats.used) 
+                                    : stats.pending;
+                                
+                                // 2. Check if currently linked
+                                const linkData = tx.linkedBills?.find(l => l.billId === b.id);
+                                const isLinked = !!linkData;
+
+                                return (
+                                <div 
+                                    key={b.id} 
+                                    // 3. Highlight Logic (Blue Border & Background if linked)
+                                    className={`flex justify-between items-center p-2 border rounded-lg transition-all ${isLinked ? 'bg-blue-50 border-blue-500 shadow-sm' : 'bg-white border-gray-200 hover:border-blue-300'}`}
+                                >
+                                    <div className="flex items-center gap-3 flex-1">
+                                        {/* 4. Checkbox with Auto-Fill Logic */}
+                                        <input 
+                                            type="checkbox" 
+                                            checked={isLinked} 
+                                            onChange={() => {
+                                                if(isLinked) {
+                                                    // Uncheck -> Remove Amount (Send 0 or empty)
+                                                    handleLinkChange(b.id, '');
+                                                } else {
+                                                    // Check -> Auto-fill Due Amount
+                                                    // Note: Existing handleLinkChange logic validation handle karega (Max limit etc.)
+                                                    handleLinkChange(b.id, dueAmount); 
+                                                }
+                                            }}
+                                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                        />
+                                        
+                                        <div className="text-[10px] cursor-pointer" onClick={() => !isLinked && handleLinkChange(b.id, dueAmount)}>
+                                            <p className={`font-bold ${isLinked ? 'text-blue-800' : 'text-gray-700'}`}>
+                                                {b.id} • {b.type === 'payment' ? (b.subType==='in'?'IN':'OUT') : b.type}
+                                            </p>
+                                            <p className="text-gray-500">
+                                                {formatDate(b.date)} • Tot: {formatCurrency(b.amount || stats.final)}
+                                            </p>
+                                            <p className="font-bold text-red-600 mt-0.5">
+                                                Due: {formatCurrency(dueAmount)}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Amt" value={tx.linkedBills?.find(l=>l.billId===b.id)?.amount||''} onChange={e => handleLinkChange(b.id, e.target.value)}/>
+
+                                    {/* 5. Editable Amount Input (Wahi purana wala, bas styling thodi clean ki h) */}
+                                    <input 
+                                        type="number" 
+                                        className={`w-24 p-2 border rounded-lg text-xs font-bold text-right outline-none focus:ring-2 focus:ring-blue-500 ${isLinked ? 'bg-white border-blue-200 text-blue-700' : 'bg-gray-50 text-gray-400'}`} 
+                                        placeholder="Amt" 
+                                        value={linkData?.amount || ''} 
+                                        onChange={e => handleLinkChange(b.id, e.target.value)}
+                                        onClick={(e) => e.stopPropagation()} // Click on input shouldn't trigger parent clicks if any
+                                    />
                                 </div>
-                            ))}
-                            {unpaidBills.length === 0 && <p className="text-center text-xs text-gray-400">No bills found to link.</p>}
+                                );
+                            })}
+                            {unpaidBills.length === 0 && <p className="text-center text-xs text-gray-400 py-4">No bills found to link.</p>}
                         </div>
                     </div>
                 )}
@@ -4378,6 +4585,7 @@ const removeMobile = (idx) => {
         sellPrice: '', // Base Price (Default)
         buyPrice: '',  // Base Price (Default)
         brands: [], // [{ name: 'Anchor', sellPrice: 20, buyPrice: 15 }]
+        category: '',
         ...(record || {}) 
     });
 
@@ -4408,6 +4616,18 @@ const removeMobile = (idx) => {
          <div className="p-3 bg-gray-50 border rounded-xl space-y-3">
              <label className="text-xs font-bold text-gray-400 uppercase">Basic Details</label>
              <input className="w-full p-2 bg-white border rounded-lg" placeholder="Item Name (e.g. 6Amp Switch)" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+             {/* CHANGE 4: Category Select */}
+             <SearchableSelect 
+                label="Category"
+                options={data.categories.item || []}
+                value={form.category}
+                onChange={v => setForm({...form, category: v})}
+                onAddNew={() => {
+                    const newCat = prompt("New Item Category:");
+                    if(newCat) setData(prev => ({...prev, categories: {...prev.categories, item: [...(prev.categories.item || []), newCat]}}));
+                }}
+                placeholder="Select Category"
+             />
              <div className="grid grid-cols-2 gap-2">
                  <select className="p-2 bg-white border rounded-lg text-sm" value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option>Goods</option><option>Service</option></select>
                  <input className="p-2 bg-white border rounded-lg text-sm" placeholder="Unit (pcs/mtr)" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} />
