@@ -71,13 +71,13 @@ import {
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: "AIzaSyA0GkAFhV6GfFsszHPJG-aPfGNiVRdBPNg",
-  authDomain: "smees-33e6c.firebaseapp.com",
-  projectId: "smees-33e6c",
-  storageBucket: "smees-33e6c.firebasestorage.app",
-  messagingSenderId: "723248995098",
-  appId: "1:723248995098:web:a61b659e31f42332656aa3",
-  measurementId: "G-JVBZZ8SHGM"
+  apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
+  authDomain: "smeestest.firebaseapp.com",
+  projectId: "smeestest",
+  storageBucket: "smeestest.firebasestorage.app",
+  messagingSenderId: "1086297510582",
+  appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
+  measurementId: "G-BQ6NW6D84Z"
 };
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -1939,33 +1939,51 @@ const handleAttendance = async (type) => {
   };
 
   const Dashboard = () => {
-      // FIX #2: Net Profit Filters
-      const pnlData = useMemo(() => {
+      // --- NEW STATES FOR PERSISTENCE (LocalStorage se load karega) ---
+      const [salesFilter, setSalesFilter] = useState(() => localStorage.getItem('smees_sales_filter') || 'Today');
+      const [salesDates, setSalesDates] = useState({ start: '', end: '' });
+      
+      const [expFilter, setExpFilter] = useState(() => localStorage.getItem('smees_expense_filter') || 'Monthly');
+      const [expDates, setExpDates] = useState({ start: '', end: '' });
+
+      // Save Filters to LocalStorage whenever they change
+      useEffect(() => {
+          localStorage.setItem('smees_sales_filter', salesFilter);
+      }, [salesFilter]);
+
+      useEffect(() => {
+          localStorage.setItem('smees_expense_filter', expFilter);
+      }, [expFilter]);
+
+      // --- HELPER: Date Filter Logic ---
+      const checkDate = (dateStr, filter, customDates) => {
+          const d = new Date(dateStr);
           const now = new Date();
+          const tDate = d.toDateString();
+          const nDate = now.toDateString();
+
+          if (filter === 'Today') return tDate === nDate;
+          if (filter === 'Weekly') {
+              const startOfWeek = new Date(now);
+              startOfWeek.setDate(now.getDate() - now.getDay());
+              startOfWeek.setHours(0,0,0,0);
+              return d >= startOfWeek;
+          }
+          if (filter === 'Monthly') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+          if (filter === 'Yearly') return d.getFullYear() === now.getFullYear();
+          if (filter === 'Custom' && customDates.start && customDates.end) {
+              const s = new Date(customDates.start);
+              const e = new Date(customDates.end);
+              e.setHours(23,59,59,999);
+              return d >= s && d <= e;
+          }
+          return true; // All
+      };
+
+      // --- 1. NET PROFIT CALCULATION (Existing) ---
+      const pnlData = useMemo(() => {
           let filteredTx = data.transactions.filter(t => ['sales'].includes(t.type));
-          
-          filteredTx = filteredTx.filter(t => {
-              const d = new Date(t.date);
-              const tDate = d.toDateString();
-              const nDate = now.toDateString();
-              
-              if (pnlFilter === 'Today') return tDate === nDate;
-              if (pnlFilter === 'Weekly') {
-                  const startOfWeek = new Date(now);
-                  startOfWeek.setDate(now.getDate() - now.getDay());
-                  startOfWeek.setHours(0,0,0,0);
-                  return d >= startOfWeek;
-              }
-              if (pnlFilter === 'Monthly') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-              if (pnlFilter === 'Yearly') return d.getFullYear() === now.getFullYear();
-              if (pnlFilter === 'Custom' && pnlCustomDates.start && pnlCustomDates.end) {
-                  const s = new Date(pnlCustomDates.start);
-                  const e = new Date(pnlCustomDates.end);
-                  e.setHours(23,59,59,999);
-                  return d >= s && d <= e;
-              }
-              return true; // 'All' or default
-          });
+          filteredTx = filteredTx.filter(t => checkDate(t.date, pnlFilter, pnlCustomDates));
 
           let profit = 0;
           filteredTx.forEach(tx => {
@@ -1981,6 +1999,22 @@ const handleAttendance = async (type) => {
           return profit;
       }, [data.transactions, pnlFilter, pnlCustomDates]);
 
+      // --- 2. SALES CARD CALCULATION (New) ---
+      const salesData = useMemo(() => {
+          return data.transactions
+            .filter(t => t.type === 'sales' && t.status !== 'Cancelled')
+            .filter(t => checkDate(t.date, salesFilter, salesDates))
+            .reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
+      }, [data.transactions, salesFilter, salesDates]);
+
+      // --- 3. EXPENSE CARD CALCULATION (New) ---
+      const expenseData = useMemo(() => {
+          return data.transactions
+            .filter(t => t.type === 'expense' && t.status !== 'Cancelled')
+            .filter(t => checkDate(t.date, expFilter, expDates))
+            .reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
+      }, [data.transactions, expFilter, expDates]);
+
       return (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
@@ -1991,6 +2025,7 @@ const handleAttendance = async (type) => {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
+              {/* NET PROFIT CARD */}
               <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-4 rounded-2xl text-white shadow-lg cursor-pointer" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
                   <div className="flex justify-between items-start">
                     <div>
@@ -1998,11 +2033,7 @@ const handleAttendance = async (type) => {
                         <p className="text-2xl font-black">{formatCurrency(pnlData)}</p>
                     </div>
                     <select onClick={(e)=>e.stopPropagation()} value={pnlFilter} onChange={(e)=>setPnlFilter(e.target.value)} className="bg-blue-900/50 text-xs border-none rounded p-1 outline-none text-white max-w-[80px]">
-                        <option value="Today">Today</option>
-                        <option value="Weekly">Weekly</option>
-                        <option value="Monthly">Month</option>
-                        <option value="Yearly">Year</option>
-                        <option value="Custom">Custom</option>
+                        <option value="Today">Today</option><option value="Weekly">Weekly</option><option value="Monthly">Month</option><option value="Yearly">Year</option><option value="Custom">Custom</option>
                     </select>
                   </div>
                   {pnlFilter === 'Custom' && (
@@ -2012,7 +2043,8 @@ const handleAttendance = async (type) => {
                     </div>
                   )}
               </div>
-              {/* FIX #4: Cash/Bank with Adjust Button */}
+              
+              {/* CASH / BANK CARD */}
               <div className="bg-white p-4 rounded-2xl border shadow-sm relative group">
                   <div className="flex justify-between items-start mb-1">
                       <p className="text-xs font-bold text-gray-400">CASH / BANK</p>
@@ -2024,31 +2056,54 @@ const handleAttendance = async (type) => {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {/* Receivables Card - Click to filter Party Master */}
+            {/* Receivables Card */}
             <div onClick={() => { pushHistory(); setActiveTab('masters'); setMastersView('parties'); setPartyFilter('receivable'); }} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 cursor-pointer active:scale-95 transition-transform">
                <p className="text-xs font-bold text-emerald-600 uppercase">Receivables</p>
                <p className="text-xl font-bold text-emerald-900">{formatCurrency(stats.totalReceivables)}</p>
             </div>
             
-            {/* Payables Card - Click to filter Party Master */}
+            {/* Payables Card */}
             <div onClick={() => { pushHistory(); setActiveTab('masters'); setMastersView('parties'); setPartyFilter('payable'); }} className="bg-rose-50 p-4 rounded-2xl border border-rose-100 cursor-pointer active:scale-95 transition-transform">
                <p className="text-xs font-bold text-rose-600 uppercase">Payables</p>
                <p className="text-xl font-bold text-rose-900">{formatCurrency(stats.totalPayables)}</p>
             </div>
             
-            {/* Sales Card - Click to go to Accounting Tab */}
-            <div onClick={() => { setListFilter('sales'); setActiveTab('accounting'); }} className="bg-green-50 p-4 rounded-2xl border border-green-100 cursor-pointer active:scale-95 transition-transform">
-              <p className="text-xs font-bold text-green-600 uppercase">Today Sales</p>
-              <p className="text-xl font-bold text-green-900">{formatCurrency(stats.todaySales)}</p>
+            {/* UPDATED SALES CARD */}
+            <div onClick={() => { setListFilter('sales'); setActiveTab('accounting'); }} className="bg-green-50 p-4 rounded-2xl border border-green-100 cursor-pointer active:scale-95 transition-transform relative">
+              <div className="flex justify-between items-start mb-1">
+                  <p className="text-xs font-bold text-green-600 uppercase">Sales</p>
+                  <select onClick={(e)=>e.stopPropagation()} value={salesFilter} onChange={(e)=>setSalesFilter(e.target.value)} className="bg-green-200 text-green-800 text-[10px] font-bold border-none rounded p-1 outline-none max-w-[70px]">
+                        <option value="Today">Today</option><option value="Weekly">Week</option><option value="Monthly">Month</option><option value="Yearly">Year</option><option value="Custom">Custom</option>
+                  </select>
+              </div>
+              <p className="text-xl font-bold text-green-900">{formatCurrency(salesData)}</p>
+              {salesFilter === 'Custom' && (
+                    <div onClick={(e)=>e.stopPropagation()} className="flex gap-1 mt-2">
+                        <input type="date" className="text-black text-[10px] p-1 rounded w-full border border-green-200" value={salesDates.start} onChange={e=>setSalesDates({...salesDates, start:e.target.value})} />
+                        <input type="date" className="text-black text-[10px] p-1 rounded w-full border border-green-200" value={salesDates.end} onChange={e=>setSalesDates({...salesDates, end:e.target.value})} />
+                    </div>
+              )}
             </div>
             
-            {/* Expenses Card - Click to open Expenses Breakdown */}
-            <div onClick={() => { pushHistory(); setActiveTab('masters'); setMastersView('expenses'); }} className="bg-red-50 p-4 rounded-2xl border border-red-100 cursor-pointer active:scale-95 transition-transform">
-              <p className="text-xs font-bold text-red-600 uppercase">Expenses</p>
-              <p className="text-xl font-bold text-red-900">{formatCurrency(stats.totalExpenses)}</p>
+            {/* UPDATED EXPENSES CARD */}
+            <div onClick={() => { pushHistory(); setActiveTab('masters'); setMastersView('expenses'); }} className="bg-red-50 p-4 rounded-2xl border border-red-100 cursor-pointer active:scale-95 transition-transform relative">
+              <div className="flex justify-between items-start mb-1">
+                  <p className="text-xs font-bold text-red-600 uppercase">Expenses</p>
+                  <select onClick={(e)=>e.stopPropagation()} value={expFilter} onChange={(e)=>setExpFilter(e.target.value)} className="bg-red-200 text-red-800 text-[10px] font-bold border-none rounded p-1 outline-none max-w-[70px]">
+                        <option value="Today">Today</option><option value="Weekly">Week</option><option value="Monthly">Month</option><option value="Yearly">Year</option><option value="Custom">Custom</option>
+                  </select>
+              </div>
+              <p className="text-xl font-bold text-red-900">{formatCurrency(expenseData)}</p>
+              {expFilter === 'Custom' && (
+                    <div onClick={(e)=>e.stopPropagation()} className="flex gap-1 mt-2">
+                        <input type="date" className="text-black text-[10px] p-1 rounded w-full border border-red-200" value={expDates.start} onChange={e=>setExpDates({...expDates, start:e.target.value})} />
+                        <input type="date" className="text-black text-[10px] p-1 rounded w-full border border-red-200" value={expDates.end} onChange={e=>setExpDates({...expDates, end:e.target.value})} />
+                    </div>
+              )}
             </div>
           </div>
 
+          {/* Quick Actions */}
           <div className="space-y-4">
             <h3 className="font-bold text-gray-700">Quick Actions</h3>
             <div className="grid grid-cols-4 gap-2">
@@ -3207,39 +3262,63 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
 
                <div className="space-y-3">
                  <h3 className="font-bold flex items-center gap-2 text-gray-700"><History size={18}/> Transaction History</h3>
-                 {history.map(tx => {
-                   const totals = getBillStats(tx, data.transactions);
-                   const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
-                   let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
-                   if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
-                   if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
-                   if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+                 // REPLACE THIS BLOCK inside PartyDetail Component (Transaction History Loop)
 
-                   return (
-                     <div key={tx.id} onClick={() => { 
-                            const el = document.getElementById('detail-scroller');
-                            if(el) scrollPos.current[record.id] = el.scrollTop;
-                            setNavStack(prev => [...prev, viewDetail]);
-                            pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); 
-                        }} 
-                        className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
-                       <div className="flex gap-4 items-center">
-                         <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
-                         <div>
-                           <p className="font-bold text-gray-800 uppercase text-xs">{tx.type} • {tx.paymentMode || 'Credit'}</p>
-                           <p className="text-[10px] text-gray-400 font-bold">{tx.id} • {formatDate(tx.date)}</p>
-                           <div className="flex gap-1 mt-1">
-                               {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
-                           </div>
-                         </div>
-                       </div>
-                       <div className="text-right">
-                           <p className={`font-bold ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
-                         {['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && tx.status !== 'Cancelled' && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
-                       </div>
-                     </div>
-                   );
-                 })}
+{history.map(tx => {
+   const totals = getBillStats(tx, data.transactions);
+   const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
+   
+   // Icons & Colors setup (No Change here)
+   let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
+   if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
+   if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
+   if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+
+   // --- CHANGE START: Calculate Amount for Display ---
+   // Agar Payment hai to: Amount (1000) + Discount (200) = 1200 dikhao
+   // Agar Bill hai to: Normal Final Amount dikhao
+   let displayAmount = totals.amount;
+   if (tx.type === 'payment') {
+       displayAmount = (parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0));
+   }
+   // --- CHANGE END ---
+
+   return (
+     <div key={tx.id} onClick={() => { 
+            const el = document.getElementById('detail-scroller');
+            if(el) scrollPos.current[record.id] = el.scrollTop;
+            setNavStack(prev => [...prev, viewDetail]);
+            pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); 
+        }} 
+        className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
+       <div className="flex gap-4 items-center">
+         <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
+         <div>
+           <p className="font-bold text-gray-800 uppercase text-xs">{tx.type} • {tx.paymentMode || 'Credit'}</p>
+           <p className="text-[10px] text-gray-400 font-bold">{tx.id} • {formatDate(tx.date)}</p>
+           <div className="flex gap-1 mt-1">
+               {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
+               
+               {/* Agar Payment mein discount hai to yahan chota sa badge dikha sakte hain */}
+               {tx.type === 'payment' && tx.discountValue > 0 && (
+                   <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-blue-100 text-blue-700">
+                       Disc: {tx.discountValue}
+                   </span>
+               )}
+           </div>
+         </div>
+       </div>
+       <div className="text-right">
+           {/* Yahan hum calculated 'displayAmount' use karenge */}
+           <p className={`font-bold ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>
+               {isIncoming ? '+' : '-'}{formatCurrency(displayAmount)}
+           </p>
+           
+           {['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && tx.status !== 'Cancelled' && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
+       </div>
+     </div>
+   );
+})}
                </div>
             </div>
           </div>
@@ -3862,33 +3941,35 @@ const updateLine = (idx, field, val) => {
             onChange={e => setTx({...tx, photosLink: e.target.value})} 
         />
         {/* Save Button */}
-        <button 
-            onClick={() => { 
-                if(!tx.partyId) return alert("Party is Required"); 
-                if(type === 'expense' && !tx.category) return alert("Category is Required");
-                
-                // Calculate Net Amount for Payments
-                let finalAmount = type === 'payment' ? parseFloat(tx.amount || 0) : totals.final;
-                
-                if (type === 'payment') {
-                    const gross = parseFloat(tx.amount || 0);
-                    let disc = parseFloat(tx.discountValue || 0);
-                    if (tx.discountType === '%') disc = (gross * disc) / 100;
-                    finalAmount = gross - disc;
-                }
+<button 
+    onClick={() => { 
+        if(!tx.partyId) return alert("Party is Required");
+        if(type === 'expense' && !tx.category) return alert("Category is Required");
+        
+        // --- CHANGE START: Logic Fixed for Payment ---
+        let finalAmount = totals.final;
 
-                const finalRecord = {
-                    ...tx,
-                    ...totals,
-                    amount: finalAmount
-                };
+        if (type === 'payment') {
+            // Logic: Payment Amount wahi hai jo user ne dala (1000)
+            // Discount ko isme se minus NAHI karna hai.
+            // Cash/Bank = tx.amount (1000)
+            // Party Ledger = tx.amount + tx.discountValue (1200) - Ye calculation partyBalances mein already sahi hai
+            finalAmount = parseFloat(tx.amount || 0); 
+        }
+        // --- CHANGE END ---
 
-                saveRecord('transactions', finalRecord, tx.type); 
-            }} 
-            className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200 hover:shadow-xl transition-all"
-        >
-            Save {type}
-        </button>
+        const finalRecord = {
+            ...tx,
+            ...totals,
+            amount: finalAmount
+        };
+
+        saveRecord('transactions', finalRecord, tx.type); 
+    }} 
+    className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200 hover:shadow-xl transition-all"
+>
+    Save {type}
+</button>
       </div>
     );
   };
@@ -4374,7 +4455,44 @@ const removeMobile = (idx) => {
     
   const CompanyForm = ({ record }) => {
     const [form, setForm] = useState(data.company);
-    return <div className="space-y-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Company Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} /><textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} /><button onClick={() => { setData({...data, company: form}); setModal({type:null}); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Settings</button></div>;
+
+    // --- NEW: Restore Logic ---
+    const handleRestore = async () => {
+        if(!window.confirm("⚠️ Emergency Restore\n\nThis will re-download ALL data from the cloud to fix local issues.\nIt uses more reads than normal sync.\n\nContinue?")) return;
+        
+        // 1. Force Full Sync by removing the timestamp
+        localStorage.removeItem('smees_last_sync');
+        
+        // 2. Call existing sync function (now it acts like a fresh install)
+        await syncData();
+        
+        setModal({ type: null });
+    };
+
+    return (
+        <div className="space-y-4">
+            <h3 className="font-bold text-gray-800">Company Settings</h3>
+            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Company Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+            <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Mobile" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} />
+            <textarea className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Address" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+            
+            <button onClick={() => { setData({...data, company: form}); setDoc(doc(db, "settings", "company"), form); setModal({type:null}); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200">
+                Save Settings
+            </button>
+
+            {/* --- NEW: Restore Button Section --- */}
+            <div className="pt-4 border-t mt-4">
+                <p className="text-xs font-bold text-gray-400 uppercase mb-2">Data Recovery</p>
+                <button 
+                    onClick={handleRestore} 
+                    className="w-full p-3 bg-red-50 text-red-600 border border-red-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-red-100 transition-colors"
+                >
+                    <RefreshCw size={16} /> Restore Cloud Data (Full Sync)
+                </button>
+                <p className="text-[10px] text-gray-400 text-center mt-1">Use this only if local data seems incorrect/missing.</p>
+            </div>
+        </div>
+    );
   };
 
   if (!user) return <LoginScreen setUser={setUser} />;
