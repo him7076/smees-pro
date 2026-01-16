@@ -554,7 +554,8 @@ const ConvertTaskModal = ({ task, onClose, saveRecord, setViewDetail, handleClos
           qty: i.qty, 
           price: i.price, 
           buyPrice: i.buyPrice || 0, 
-          description: i.description || '' 
+          description: i.description || '',
+          brand: i.brand || ''  // <--- YE LINE ADD KI (Brand carry forward hoga)
       }));
       
       const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
@@ -1124,6 +1125,7 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
 
     return (
       <div className="space-y-4">
+        {/* 1. HEADER SECTION (Same as before) */}
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2">
               <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={filtered.length > 0 && selectedIds.length === filtered.length} onChange={toggleSelectAll} />
@@ -1152,12 +1154,28 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
           </div>
         </div>
 
+        {/* 2. SEARCH BAR (MOVED HERE - AB YE HAMESHA DIKHEGA) */}
+        <div className="relative">
+            <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+            <input 
+                autoFocus 
+                className="w-full pl-10 pr-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500" 
+                placeholder={`Search ${title}...`} 
+                value={search} 
+                onChange={(e) => setSearch(e.target.value)} 
+            />
+        </div>
+
+        {/* 3. CATEGORY GRID VIEW */}
         {type === 'item' && viewMode === 'category' && !selectedCat && (
             <div className="grid grid-cols-2 gap-3 animate-in fade-in">
-                {Object.entries(categoryCounts).map(([cat, count]) => (
+                {Object.entries(categoryCounts)
+                    // Search Filter Yahan Apply Hoga
+                    .filter(([cat]) => cat.toLowerCase().includes(search.toLowerCase())) 
+                    .map(([cat, count]) => (
                     <div key={cat} onClick={() => setSelectedCat(cat)} className="relative p-4 bg-white border rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:bg-blue-50 transition-colors shadow-sm group">
                         
-                        {/* EDIT / DELETE BUTTONS FOR CATEGORY */}
+                        {/* EDIT / DELETE BUTTONS */}
                         {cat !== 'Uncategorized' && checkPermission(user, 'canViewMasters') && (
                             <div className="absolute top-2 right-2 flex gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button onClick={(e) => handleRenameCat(e, cat)} className="p-1.5 bg-blue-100 text-blue-600 rounded hover:bg-blue-200"><Edit2 size={12}/></button>
@@ -1170,10 +1188,11 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
                         <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded-full mt-1">{count} Items</span>
                     </div>
                 ))}
-                {Object.keys(categoryCounts).length === 0 && <p className="text-gray-400 col-span-2 text-center text-sm">No categories found.</p>}
+                {Object.entries(categoryCounts).filter(([cat]) => cat.toLowerCase().includes(search.toLowerCase())).length === 0 && <p className="text-gray-400 col-span-2 text-center text-sm">No categories found.</p>}
             </div>
         )}
 
+        {/* 4. LIST VIEW (Items / Parties) */}
         {((type !== 'item') || (type === 'item' && (viewMode === 'list' || selectedCat))) && (
             <>
                 {selectedCat && (
@@ -1182,10 +1201,7 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
                     </button>
                 )}
                 
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 text-gray-400" size={18} />
-                  <input autoFocus className="w-full pl-10 pr-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500" placeholder={`Search ${title}...`} value={search} onChange={(e) => setSearch(e.target.value)} />
-                </div>
+                {/* Purana Search Bar yahan se hata diya hai */}
                 
                 <div className="space-y-2">
                   {filtered.map(item => (
@@ -2529,11 +2545,35 @@ React.useLayoutEffect(() => {
       const isPayment = tx.type === 'payment';
       const paymentMode = tx.paymentMode || 'Cash';
 
-      // --- Linked Data Logic ---
-      // For Payments: Use own linkedBills. For Sales: Find payments linking to this sale.
-      const relatedDocs = isPayment 
-          ? (tx.linkedBills || []) 
-          : data.transactions.filter(t => t.type === 'payment' && t.linkedBills?.some(l => l.billId === tx.id));
+      // --- UPDATED LINKED DATA LOGIC (Bi-Directional) ---
+      // Ye logic check karega:
+      // 1. Kya Is Transaction ne kisi aur ko link kiya hai? (Outgoing)
+      // 2. Kya Kisi aur Transaction ne isko link kiya hai? (Incoming)
+      
+      const relatedDocs = data.transactions.filter(t => {
+          if (t.status === 'Cancelled' || t.id === tx.id) return false;
+          
+          // Case A: Outgoing Link (Isne kisi ko link kiya)
+          const outgoing = tx.linkedBills?.find(l => l.billId === t.id);
+          
+          // Case B: Incoming Link (Kisi ne isse link kiya)
+          const incoming = t.linkedBills?.find(l => l.billId === tx.id);
+          
+          return outgoing || incoming;
+      }).map(t => {
+          // Amount calculation logic
+          let linkAmt = 0;
+          
+          // Agar Outgoing hai (Is tx ne 't' ko link kiya)
+          const outLink = tx.linkedBills?.find(l => l.billId === t.id);
+          if (outLink) linkAmt = parseFloat(outLink.amount);
+          
+          // Agar Incoming hai (Us 't' ne is tx ko link kiya)
+          const inLink = t.linkedBills?.find(l => l.billId === tx.id);
+          if (inLink) linkAmt = parseFloat(inLink.amount);
+          
+          return { ...t, displayLinkAmount: linkAmt };
+      });
 
       // --- Profit Analysis Logic ---
       let pnl = { service: 0, goods: 0, discount: 0, total: 0 };
@@ -2728,22 +2768,21 @@ React.useLayoutEffect(() => {
             {/* Linked Transactions Section */}
             {relatedDocs.length > 0 && (
                  <div className="bg-yellow-50 p-4 rounded-2xl border border-yellow-100">
-                    <h3 className="font-bold text-yellow-800 text-xs uppercase mb-2">{isPayment ? 'Settled Bills' : 'Related Payments'}</h3>
+                    <h3 className="font-bold text-yellow-800 text-xs uppercase mb-2">Related Transactions</h3>
                     <div className="space-y-2">
-                        {relatedDocs.map((doc, idx) => {
-                             const docId = isPayment ? doc.billId : doc.id;
-                             const docAmt = isPayment ? doc.amount : (doc.linkedBills?.find(l => l.billId === tx.id)?.amount || 0);
-                             return (
-                                 <div key={idx} onClick={() => setViewDetail({ type: 'transaction', id: docId })} className="bg-white p-2 rounded-lg border flex justify-between items-center text-xs cursor-pointer">
-                                     <span className="font-bold text-gray-700">{docId}</span>
+                        {relatedDocs.map((doc, idx) => (
+                             <div key={idx} onClick={() => setViewDetail({ type: 'transaction', id: doc.id })} className="bg-white p-2 rounded-lg border flex justify-between items-center text-xs cursor-pointer active:scale-95">
+                                     <div>
+                                         <p className="font-bold text-gray-700">{doc.type} #{doc.id}</p>
+                                         <p className="text-[10px] text-gray-400">{formatDate(doc.date)}</p>
+                                     </div>
                                      <div className="flex items-center gap-1">
                                          <span className="text-gray-500">Linked:</span>
-                                         <span className="font-bold text-green-600">{formatCurrency(docAmt)}</span>
+                                         <span className="font-bold text-green-600">{formatCurrency(doc.displayLinkAmount)}</span>
                                          <ChevronRight size={12} className="text-gray-400"/>
                                      </div>
-                                 </div>
-                             );
-                        })}
+                             </div>
+                        ))}
                     </div>
                  </div>
             )}
@@ -3340,11 +3379,47 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         // Isliye hum yahan ek Internal Component banayenge (Jaisa ItemDetailInner banaya tha)
         
         const PartyDetailInner = ({ record }) => {
-            const [filter, setFilter] = useState('All'); // All, Sales, Purchase, Expense, Payment
+            const [activeTab, setActiveTab] = useState('transactions'); 
+            const [filter, setFilter] = useState('All');
+            const [selectedAsset, setSelectedAsset] = useState(null); // For History View
+            const [editingAsset, setEditingAsset] = useState(null);   // For Edit Modal
+            
+            // --- EDIT & DELETE LOGIC ---
+            const handleDeleteAsset = async (assetName) => {
+                if(!window.confirm(`Are you sure you want to delete "${assetName}"?\nHistory for this asset will remain but filtering won't work.`)) return;
+                
+                const updatedAssets = record.assets.filter(a => a.name !== assetName);
+                const updatedParty = { ...record, assets: updatedAssets };
+                
+                setData(prev => ({ ...prev, parties: prev.parties.map(p => p.id === record.id ? updatedParty : p) }));
+                await setDoc(doc(db, "parties", record.id), updatedParty);
+            };
 
-            // Filter Logic
-            const history = data.transactions
+            const handleUpdateAsset = async () => {
+                if(!editingAsset || !editingAsset.name) return;
+                
+                // Original asset name (to find index)
+                // Note: Agar naam change kiya to purani history link tut sakti hai isliye warning deni chahiye
+                const updatedAssets = record.assets.map((a, i) => i === editingAsset.index ? {
+                    name: editingAsset.name,
+                    brand: editingAsset.brand,
+                    model: editingAsset.model,
+                    installDate: editingAsset.installDate,
+                    nextServiceDate: editingAsset.nextServiceDate
+                } : a);
+
+                const updatedParty = { ...record, assets: updatedAssets };
+                
+                setData(prev => ({ ...prev, parties: prev.parties.map(p => p.id === record.id ? updatedParty : p) }));
+                await setDoc(doc(db, "parties", record.id), updatedParty);
+                setEditingAsset(null); // Close Modal
+            };
+
+            // --- Existing Filter Helper ---
+            const getHistory = (assetId = null) => {
+                 return data.transactions
                 .filter(tx => tx.partyId === record.id)
+                .filter(tx => assetId ? tx.linkedAssetId === assetId : true)
                 .filter(tx => {
                     if (filter === 'All') return true;
                     if (filter === 'Sales') return tx.type === 'sales';
@@ -3354,8 +3429,36 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     return true;
                 })
                 .sort((a,b) => new Date(b.date) - new Date(a.date));
+            };
 
+            const history = getHistory(null);
+            const assetHistory = selectedAsset ? getHistory(selectedAsset.name) : [];
             const mobiles = String(record.mobile || '').split(',').map(m => m.trim()).filter(Boolean);
+
+            // --- ASSET HISTORY SUB-SCREEN ---
+            if (selectedAsset) {
+                return (
+                    <div className="fixed inset-0 z-[65] bg-white overflow-y-auto animate-in slide-in-from-right">
+                        <div className="sticky top-0 bg-white border-b p-4 flex items-center gap-3 shadow-sm z-10">
+                             <button onClick={() => setSelectedAsset(null)} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                             <div><h2 className="font-bold text-lg">{selectedAsset.name}</h2><p className="text-xs text-gray-500">{selectedAsset.brand} • {selectedAsset.model}</p></div>
+                        </div>
+                        <div className="p-4 space-y-4">
+                            <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-2">
+                                <div className="flex justify-between"><span className="text-xs font-bold text-gray-500 uppercase">Next Service</span><span className={`font-bold ${new Date(selectedAsset.nextServiceDate) <= new Date() ? 'text-red-600 animate-pulse' : 'text-green-600'}`}>{selectedAsset.nextServiceDate || 'Not Set'}</span></div>
+                                <button onClick={() => window.open(`https://wa.me/${record.mobile}?text=${encodeURIComponent(`Hello ${record.name}, Reminder for your ${selectedAsset.name} service. Due: ${selectedAsset.nextServiceDate}.`)}`, '_blank')} className="w-full mt-2 py-2 bg-green-100 text-green-700 rounded-lg font-bold flex items-center justify-center gap-2"><MessageCircle size={16}/> WhatsApp Reminder</button>
+                            </div>
+                            <h3 className="font-bold text-gray-700">Service History</h3>
+                            {assetHistory.length === 0 ? <p className="text-gray-400 text-sm italic">No service records found.</p> : assetHistory.map(tx => (
+                                 <div key={tx.id} onClick={() => setViewDetail({ type: 'transaction', id: tx.id })} className="p-3 bg-white border rounded-xl flex justify-between items-center mb-2 cursor-pointer">
+                                     <div><p className="font-bold text-sm text-gray-800">{tx.type} #{tx.id}</p><p className="text-xs text-gray-500">{formatDate(tx.date)}</p></div>
+                                     <span className="font-bold text-blue-600">{formatCurrency(getTransactionTotals(tx).final)}</span>
+                                 </div>
+                             ))}
+                        </div>
+                    </div>
+                );
+            }
 
             return (
               <div id="detail-scroller" className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
@@ -3369,81 +3472,95 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 </div>
                 
                 <div className="p-4 space-y-6">
-                   {/* Balance & Info Cards (Same as before) */}
-                   <div className="grid grid-cols-2 gap-3">
-                       <div className="p-4 bg-gray-50 rounded-2xl border">
+                   <div className="p-4 bg-gray-50 rounded-2xl border">
                          <p className="text-[10px] font-bold text-gray-400 uppercase">Current Balance</p>
-                         <p className={`text-2xl font-black ${partyBalances[record.id] > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                           {formatCurrency(Math.abs(partyBalances[record.id] || 0))}
-                         </p>
-                         <p className="text-[10px] font-bold text-gray-400">{partyBalances[record.id] > 0 ? 'TO PAY' : 'TO COLLECT'}</p>
-                       </div>
-                       <div className="p-4 bg-gray-50 rounded-2xl border space-y-1">
-                            {mobiles.map((m, i) => <p key={i} className="text-sm font-bold flex items-center gap-1"><Phone size={12}/> <a href={`tel:${m}`}>{m}</a></p>)}
-                            {record.address && <p className="text-xs text-gray-500 truncate">{record.address}</p>}
-                       </div>
+                         <p className={`text-2xl font-black ${partyBalances[record.id] > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(Math.abs(partyBalances[record.id] || 0))}</p>
+                         <div className="flex justify-between items-end"><p className="text-[10px] font-bold text-gray-400">{partyBalances[record.id] > 0 ? 'TO PAY' : 'TO COLLECT'}</p><div className="text-right">{mobiles.map((m, i) => <p key={i} className="text-sm font-bold flex items-center justify-end gap-1"><Phone size={12}/> <a href={`tel:${m}`}>{m}</a></p>)}</div></div>
                    </div>
 
-                   <div className="space-y-3">
-                     <h3 className="font-bold flex items-center gap-2 text-gray-700"><History size={18}/> Transaction History</h3>
-                     
-                     {/* CHANGE 2: Filter Buttons */}
-                     <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                        {['All', 'Sales', 'Purchase', 'Payment', 'Expense'].map(f => (
-                            <button 
-                                key={f} 
-                                onClick={() => setFilter(f)}
-                                className={`px-4 py-2 rounded-full text-xs font-bold border whitespace-nowrap ${filter === f ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600'}`}
-                            >
-                                {f}
-                            </button>
-                        ))}
-                     </div>
+                   {/* TABS */}
+                   <div className="flex bg-gray-100 p-1 rounded-xl">
+                       <button onClick={() => setActiveTab('transactions')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'transactions' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Transactions</button>
+                       <button onClick={() => setActiveTab('assets')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'assets' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>Assets / AMC</button>
+                   </div>
 
-                     {history.map(tx => {
-                       const totals = getBillStats(tx, data.transactions);
-                       const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
-                       
-                       let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
-                       if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
-                       if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
-                       if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
-
-                       let displayAmount = totals.amount;
-                       if (tx.type === 'payment') {
-                           displayAmount = (parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0));
-                       }
-
-                       return (
-                         <div key={tx.id} onClick={() => { 
-                                const el = document.getElementById('detail-scroller');
-                                if(el) scrollPos.current[record.id] = el.scrollTop;
-                                setNavStack(prev => [...prev, viewDetail]);
-                                pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); 
-                            }} 
-                            className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
-                           <div className="flex gap-4 items-center">
-                             <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
-                             <div>
-                               <p className="font-bold text-gray-800 uppercase text-xs">{tx.type} • {tx.paymentMode || 'Credit'}</p>
-                               <p className="text-[10px] text-gray-400 font-bold">{tx.id} • {formatDate(tx.date)}</p>
-                               <div className="flex gap-1 mt-1">
-                                   {['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>}
-                                   {tx.type === 'payment' && tx.discountValue > 0 && <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-blue-100 text-blue-700">Disc: {tx.discountValue}</span>}
+                   {/* TAB 1: TRANSACTIONS */}
+                   {activeTab === 'transactions' && (
+                       <div className="space-y-3">
+                         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">{['All', 'Sales', 'Purchase', 'Payment', 'Expense'].map(f => <button key={f} onClick={() => setFilter(f)} className={`px-4 py-2 rounded-full text-xs font-bold border whitespace-nowrap ${filter === f ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600'}`}>{f}</button>)}</div>
+                         {history.map(tx => {
+                           const totals = getBillStats(tx, data.transactions);
+                           const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
+                           let displayAmount = totals.amount; if (tx.type === 'payment') displayAmount = (parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0));
+                           return (
+                             <div key={tx.id} onClick={() => { const el = document.getElementById('detail-scroller'); if(el) scrollPos.current[record.id] = el.scrollTop; setNavStack(prev => [...prev, viewDetail]); pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
+                               <div className="flex gap-4 items-center">
+                                 <div className={`p-3 rounded-full bg-gray-100 text-gray-600`}><ReceiptText size={18} /></div>
+                                 <div>
+                                   <p className="font-bold text-gray-800 uppercase text-xs">{tx.type} #{tx.id}</p>
+                                   <p className="text-[10px] text-gray-400 font-bold">{formatDate(tx.date)}</p>
+                                   {tx.linkedAssetId && <span className="text-[9px] bg-indigo-50 text-indigo-600 px-1 rounded border border-indigo-100">Asset: {tx.linkedAssetId}</span>}
+                                 </div>
                                </div>
+                               <p className={`font-bold ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(displayAmount)}</p>
                              </div>
+                           );
+                        })}
+                       </div>
+                   )}
+
+                   {/* TAB 2: ASSETS / MACHINES (With Edit/Delete) */}
+                   {activeTab === 'assets' && (
+                       <div className="space-y-3">
+                           {(record.assets || []).length === 0 ? (
+                               <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed"><Package className="mx-auto text-gray-300 mb-2" size={32}/><p className="text-gray-500 font-bold text-sm">No Assets Added</p><button onClick={() => { pushHistory(); setModal({ type: 'party', data: record }); setViewDetail(null); }} className="mt-2 text-blue-600 text-xs font-bold underline">Edit Party to Add</button></div>
+                           ) : (
+                               (record.assets || []).map((asset, idx) => {
+                                   const isDue = asset.nextServiceDate && new Date(asset.nextServiceDate) <= new Date();
+                                   return (
+                                       <div key={idx} className={`p-4 bg-white border rounded-2xl relative group ${isDue ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200'}`}>
+                                           {/* EDIT & DELETE BUTTONS */}
+                                           <div className="absolute top-3 right-3 flex gap-2">
+                                                <button onClick={(e) => { e.stopPropagation(); setEditingAsset({...asset, index: idx}); }} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"><Edit2 size={14}/></button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleDeleteAsset(asset.name); }} className="p-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100"><Trash2 size={14}/></button>
+                                           </div>
+
+                                           <div onClick={() => setSelectedAsset(asset)} className="cursor-pointer">
+                                               <div className="flex justify-between items-start mb-2">
+                                                   <div><p className="font-bold text-gray-800 text-lg">{asset.name}</p><p className="text-xs text-gray-500 font-bold">{asset.brand} {asset.model}</p></div>
+                                                   {isDue && <span className="bg-red-100 text-red-700 text-[9px] font-black px-2 py-1 rounded uppercase animate-pulse mr-16">Due</span>}
+                                               </div>
+                                               <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-2 rounded-lg"><Calendar size={14}/> <span>Next Service: <span className={`font-bold ${isDue ? 'text-red-600' : 'text-green-600'}`}>{asset.nextServiceDate ? formatDate(asset.nextServiceDate) : 'N/A'}</span></span></div>
+                                               <div className="mt-2 text-[10px] text-blue-600 font-bold flex items-center justify-end gap-1">View History <ChevronRight size={12}/></div>
+                                           </div>
+                                       </div>
+                                   );
+                               })
+                           )}
+                       </div>
+                   )}
+
+                   {/* EDIT ASSET MODAL */}
+                   {editingAsset && (
+                       <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4">
+                           <div className="bg-white p-4 rounded-2xl w-full max-w-sm animate-in zoom-in-95">
+                               <h3 className="font-bold text-lg mb-4">Edit Asset</h3>
+                               <div className="space-y-3">
+                                   <div><label className="text-[10px] font-bold text-gray-400 uppercase">Name</label><input className="w-full p-2 border rounded-lg" value={editingAsset.name} onChange={e => setEditingAsset({...editingAsset, name: e.target.value})} /></div>
+                                   <div className="flex gap-2">
+                                       <div><label className="text-[10px] font-bold text-gray-400 uppercase">Brand</label><input className="w-full p-2 border rounded-lg" value={editingAsset.brand} onChange={e => setEditingAsset({...editingAsset, brand: e.target.value})} /></div>
+                                       <div><label className="text-[10px] font-bold text-gray-400 uppercase">Model</label><input className="w-full p-2 border rounded-lg" value={editingAsset.model} onChange={e => setEditingAsset({...editingAsset, model: e.target.value})} /></div>
+                                   </div>
+                                   <div><label className="text-[10px] font-bold text-gray-400 uppercase">Next Service Date</label><input type="date" className="w-full p-2 border rounded-lg bg-red-50" value={editingAsset.nextServiceDate} onChange={e => setEditingAsset({...editingAsset, nextServiceDate: e.target.value})} /></div>
+                                   <div className="p-2 bg-yellow-50 text-yellow-700 text-[10px] rounded border border-yellow-100">Warning: Changing the Name might break links to old transactions.</div>
+                               </div>
+                               <div className="grid grid-cols-2 gap-3 mt-4">
+                                   <button onClick={() => setEditingAsset(null)} className="p-3 bg-gray-100 text-gray-600 font-bold rounded-xl">Cancel</button>
+                                   <button onClick={handleUpdateAsset} className="p-3 bg-blue-600 text-white font-bold rounded-xl">Update</button>
+                               </div>
                            </div>
-                           <div className="text-right">
-                               <p className={`font-bold ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>
-                                   {isIncoming ? '+' : '-'}{formatCurrency(displayAmount)}
-                               </p>
-                               {['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && tx.status !== 'Cancelled' && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
-                           </div>
-                         </div>
-                       );
-                    })}
-                    {history.length === 0 && <p className="text-center text-gray-400 italic">No {filter} transactions found.</p>}
-                   </div>
+                       </div>
+                   )}
                 </div>
               </div>
             );
@@ -3571,6 +3688,8 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         paymentMode: 'Cash', 
         discountType: '%', 
         discountValue: 0, 
+        linkedAssetId: '',
+         nextServiceDate: '',
         ...record 
     } : { 
         type, 
@@ -3591,7 +3710,9 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         mobile: '', 
         lat: '', 
         lng: '', 
-        locationLabel: ''
+        locationLabel: '',
+        linkedAssetId: '', 
+        nextServiceDate: ''
     });
     
     const [showLinking, setShowLinking] = useState(false);
@@ -3811,6 +3932,49 @@ const updateLine = (idx, field, val) => {
                 onAddNew={() => { pushHistory(); setModal({ type: 'party' }); }} 
                 placeholder="Select Party..." 
             />
+            {/* --- REQ: ASSET LINKING & AUTO UPDATE DATE --- */}
+        {['sales'].includes(type) && tx.partyId && (selectedParty?.assets?.length > 0) && (
+            <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl space-y-3 mt-2">
+                <div className="flex justify-between items-center">
+                    <label className="text-xs font-bold text-indigo-800 uppercase flex items-center gap-1"><Package size={12}/> Link Asset / AMC</label>
+                    {tx.linkedAssetId && <span className="text-[9px] text-green-600 font-bold">Auto-Update Active</span>}
+                </div>
+                
+                <select 
+                    className="w-full p-2 border rounded-lg text-xs bg-white"
+                    value={tx.linkedAssetId}
+                    onChange={(e) => {
+                        const assetName = e.target.value;
+                        // Auto-set Next Date to +3 Months (Default) if Asset selected
+                        let nextDate = tx.nextServiceDate;
+                        if(assetName && !nextDate) {
+                            const d = new Date(tx.date);
+                            d.setMonth(d.getMonth() + 3); // Default 3 Month gap
+                            nextDate = d.toISOString().split('T')[0];
+                        }
+                        setTx({...tx, linkedAssetId: assetName, nextServiceDate: nextDate});
+                    }}
+                >
+                    <option value="">-- Select Machine (Optional) --</option>
+                    {selectedParty.assets.map((a, i) => (
+                        <option key={i} value={a.name}>{a.name} ({a.brand}) - Due: {a.nextServiceDate}</option>
+                    ))}
+                </select>
+
+                {tx.linkedAssetId && (
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase">Set Next Service Date</label>
+                        <input 
+                            type="date" 
+                            className="w-full p-2 border rounded-lg text-xs font-bold text-indigo-700 bg-white"
+                            value={tx.nextServiceDate}
+                            onChange={(e) => setTx({...tx, nextServiceDate: e.target.value})}
+                        />
+                        <p className="text-[9px] text-gray-400 mt-1">*Saving this will update the machine's due date automatically.</p>
+                    </div>
+                )}
+            </div>
+        )}
             {/* FIX #6: Multiple Contact/Location Selector */}
             {(selectedParty?.locations?.length > 0 || selectedParty?.mobileNumbers?.length > 0) && (
                 <div className="relative mt-1 mb-2">
@@ -4148,35 +4312,53 @@ const updateLine = (idx, field, val) => {
             onChange={e => setTx({...tx, photosLink: e.target.value})} 
         />
         {/* Save Button */}
-<button 
-    onClick={() => { 
-        if(!tx.partyId) return alert("Party is Required");
-        if(type === 'expense' && !tx.category) return alert("Category is Required");
-        
-        // --- CHANGE START: Logic Fixed for Payment ---
-        let finalAmount = totals.final;
+        <button 
+            onClick={async () => { 
+                if(!tx.partyId) return alert("Party is Required");
+                if(type === 'expense' && !tx.category) return alert("Category is Required");
+                
+                // 1. Calculate Final Amount
+                let finalAmount = totals.final;
+                if (type === 'payment') finalAmount = parseFloat(tx.amount || 0);
 
-        if (type === 'payment') {
-            // Logic: Payment Amount wahi hai jo user ne dala (1000)
-            // Discount ko isme se minus NAHI karna hai.
-            // Cash/Bank = tx.amount (1000)
-            // Party Ledger = tx.amount + tx.discountValue (1200) - Ye calculation partyBalances mein already sahi hai
-            finalAmount = parseFloat(tx.amount || 0); 
-        }
-        // --- CHANGE END ---
+                // 2. Prepare Final Record
+                const finalRecord = { ...tx, ...totals, amount: finalAmount };
 
-        const finalRecord = {
-            ...tx,
-            ...totals,
-            amount: finalAmount
-        };
+                // 3. AUTO-UPDATE ASSET SERVICE DATE (Fixed Logic)
+                // Hum ise 'await' nahi karenge taaki UI fast rahe, par logic synchronous update karega
+                if (type === 'sales' && tx.partyId && tx.linkedAssetId) {
+                    const p = data.parties.find(x => x.id === tx.partyId);
+                    
+                    // Sirf tab update karein agar Asset exist karta ho aur Date bhari ho
+                    if (p && p.assets && tx.nextServiceDate) {
+                        const updatedAssets = p.assets.map(a => {
+                            // Name match karte waqt trim karein taaki space ki galti na ho
+                            if (a.name.trim() === tx.linkedAssetId.trim()) {
+                                return { ...a, nextServiceDate: tx.nextServiceDate };
+                            }
+                            return a;
+                        });
+                        
+                        const updatedParty = { ...p, assets: updatedAssets };
+                        
+                        // Local Data Update (Instant UI Refresh ke liye)
+                        setData(prev => ({ 
+                            ...prev, 
+                            parties: prev.parties.map(party => party.id === p.id ? updatedParty : party) 
+                        }));
 
-        saveRecord('transactions', finalRecord, tx.type); 
-    }} 
-    className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200 hover:shadow-xl transition-all"
->
-    Save {type}
-</button>
+                        // Firebase Update (Background)
+                        setDoc(doc(db, "parties", p.id), updatedParty).catch(e => console.error("Asset Date Update Failed", e));
+                    }
+                }
+
+                // 4. Save Transaction
+                await saveRecord('transactions', finalRecord, tx.type); 
+            }} 
+            className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200 hover:shadow-xl transition-all"
+        >
+            Save {type}
+        </button>
       </div>
     );
   };
@@ -4472,7 +4654,7 @@ const removeMobile = (idx) => {
     setForm(prev => ({ ...prev, mobileNumbers: prev.mobileNumbers.filter((_, i) => i !== idx) }));
 };
 
-    return (
+    return (                                                            
         <div className="space-y-4">
             <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
             <div className="grid grid-cols-2 gap-4">
@@ -4570,6 +4752,80 @@ const removeMobile = (idx) => {
                  </select>
             </div>
             <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Email (Optional)" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
+           {/* --- NEW: ASSETS / AMC MANAGER SECTION --- */}
+            <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 space-y-3">
+                <p className="text-xs font-bold text-indigo-600 uppercase flex items-center gap-2">
+                    <Package size={12}/> Client Assets / Machines
+                </p>
+                
+                {/* List Existing Assets */}
+                {(form.assets || []).map((asset, idx) => (
+                    <div key={idx} className="bg-white p-3 rounded-lg border relative group">
+                        <button onClick={() => setForm(prev => ({...prev, assets: prev.assets.filter((_, i) => i !== idx)}))} className="absolute top-2 right-2 text-red-400 hover:text-red-600"><X size={14}/></button>
+                        
+                        <div className="flex justify-between items-start mb-2">
+                            <div>
+                                <p className="font-bold text-sm text-indigo-900">{asset.name}</p>
+                                <p className="text-xs text-gray-500">{asset.brand} • {asset.model}</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 text-[10px] bg-gray-50 p-2 rounded">
+                            <div className="flex-1">
+                                <span className="block text-gray-400 uppercase font-bold">Install Date</span>
+                                <span className="font-bold text-gray-700">{asset.installDate || 'N/A'}</span>
+                            </div>
+                            <div className="flex-1 border-l pl-2 border-gray-200">
+                                <span className="block text-gray-400 uppercase font-bold">Next Service</span>
+                                <span className="font-bold text-red-600">{asset.nextServiceDate || 'Not Set'}</span>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+
+                {/* Add New Asset Inputs */}
+                <div className="bg-white p-2 rounded-xl border border-indigo-200 space-y-2">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase text-center">Add New Asset</p>
+                    <input id="new_asset_name" className="w-full p-2 border rounded-lg text-xs" placeholder="Asset Name (e.g. Bedroom AC)" />
+                    <div className="flex gap-2">
+                        <input id="new_asset_brand" className="w-1/2 p-2 border rounded-lg text-xs" placeholder="Brand (e.g. Voltas)" />
+                        <input id="new_asset_model" className="w-1/2 p-2 border rounded-lg text-xs" placeholder="Model No." />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                         <div>
+                            <label className="text-[9px] font-bold text-gray-400 uppercase">Install Date</label>
+                            <input id="new_asset_install" type="date" className="w-full p-2 border rounded-lg text-xs" />
+                         </div>
+                         <div>
+                            <label className="text-[9px] font-bold text-gray-400 uppercase">Next Service</label>
+                            <input id="new_asset_next" type="date" className="w-full p-2 border rounded-lg text-xs bg-red-50" />
+                         </div>
+                    </div>
+                    <button 
+                        onClick={() => {
+                            const name = document.getElementById('new_asset_name').value;
+                            const brand = document.getElementById('new_asset_brand').value;
+                            const model = document.getElementById('new_asset_model').value;
+                            const installDate = document.getElementById('new_asset_install').value;
+                            const nextServiceDate = document.getElementById('new_asset_next').value;
+                            
+                            if(!name) return alert("Asset Name is required");
+
+                            const newAsset = { name, brand, model, installDate, nextServiceDate };
+                            setForm(prev => ({ ...prev, assets: [...(prev.assets || []), newAsset] }));
+                            
+                            // Clear inputs
+                            document.getElementById('new_asset_name').value = '';
+                            document.getElementById('new_asset_brand').value = '';
+                            document.getElementById('new_asset_model').value = '';
+                            document.getElementById('new_asset_install').value = '';
+                            document.getElementById('new_asset_next').value = '';
+                        }}
+                        className="w-full py-2 bg-indigo-600 text-white rounded-lg font-bold text-xs"
+                    >
+                        + Add Asset
+                    </button>
+                </div>
+            </div>
             <button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
         </div>
     );
@@ -4616,15 +4872,35 @@ const removeMobile = (idx) => {
          <div className="p-3 bg-gray-50 border rounded-xl space-y-3">
              <label className="text-xs font-bold text-gray-400 uppercase">Basic Details</label>
              <input className="w-full p-2 bg-white border rounded-lg" placeholder="Item Name (e.g. 6Amp Switch)" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-             {/* CHANGE 4: Category Select */}
+    
+             {/* CHANGE 4: Category Select with PERMANENT SAVE */}
              <SearchableSelect 
                 label="Category"
                 options={data.categories.item || []}
                 value={form.category}
                 onChange={v => setForm({...form, category: v})}
-                onAddNew={() => {
+                onAddNew={async () => {
                     const newCat = prompt("New Item Category:");
-                    if(newCat) setData(prev => ({...prev, categories: {...prev.categories, item: [...(prev.categories.item || []), newCat]}}));
+                    if(!newCat) return;
+
+                    // 1. Check Duplicate
+                    if((data.categories.item || []).some(c => c.toLowerCase() === newCat.toLowerCase())) {
+                        return alert("Category already exists!");
+                    }
+                    
+                    // 2. Update Local State (Instant UI update)
+                    const updatedList = [...(data.categories.item || []), newCat];
+                    const newCats = { ...data.categories, item: updatedList };
+                    setData(prev => ({...prev, categories: newCats}));
+
+                    // 3. Update Firebase (Permanent Save)
+                    try {
+                        await setDoc(doc(db, "settings", "categories"), newCats);
+                        // Agar toast function available h to: showToast("Category Created");
+                    } catch(e) {
+                        console.error(e);
+                        alert("Error saving category to cloud");
+                    }
                 }}
                 placeholder="Select Category"
              />
