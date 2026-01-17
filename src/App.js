@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "firebase/auth";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { 
   getFirestore, 
   collection, 
@@ -681,20 +679,210 @@ const ConvertTaskModal = ({ task, onClose, saveRecord, setViewDetail, handleClos
   );
 };
 
-const StatementModal = ({ isOpen, onClose }) => {
-  const [dates, setDates] = useState({ start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] });
-    
+const StatementModal = ({ isOpen, onClose, partyId, data }) => {
+  const [dates, setDates] = useState({ 
+      start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], 
+      end: new Date().toISOString().split('T')[0] 
+  });
+  const [showItems, setShowItems] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+
   if (!isOpen) return null;
+
+  const handleGenerate = () => {
+      const party = data.parties.find(p => p.id === partyId);
+      if(!party) return alert("Party not found");
+
+      // 1. Sort all transactions
+      const allTxs = data.transactions
+          .filter(t => t.partyId === partyId && t.status !== 'Cancelled')
+          .sort((a,b) => new Date(a.date) - new Date(b.date));
+
+      // 2. Calculate Opening Balance
+      let openingBal = party.type === 'DR' ? parseFloat(party.openingBal || 0) : -parseFloat(party.openingBal || 0);
+      const beforeRangeTxs = allTxs.filter(t => new Date(t.date) < new Date(dates.start));
+      
+      beforeRangeTxs.forEach(tx => {
+          const { final } = getTransactionTotals(tx);
+          if (tx.type === 'sales') openingBal += final;
+          if (tx.type === 'purchase' || (tx.type === 'expense')) openingBal -= final;
+          if (tx.type === 'payment') {
+              const amt = parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0);
+              if (tx.subType === 'in') openingBal -= amt;
+              else openingBal += amt;
+          }
+      });
+
+      // 3. Filter Range Transactions
+      const reportTxs = allTxs.filter(t => new Date(t.date) >= new Date(dates.start) && new Date(t.date) <= new Date(dates.end));
+
+      // 4. Generate HTML for Print
+      let runningBal = openingBal;
+      let totalDr = 0;
+      let totalCr = 0;
+
+      const rowsHTML = reportTxs.map(tx => {
+          let debit = 0;
+          let credit = 0;
+          const { final } = getTransactionTotals(tx);
+
+          if (tx.type === 'sales') debit = final;
+          else if (tx.type === 'purchase' || tx.type === 'expense') credit = final;
+          else if (tx.type === 'payment') {
+              const amt = parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0);
+              if (tx.subType === 'in') credit = amt; else debit = amt;
+          }
+
+          runningBal = runningBal + debit - credit;
+          totalDr += debit;
+          totalCr += credit;
+
+          // Item Details Row
+          let detailsHTML = '';
+          if (showItems && tx.items && tx.items.length > 0) {
+              const itemsList = tx.items.map(item => {
+                  const iName = data.items.find(x => x.id === item.itemId)?.name || 'Item';
+                  return `<div style="font-size:10px; color:#666; padding-left:10px;">• ${iName} ${item.brand ? `(${item.brand})` : ''} - ${item.qty} x ${item.price}</div>`;
+              }).join('');
+              detailsHTML = `<div style="margin-top:2px;">${itemsList}</div>`;
+          }
+
+          // Note Row
+          let noteHTML = '';
+          if (showNotes && tx.description) {
+              noteHTML = `<div style="font-size:10px; color:#888; font-style:italic; padding-left:10px;">Note: ${tx.description}</div>`;
+          }
+
+          return `
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 8px;">${formatDate(tx.date)}</td>
+                <td style="padding: 8px;">
+                    <div style="font-weight:bold; text-transform:uppercase;">${tx.type} #${tx.id}</div>
+                    ${detailsHTML}
+                    ${noteHTML}
+                </td>
+                <td style="padding: 8px; text-align:right; color:#dc2626;">${debit > 0 ? formatCurrency(debit) : '-'}</td>
+                <td style="padding: 8px; text-align:right; color:#16a34a;">${credit > 0 ? formatCurrency(credit) : '-'}</td>
+                <td style="padding: 8px; text-align:right; font-weight:bold;">${formatCurrency(Math.abs(runningBal))} ${runningBal >= 0 ? 'DR' : 'CR'}</td>
+            </tr>
+          `;
+      }).join('');
+
+      const closingStatus = runningBal > 0 ? "RECEIVABLE (LENA HAI)" : runningBal < 0 ? "PAYABLE (DENA HAI)" : "SETTLED";
+      const statusColor = runningBal > 0 ? "#16a34a" : runningBal < 0 ? "#dc2626" : "#000";
+
+      const printContent = `
+        <html>
+          <head>
+            <title>Statement - ${party.name}</title>
+            <style>
+              body { font-family: sans-serif; padding: 20px; }
+              table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
+              th { background: #2563eb; color: white; padding: 10px; text-align: left; }
+              .header { text-align: center; margin-bottom: 20px; }
+              .company { font-size: 24px; font-weight: bold; color: #1e40af; }
+              .party-info { display: flex; justify-content: space-between; border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 10px; }
+              .summary { margin-top: 20px; display: flex; justify-content: flex-end; }
+              .summary-box { width: 40%; border: 1px solid #ccc; padding: 10px; border-radius: 8px; background: #f9fafb; }
+              .row { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 12px; }
+              .total-row { font-size: 14px; font-weight: bold; border-top: 1px solid #ccc; padding-top: 5px; margin-top: 5px; color: ${statusColor}; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+                <div class="company">${data.company.name}</div>
+                <div>${data.company.address} | ${data.company.mobile}</div>
+                <h2 style="margin-top:10px;">ACCOUNT STATEMENT</h2>
+            </div>
+
+            <div class="party-info">
+                <div>
+                    <strong>To: ${party.name}</strong><br/>
+                    ${party.mobile || ''}<br/>
+                    ${party.address || ''}
+                </div>
+                <div style="text-align:right;">
+                    <strong>Period:</strong> ${formatDate(dates.start)} to ${formatDate(dates.end)}<br/>
+                    <strong>Generated:</strong> ${new Date().toLocaleDateString()}
+                </div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th width="15%">Date</th>
+                        <th width="40%">Particulars</th>
+                        <th width="15%" style="text-align:right;">Debit</th>
+                        <th width="15%" style="text-align:right;">Credit</th>
+                        <th width="15%" style="text-align:right;">Balance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="background:#eff6ff; font-weight:bold;">
+                        <td style="padding:10px;">${formatDate(dates.start)}</td>
+                        <td style="padding:10px;">OPENING BALANCE B/F</td>
+                        <td style="text-align:right;">-</td>
+                        <td style="text-align:right;">-</td>
+                        <td style="text-align:right;">${formatCurrency(Math.abs(openingBal))} ${openingBal >= 0 ? 'DR' : 'CR'}</td>
+                    </tr>
+                    ${rowsHTML}
+                </tbody>
+            </table>
+
+            <div class="summary">
+                <div class="summary-box">
+                    <div class="row"><span>Total Debit:</span> <span>${formatCurrency(totalDr)}</span></div>
+                    <div class="row"><span>Total Credit:</span> <span>${formatCurrency(totalCr)}</span></div>
+                    <div class="total-row">
+                        <span>Closing Balance:</span>
+                        <span>${formatCurrency(Math.abs(runningBal))} ${runningBal >= 0 ? 'DR' : 'CR'}</span>
+                    </div>
+                    <div style="text-align:right; font-size:10px; margin-top:5px; font-weight:bold; color:${statusColor};">
+                        ${closingStatus}
+                    </div>
+                </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      const win = window.open('', '_blank');
+      win.document.write(printContent);
+      win.document.close();
+      setTimeout(() => win.print(), 500);
+      onClose();
+  };
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
-        <h3 className="font-bold text-lg mb-4">Statement</h3>
+        <h3 className="font-bold text-lg mb-4">Generate Statement</h3>
         <div className="space-y-4">
-          <input type="date" className="w-full p-3 border rounded-xl" value={dates.start} onChange={e=>setDates({...dates, start:e.target.value})}/>
-          <input type="date" className="w-full p-3 border rounded-xl" value={dates.end} onChange={e=>setDates({...dates, end:e.target.value})}/>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="flex-1 p-3 bg-gray-100 rounded-xl">Cancel</button>
-            <button className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Generate</button>
+          <div>
+              <label className="text-xs font-bold text-gray-500 uppercase">From Date</label>
+              <input type="date" className="w-full p-3 border rounded-xl" value={dates.start} onChange={e=>setDates({...dates, start:e.target.value})}/>
+          </div>
+          <div>
+              <label className="text-xs font-bold text-gray-500 uppercase">To Date</label>
+              <input type="date" className="w-full p-3 border rounded-xl" value={dates.end} onChange={e=>setDates({...dates, end:e.target.value})}/>
+          </div>
+          
+          <div className="flex gap-4 pt-2">
+              <label className="flex items-center gap-2 text-sm font-bold text-gray-700 cursor-pointer">
+                  <input type="checkbox" className="w-4 h-4 rounded text-blue-600" checked={showItems} onChange={e => setShowItems(e.target.checked)}/>
+                  Show Item Details
+              </label>
+              <label className="flex items-center gap-2 text-sm font-bold text-gray-700 cursor-pointer">
+                  <input type="checkbox" className="w-4 h-4 rounded text-blue-600" checked={showNotes} onChange={e => setShowNotes(e.target.checked)}/>
+                  Show Notes
+              </label>
+          </div>
+
+          <div className="flex gap-2 mt-4">
+            <button onClick={onClose} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold text-gray-600">Cancel</button>
+            <button onClick={handleGenerate} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold flex items-center justify-center gap-2">
+                <FileText size={18}/> Generate PDF
+            </button>
           </div>
         </div>
       </div>
@@ -1557,7 +1745,7 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
       return () => clearTimeout(timer);
 
   }, [data.parties, user]); // Dependency on parties ensure it runs after sync
-  
+
   // --- STEP 2: NOTIFICATION LOGIC (Paste this inside App component) ---
   useEffect(() => {
     // 1. Check if User is Admin
@@ -1850,14 +2038,59 @@ if (tx.type === 'payment') {
     } catch (e) { console.error(e); showToast("Save Error", "error"); }
     return finalId; 
   };
-
-  const deleteRecord = async (collectionName, id) => {
+const deleteRecord = async (collectionName, id) => {
     if (!user) return;
-    if (collectionName === 'items' && data.transactions.some(t => t.items?.some(i => i.itemId === id))) { alert("Item is used."); setConfirmDelete(null); return; }
-    if (collectionName === 'parties' && data.transactions.some(t => t.partyId === id)) { alert("Party is used."); setConfirmDelete(null); return; }
-    setData(prev => ({ ...prev, [collectionName]: prev[collectionName].filter(r => r.id !== id) }));
-    setConfirmDelete(null); setModal({ type: null, data: null }); handleCloseUI(); showToast("Deleted");
-    try { await deleteDoc(doc(db, collectionName, id.toString())); await syncData(true);} catch (e) { console.error(e); }
+
+    // --- FIX 2: STRICT DELETE PROTECTION (Check Usage) ---
+    if (collectionName === 'items') {
+        // 1. Check in Transactions (Sales, Purchase, Estimates)
+        const isUsedInTx = data.transactions.some(t => 
+            t.status !== 'Cancelled' && // Cancelled me hai to ignore kar sakte hain, ya strict rakh sakte hain
+            t.items?.some(i => String(i.itemId) === String(id))
+        );
+        
+        // 2. Check in Tasks (Items used in service)
+        const isUsedInTasks = data.tasks.some(t => 
+            t.itemsUsed?.some(i => String(i.itemId) === String(id))
+        );
+
+        if (isUsedInTx || isUsedInTasks) { 
+            alert("⚠️ Warning: Cannot delete this Item.\nIt is used in existing Transactions or Tasks."); 
+            setConfirmDelete(null); 
+            return;
+        }
+    }
+
+    if (collectionName === 'parties') {
+        const isUsed = data.transactions.some(t => t.partyId === id && t.status !== 'Cancelled');
+        if (isUsed) { 
+            alert("⚠️ Warning: Cannot delete this Party.\nThey have existing transactions."); 
+            setConfirmDelete(null); 
+            return;
+        }
+    }
+
+    // --- FIX 1: PERMANENT DELETE (Update Storage Immediately) ---
+    const updatedList = data[collectionName].filter(r => r.id !== id);
+    const newData = { ...data, [collectionName]: updatedList };
+    
+    // 1. Update State
+    setData(newData);
+    // 2. Update LocalStorage IMMEDIATELY (Isse item wapas nahi aayega sync par)
+    localStorage.setItem('smees_data', JSON.stringify(newData));
+
+    setConfirmDelete(null);
+    setModal({ type: null, data: null }); 
+    handleCloseUI(); 
+    showToast("Deleted Successfully");
+
+    // 3. Delete from Firebase
+    try { 
+        await deleteDoc(doc(db, collectionName, id.toString())); 
+    } catch (e) { 
+        console.error("Delete Error", e);
+        showToast("Error deleting from Cloud", "error");
+    }
   };
 
   const cancelTransaction = async (id) => {
@@ -2954,23 +3187,22 @@ React.useLayoutEffect(() => {
                   <h3 className="font-bold text-gray-400 text-xs uppercase">Items</h3>
                   {tx.items?.map((item, i) => {
                       const m = data.items.find(x => x.id === item.itemId);
-                      // Calculate Item Profit
                       const sell = parseFloat(item.price || 0);
                       const buy = parseFloat(item.buyPrice || m?.buyPrice || 0);
                       const itemProfit = (sell - buy) * parseFloat(item.qty || 0);
-                      
                       return (
                         <div key={i} className="flex justify-between p-3 border rounded-xl bg-white">
                           <div className="flex-1">
-                              <p className="font-bold text-sm">{m?.name || 'Item'}</p>
-                              {/* DetailView me Item Name ke pass */}
-<div>
-    <p className="font-bold text-sm">
-        {m?.name || 'Item'} 
-        {item.brand && <span className="text-purple-600 text-[10px] ml-1">({item.brand})</span>}
-    </p>
-    {item.description && <p className="text-[10px] text-gray-500 italic">{item.description}</p>}
-</div>
+                              {/* --- FIX: Removed Duplicate Name Line here --- */}
+                              
+                              {/* Item Details Block */}
+                              <div>
+                                  <p className="font-bold text-sm">
+                                      {m?.name || 'Item'} 
+                                      {item.brand && <span className="text-purple-600 text-[10px] ml-1">({item.brand})</span>}
+                                  </p>
+                                  {item.description && <p className="text-[10px] text-gray-500 italic">{item.description}</p>}
+                              </div>
                               <p className="text-xs text-gray-500">{item.qty} x {item.price}</p>
                           </div>
                           <div className="text-right">
@@ -3510,14 +3742,13 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         // --- CHANGE 2: Filter State ---
         // Hum hook ko component ke andar define nahi kar sakte agar wo loop me hai.
         // Isliye hum yahan ek Internal Component banayenge (Jaisa ItemDetailInner banaya tha)
-        
-       const PartyDetailInner = ({ record }) => {
+        const PartyDetailInner = ({ record }) => {
             const [activeTab, setActiveTab] = useState('transactions');
             const [filter, setFilter] = useState('All');
             const [selectedAsset, setSelectedAsset] = useState(null);
             const [editingAsset, setEditingAsset] = useState(null);
             
-            // --- EDIT & DELETE LOGIC (Same as before) ---
+            // --- EDIT & DELETE LOGIC ---
             const handleDeleteAsset = async (assetName) => {
                 if(!window.confirm(`Delete "${assetName}"?`)) return;
                 const updatedAssets = record.assets.filter(a => a.name !== assetName);
@@ -3528,7 +3759,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
 
             const handleUpdateAsset = async () => {
                 if(!editingAsset || !editingAsset.name) return;
-                const updatedAssets = record.assets.map((a, i) => i === editingAsset.index ? { ...editingAsset } : a); // Simplified update
+                const updatedAssets = record.assets.map((a, i) => i === editingAsset.index ? { ...editingAsset } : a);
                 const updatedParty = { ...record, assets: updatedAssets };
                 setData(prev => ({ ...prev, parties: prev.parties.map(p => p.id === record.id ? updatedParty : p) }));
                 await setDoc(doc(db, "parties", record.id), updatedParty);
@@ -3538,7 +3769,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
             const getHistory = (assetId = null) => {
                  return data.transactions
                 .filter(tx => tx.partyId === record.id)
-                .filter(tx => assetId ? (tx.linkedAssets && tx.linkedAssets.some(a => a.name === assetId)) : true) // Updated for Multi-Asset
+                .filter(tx => assetId ? (tx.linkedAssets && tx.linkedAssets.some(a => a.name === assetId)) : true)
                 .filter(tx => {
                     if (filter === 'All') return true;
                     if (filter === 'Sales') return tx.type === 'sales';
@@ -3554,9 +3785,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
             const assetHistory = selectedAsset ? getHistory(selectedAsset.name) : [];
             const mobiles = String(record.mobile || '').split(',').map(m => m.trim()).filter(Boolean);
 
-            // ... (Asset History Sub-screen code same as before, omitted for brevity but keep it) ...
-            if (selectedAsset) { /* ... Keep existing Asset History View Code ... */ 
-                // Agar aapko wo code bhi chahiye to bataiye, usually wo change nahi hua h
+            if (selectedAsset) {
                 return (
                     <div className="fixed inset-0 z-[65] bg-white overflow-y-auto animate-in slide-in-from-right">
                         <div className="sticky top-0 bg-white border-b p-4 flex items-center gap-3 shadow-sm z-10">
@@ -3564,7 +3793,18 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                              <div><h2 className="font-bold text-lg">{selectedAsset.name}</h2><p className="text-xs text-gray-500">{selectedAsset.brand} • {selectedAsset.model}</p></div>
                         </div>
                         <div className="p-4 space-y-4">
-                             {/* ... Keep Reminder Button Logic ... */}
+                             {/* --- NEW: VIEW PHOTO BUTTON --- */}
+                             {selectedAsset.photosLink && (
+                                <a href={selectedAsset.photosLink} target="_blank" rel="noreferrer" className="w-full p-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-colors">
+                                    <span>📸</span> View Asset Photos
+                                </a>
+                             )}
+
+                             <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-2">
+                                <div className="flex justify-between"><span className="text-xs font-bold text-gray-500 uppercase">Next Service</span><span className={`font-bold ${new Date(selectedAsset.nextServiceDate) <= new Date() ? 'text-red-600 animate-pulse' : 'text-green-600'}`}>{selectedAsset.nextServiceDate || 'Not Set'}</span></div>
+                                <button onClick={() => window.open(`https://wa.me/${record.mobile}?text=${encodeURIComponent(`Hello ${record.name}, Reminder for your ${selectedAsset.name} (${selectedAsset.brand}) service. Due: ${selectedAsset.nextServiceDate}.`)}`, '_blank')} className="w-full mt-2 py-2 bg-green-100 text-green-700 rounded-lg font-bold flex items-center justify-center gap-2"><MessageCircle size={16}/> WhatsApp Reminder</button>
+                            </div>
+
                              <h3 className="font-bold text-gray-700">Service History</h3>
                              {assetHistory.length === 0 ? <p className="text-gray-400 text-sm italic">No service records found.</p> : assetHistory.map(tx => (
                                  <div key={tx.id} onClick={() => setViewDetail({ type: 'transaction', id: tx.id })} className="p-3 bg-white border rounded-xl flex justify-between items-center mb-2 cursor-pointer">
@@ -3589,38 +3829,29 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 </div>
                 
                 <div className="p-4 space-y-6">
-                   {/* Balance Card */}
                    <div className="p-4 bg-gray-50 rounded-2xl border">
                          <p className="text-[10px] font-bold text-gray-400 uppercase">Current Balance</p>
                          <p className={`text-2xl font-black ${partyBalances[record.id] > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(Math.abs(partyBalances[record.id] || 0))}</p>
                          <div className="flex justify-between items-end"><p className="text-[10px] font-bold text-gray-400">{partyBalances[record.id] > 0 ? 'TO PAY' : 'TO COLLECT'}</p><div className="text-right">{mobiles.map((m, i) => <p key={i} className="text-sm font-bold flex items-center justify-end gap-1"><Phone size={12}/> <a href={`tel:${m}`}>{m}</a></p>)}</div></div>
                    </div>
 
-                   {/* TABS */}
                    <div className="flex bg-gray-100 p-1 rounded-xl">
                        <button onClick={() => setActiveTab('transactions')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'transactions' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Transactions</button>
                        <button onClick={() => setActiveTab('assets')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'assets' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>Assets / AMC</button>
                    </div>
 
-                   {/* --- FIX 1 & 2: UPDATED TRANSACTION LIST --- */}
                    {activeTab === 'transactions' && (
                        <div className="space-y-3">
                          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">{['All', 'Sales', 'Purchase', 'Payment', 'Expense'].map(f => <button key={f} onClick={() => setFilter(f)} className={`px-4 py-2 rounded-full text-xs font-bold border whitespace-nowrap ${filter === f ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600'}`}>{f}</button>)}</div>
-                         
                          {history.map(tx => {
                            const totals = getBillStats(tx, data.transactions);
                            const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
                            const unusedAmount = tx.type === 'payment' ? (totals.amount - (totals.used || 0)) : 0;
-                           
-                           // Icons & Colors setup
                            let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
                            if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
                            if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
                            if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
-
-                           // Display Amount Logic
                            let displayAmount = totals.amount;
-                           
                            return (
                              <div key={tx.id} onClick={() => { const el = document.getElementById('detail-scroller'); if(el) scrollPos.current[record.id] = el.scrollTop; setNavStack(prev => [...prev, viewDetail]); pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
                                <div className="flex gap-4 items-center">
@@ -3628,13 +3859,9 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                  <div>
                                    <p className="font-bold text-gray-800 uppercase text-xs">{tx.type} #{tx.id}</p>
                                    <p className="text-[10px] text-gray-400 font-bold">{formatDate(tx.date)}</p>
-                                   
-                                   {/* Status Badges */}
                                    <div className="flex gap-1 mt-1">
                                        {['sales', 'purchase', 'expense', 'payment'].includes(tx.type) && (
-                                           <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${(totals.status === 'PAID' || totals.status === 'FULLY USED') ? 'bg-green-100 text-green-700' : (totals.status === 'PARTIAL' || totals.status === 'PARTIALLY USED') ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                                               {totals.status}
-                                           </span>
+                                           <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${(totals.status === 'PAID' || totals.status === 'FULLY USED') ? 'bg-green-100 text-green-700' : (totals.status === 'PARTIAL' || totals.status === 'PARTIALLY USED') ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>
                                        )}
                                    </div>
                                  </div>
@@ -3651,11 +3878,8 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                        </div>
                    )}
 
-                   {/* TAB 2: ASSETS / MACHINES (Kept same) */}
                    {activeTab === 'assets' && (
                        <div className="space-y-3">
-                           {/* ... Asset List Code (Copy from your existing code, no change requested here) ... */}
-                           {/* Shortcut: Rendering existing Asset Cards */}
                            {(record.assets || []).length === 0 ? <div className="text-center py-10 text-gray-400">No Assets</div> : 
                             record.assets.map((asset, idx) => {
                                 const isDue = asset.nextServiceDate && new Date(asset.nextServiceDate) <= new Date();
@@ -3667,10 +3891,18 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                        </div>
                                        <div onClick={() => setSelectedAsset(asset)} className="cursor-pointer">
                                            <div className="flex justify-between items-start mb-2">
-                                               <div><p className="font-bold text-gray-800 text-lg">{asset.name}</p><p className="text-xs text-gray-500 font-bold">{asset.brand} {asset.model}</p></div>
+                                               <div>
+                                                   <p className="font-bold text-gray-800 text-lg">{asset.name}</p>
+                                                   <p className="text-xs text-gray-500 font-bold">{asset.brand} {asset.model}</p>
+                                               </div>
                                                {isDue && <span className="bg-red-100 text-red-700 text-[9px] font-black px-2 py-1 rounded uppercase animate-pulse mr-16">Due</span>}
                                            </div>
-                                           <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-2 rounded-lg"><Calendar size={14}/> <span>Next Service: <span className={`font-bold ${isDue ? 'text-red-600' : 'text-green-600'}`}>{asset.nextServiceDate ? formatDate(asset.nextServiceDate) : 'N/A'}</span></span></div>
+                                           <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
+                                               <Calendar size={14}/> <span>Next Service: <span className={`font-bold ${isDue ? 'text-red-600' : 'text-green-600'}`}>{asset.nextServiceDate ? formatDate(asset.nextServiceDate) : 'N/A'}</span></span>
+                                           </div>
+                                           {/* --- NEW: PHOTO INDICATOR BADGE --- */}
+                                           {asset.photosLink && <div className="mt-1 text-[9px] text-blue-600 font-bold flex items-center gap-1">📸 Photo Attached</div>}
+                                           
                                            <div className="mt-2 text-[10px] text-blue-600 font-bold flex items-center justify-end gap-1">View History <ChevronRight size={12}/></div>
                                        </div>
                                    </div>
@@ -3679,7 +3911,8 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                            }
                        </div>
                    )}
-                   {/* ... Edit Asset Modal Code ... */}
+
+                   {/* --- EDIT ASSET MODAL WITH PHOTO INPUT --- */}
                    {editingAsset && (
                        <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4">
                            <div className="bg-white p-4 rounded-2xl w-full max-w-sm animate-in zoom-in-95">
@@ -3690,6 +3923,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                        <div><label className="text-[10px] font-bold text-gray-400 uppercase">Brand</label><input className="w-full p-2 border rounded-lg" value={editingAsset.brand} onChange={e => setEditingAsset({...editingAsset, brand: e.target.value})} /></div>
                                        <div><label className="text-[10px] font-bold text-gray-400 uppercase">Model</label><input className="w-full p-2 border rounded-lg" value={editingAsset.model} onChange={e => setEditingAsset({...editingAsset, model: e.target.value})} /></div>
                                    </div>
+                                   <div><label className="text-[10px] font-bold text-gray-400 uppercase">Photo Link</label><input className="w-full p-2 border rounded-lg text-blue-600" placeholder="Google Photos Link" value={editingAsset.photosLink || ''} onChange={e => setEditingAsset({...editingAsset, photosLink: e.target.value})} /></div>
                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Next Service Date</label><input type="date" className="w-full p-2 border rounded-lg bg-red-50" value={editingAsset.nextServiceDate} onChange={e => setEditingAsset({...editingAsset, nextServiceDate: e.target.value})} /></div>
                                </div>
                                <div className="grid grid-cols-2 gap-3 mt-4">
@@ -4015,31 +4249,42 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 if(!tx.partyId) return alert("Party is Required");
                 if(type === 'expense' && !tx.category) return alert("Category is Required");
                 
+                // 1. Calculate Final Amount
                 let finalAmount = totals.final;
                 if (type === 'payment') finalAmount = parseFloat(tx.amount || 0);
 
+                // 2. Prepare Final Record
                 const finalRecord = { ...tx, ...totals, amount: finalAmount };
 
-                // 3. AUTO-UPDATE ASSET SERVICE DATES (Loop through linkedAssets)
-                if (type === 'sales' && tx.partyId && tx.linkedAssets && tx.linkedAssets.length > 0) {
+                // 3. AUTO-UPDATE ASSET SERVICE DATE (Fixed Logic)
+                // Hum ise 'await' nahi karenge taaki UI fast rahe, par logic synchronous update karega
+                if (type === 'sales' && tx.partyId && tx.linkedAssetId) {
                     const p = data.parties.find(x => x.id === tx.partyId);
                     
-                    if (p && p.assets) {
+                    // Sirf tab update karein agar Asset exist karta ho aur Date bhari ho
+                    if (p && p.assets && tx.nextServiceDate) {
                         const updatedAssets = p.assets.map(a => {
-                            // Find matching linked asset
-                            const linkMatch = tx.linkedAssets.find(la => la.name.trim() === a.name.trim());
-                            if (linkMatch && linkMatch.nextServiceDate) {
-                                return { ...a, nextServiceDate: linkMatch.nextServiceDate };
+                            // Name match karte waqt trim karein taaki space ki galti na ho
+                            if (a.name.trim() === tx.linkedAssetId.trim()) {
+                                return { ...a, nextServiceDate: tx.nextServiceDate };
                             }
                             return a;
                         });
                         
                         const updatedParty = { ...p, assets: updatedAssets };
-                        setData(prev => ({ ...prev, parties: prev.parties.map(party => party.id === p.id ? updatedParty : party) }));
+                        
+                        // Local Data Update (Instant UI Refresh ke liye)
+                        setData(prev => ({ 
+                            ...prev, 
+                            parties: prev.parties.map(party => party.id === p.id ? updatedParty : party) 
+                        }));
+
+                        // Firebase Update (Background)
                         setDoc(doc(db, "parties", p.id), updatedParty).catch(e => console.error("Asset Date Update Failed", e));
                     }
                 }
 
+                // 4. Save Transaction
                 await saveRecord('transactions', finalRecord, tx.type); 
             }} 
             className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200 hover:shadow-xl transition-all"
@@ -4439,37 +4684,7 @@ const removeMobile = (idx) => {
                  </select>
             </div>
             <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Email (Optional)" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
-           {/* --- NEW: ASSETS / AMC MANAGER SECTION --- */}
-            <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 space-y-3">
-                <p className="text-xs font-bold text-indigo-600 uppercase flex items-center gap-2">
-                    <Package size={12}/> Client Assets / Machines
-                </p>
-                
-                {/* List Existing Assets */}
-                {(form.assets || []).map((asset, idx) => (
-                    <div key={idx} className="bg-white p-3 rounded-lg border relative group">
-                        <button onClick={() => setForm(prev => ({...prev, assets: prev.assets.filter((_, i) => i !== idx)}))} className="absolute top-2 right-2 text-red-400 hover:text-red-600"><X size={14}/></button>
-                        
-                        <div className="flex justify-between items-start mb-2">
-                            <div>
-                                <p className="font-bold text-sm text-indigo-900">{asset.name}</p>
-                                <p className="text-xs text-gray-500">{asset.brand} • {asset.model}</p>
-                            </div>
-                        </div>
-                        <div className="flex gap-2 text-[10px] bg-gray-50 p-2 rounded">
-                            <div className="flex-1">
-                                <span className="block text-gray-400 uppercase font-bold">Install Date</span>
-                                <span className="font-bold text-gray-700">{asset.installDate || 'N/A'}</span>
-                            </div>
-                            <div className="flex-1 border-l pl-2 border-gray-200">
-                                <span className="block text-gray-400 uppercase font-bold">Next Service</span>
-                                <span className="font-bold text-red-600">{asset.nextServiceDate || 'Not Set'}</span>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-
-                {/* Add New Asset Inputs */}
+           {/* Add New Asset Inputs */}
                 <div className="bg-white p-2 rounded-xl border border-indigo-200 space-y-2">
                     <p className="text-[10px] font-bold text-gray-400 uppercase text-center">Add New Asset</p>
                     <input id="new_asset_name" className="w-full p-2 border rounded-lg text-xs" placeholder="Asset Name (e.g. Bedroom AC)" />
@@ -4477,6 +4692,9 @@ const removeMobile = (idx) => {
                         <input id="new_asset_brand" className="w-1/2 p-2 border rounded-lg text-xs" placeholder="Brand (e.g. Voltas)" />
                         <input id="new_asset_model" className="w-1/2 p-2 border rounded-lg text-xs" placeholder="Model No." />
                     </div>
+                    {/* --- NEW: GOOGLE PHOTOS LINK INPUT --- */}
+                    <input id="new_asset_photo" className="w-full p-2 border rounded-lg text-xs text-blue-600" placeholder="Paste Google Photos Link" />
+                    
                     <div className="grid grid-cols-2 gap-2">
                          <div>
                             <label className="text-[9px] font-bold text-gray-400 uppercase">Install Date</label>
@@ -4492,18 +4710,20 @@ const removeMobile = (idx) => {
                             const name = document.getElementById('new_asset_name').value;
                             const brand = document.getElementById('new_asset_brand').value;
                             const model = document.getElementById('new_asset_model').value;
+                            const photo = document.getElementById('new_asset_photo').value; // Get Photo
                             const installDate = document.getElementById('new_asset_install').value;
                             const nextServiceDate = document.getElementById('new_asset_next').value;
                             
                             if(!name) return alert("Asset Name is required");
 
-                            const newAsset = { name, brand, model, installDate, nextServiceDate };
+                            const newAsset = { name, brand, model, photosLink: photo, installDate, nextServiceDate }; // Add to object
                             setForm(prev => ({ ...prev, assets: [...(prev.assets || []), newAsset] }));
                             
                             // Clear inputs
                             document.getElementById('new_asset_name').value = '';
                             document.getElementById('new_asset_brand').value = '';
                             document.getElementById('new_asset_model').value = '';
+                            document.getElementById('new_asset_photo').value = '';
                             document.getElementById('new_asset_install').value = '';
                             document.getElementById('new_asset_next').value = '';
                         }}
@@ -4512,7 +4732,6 @@ const removeMobile = (idx) => {
                         + Add Asset
                     </button>
                 </div>
-            </div>
             <button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
         </div>
     );
@@ -4875,9 +5094,11 @@ const removeMobile = (idx) => {
         />
       )}
       
-      {statementModal && (
+     {statementModal && (
         <StatementModal 
             isOpen={!!statementModal} 
+            partyId={statementModal.partyId} // Ye Add kiya
+            data={data}                      // Ye Add kiya
             onClose={() => setStatementModal(null)} 
         />
       )}
