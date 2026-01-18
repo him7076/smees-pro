@@ -1353,9 +1353,25 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
     const handleBulkDelete = async () => {
        if(!window.confirm(`Delete ${selectedIds.length} records?`)) return;
        const ids = [...selectedIds];
-       setSelectedIds([]);
-       setData(prev => ({ ...prev, [collection]: prev[collection].filter(item => !ids.includes(item.id)) }));
-       try { await Promise.all(ids.map(id => deleteDoc(doc(db, collection, id.toString())))); } catch (e) { console.error(e); }
+       setSelectedIds([]); // Selection clear karein
+
+       // 1. Filter Data
+       const updatedList = data[collection].filter(item => !ids.includes(item.id));
+       
+       // 2. Prepare New Data Object
+       const newData = { ...data, [collection]: updatedList };
+
+       // 3. Update State & LocalStorage (IMPORTANT FIX)
+       setData(newData);
+       localStorage.setItem('smees_data', JSON.stringify(newData));
+
+       // 4. Delete from Firebase
+       try { 
+           await Promise.all(ids.map(id => deleteDoc(doc(db, collection, id.toString())))); 
+           alert("Deleted Successfully"); // Feedback added
+       } catch (e) { 
+           console.error(e); 
+       }
     };
 
     return (
@@ -3113,7 +3129,16 @@ React.useLayoutEffect(() => {
                        
                        {/* Edit Button (Only show if NOT Cancelled) */}
                        {tx.status !== 'Cancelled' && (
-                           <button onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full">Edit</button>
+                           <button 
+                                onClick={() => { 
+                                    pushHistory(); 
+                                    setModal({ type: tx.type, data: tx }); 
+                                    // setViewDetail(null);  <--- IS LINE KO HATA DIYA
+                                }} 
+                                className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full"
+                           >
+                                Edit
+                           </button>
                        )}
                    </>
                )}
@@ -4088,11 +4113,14 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     const handleLinkChange = (billId, value) => { const amt = parseFloat(value) || 0; let maxLimit = totals.final; if (type === 'payment') { const baseAmt = parseFloat(tx.amount || 0); const disc = parseFloat(tx.discountValue || 0); maxLimit = baseAmt + disc; } if (maxLimit <= 0) { alert("Please enter the Payment Amount first."); return; } let newLinked = [...(tx.linkedBills || [])]; const existingIdx = newLinked.findIndex(l => l.billId === billId); if (existingIdx >= 0) { if (amt <= 0) newLinked.splice(existingIdx, 1); else newLinked[existingIdx] = { ...newLinked[existingIdx], amount: amt }; } else if (amt > 0) { newLinked.push({ billId, amount: amt }); } const currentTotal = newLinked.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0); if (currentTotal > maxLimit) { alert(`Cannot link more than the Payment Amount (${maxLimit}). Current Total: ${currentTotal}`); return; } setTx({ ...tx, linkedBills: newLinked }); };
     
     // --- Helper to add asset ---
+
+    // --- State update for Duration ---
+    const [serviceInterval, setServiceInterval] = useState(3); // Default 3 Months
     const handleAddAsset = (assetName) => {
         if (!assetName) return;
         // Default Next Date: +3 Months
         const d = new Date(tx.date);
-        d.setMonth(d.getMonth() + 3);
+        d.setMonth(d.getMonth() + parseInt(serviceInterval));
         const defaultDate = d.toISOString().split('T')[0];
         
         // Prevent duplicate
@@ -4149,7 +4177,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                         <span className="text-[9px] text-green-600 font-bold">{tx.linkedAssets?.length} Linked</span>
                     </div>
                     
-                    {/* List of Selected Assets */}
+                    {/* List of Selected Assets (Same as before) */}
                     <div className="space-y-2">
                         {tx.linkedAssets.map((asset, idx) => (
                             <div key={idx} className="bg-white p-2 rounded-lg border flex justify-between items-center">
@@ -4170,20 +4198,35 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                         ))}
                     </div>
 
-                    {/* Add Asset Dropdown */}
-                    <select 
-                        className="w-full p-2 border rounded-lg text-xs bg-white text-indigo-600 font-bold outline-none"
-                        value=""
-                        onChange={(e) => handleAddAsset(e.target.value)}
-                    >
-                        <option value="">+ Add Asset to Invoice</option>
-                        {selectedParty.assets.map((a, i) => (
-                            <option key={i} value={a.name} disabled={tx.linkedAssets.some(la => la.name === a.name)}>
-                                {a.name} ({a.brand}) {tx.linkedAssets.some(la => la.name === a.name) ? '✓' : ''}
-                            </option>
-                        ))}
-                    </select>
-                    <p className="text-[9px] text-gray-400 mt-1">*Selected Assets will be auto-updated with Next Service Date.</p>
+                    {/* NEW: DURATION SELECTOR & ADD ASSET */}
+                    <div className="flex gap-2">
+                        {/* Duration Dropdown */}
+                        <select 
+                            className="w-1/3 p-2 border rounded-lg text-xs bg-white font-bold"
+                            value={serviceInterval}
+                            onChange={(e) => setServiceInterval(parseInt(e.target.value))}
+                        >
+                            <option value="1">1 Month</option>
+                            <option value="3">3 Months</option>
+                            <option value="6">6 Months</option>
+                            <option value="12">1 Year</option>
+                        </select>
+
+                        {/* Add Asset Dropdown */}
+                        <select 
+                            className="w-2/3 p-2 border rounded-lg text-xs bg-white text-indigo-600 font-bold outline-none"
+                            value=""
+                            onChange={(e) => handleAddAsset(e.target.value)}
+                        >
+                            <option value="">+ Add Asset ({serviceInterval}M)</option>
+                            {selectedParty.assets.map((a, i) => (
+                                <option key={i} value={a.name} disabled={tx.linkedAssets.some(la => la.name === a.name)}>
+                                    {a.name} ({a.brand}) {tx.linkedAssets.some(la => la.name === a.name) ? '✓' : ''}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <p className="text-[9px] text-gray-400 mt-1">*Selected Assets auto-set to +{serviceInterval} Months from Invoice Date.</p>
                 </div>
              )}
              
