@@ -3833,6 +3833,9 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
             const [filter, setFilter] = useState('All');
             const [selectedAsset, setSelectedAsset] = useState(null);
             const [editingAsset, setEditingAsset] = useState(null);
+            // CHANGE: Search States for Party Detail Tabs
+            const [txSearch, setTxSearch] = useState('');
+            const [assetSearch, setAssetSearch] = useState('');
             
             // --- EDIT & DELETE LOGIC ---
             const handleDeleteAsset = async (assetName) => {
@@ -3885,6 +3888,11 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                     <span>📸</span> View Asset Photos
                                 </a>
                              )}
+                             {/* CHANGE: Edit/Delete Buttons MOVED HERE */}
+                             <div className="flex gap-2 mb-2">
+                                <button onClick={() => { setEditingAsset({...selectedAsset, index: record.assets.findIndex(a => a.name === selectedAsset.name)}); setSelectedAsset(null); }} className="flex-1 py-3 bg-blue-50 text-blue-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-blue-100"><Edit2 size={14}/> Edit Asset</button>
+                                <button onClick={() => { handleDeleteAsset(selectedAsset.name); setSelectedAsset(null); }} className="flex-1 py-3 bg-red-50 text-red-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-red-100"><Trash2 size={14}/> Delete Asset</button>
+                             </div>
 
                              <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-2">
                                 <div className="flex justify-between"><span className="text-xs font-bold text-gray-500 uppercase">Next Service</span><span className={`font-bold ${new Date(selectedAsset.nextServiceDate) <= new Date() ? 'text-red-600 animate-pulse' : 'text-green-600'}`}>{selectedAsset.nextServiceDate || 'Not Set'}</span></div>
@@ -3929,7 +3937,21 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                    {activeTab === 'transactions' && (
                        <div className="space-y-3">
                          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">{['All', 'Sales', 'Purchase', 'Payment', 'Expense'].map(f => <button key={f} onClick={() => setFilter(f)} className={`px-4 py-2 rounded-full text-xs font-bold border whitespace-nowrap ${filter === f ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600'}`}>{f}</button>)}</div>
-                         {history.map(tx => {
+                         {/* CHANGE: Transaction Search Bar */}
+                         <div className="relative">
+                            <Search className="absolute left-3 top-2.5 text-gray-400" size={14} />
+                            <input 
+                                className="w-full pl-9 pr-3 py-2 bg-gray-50 border rounded-xl text-xs" 
+                                placeholder="Search Bill No, Amount..." 
+                                value={txSearch} 
+                                onChange={e => setTxSearch(e.target.value)} 
+                            />
+                         </div>
+                         {history.filter(t => 
+                            !txSearch || 
+                            t.id.toLowerCase().includes(txSearch.toLowerCase()) || 
+                            (t.amount || 0).toString().includes(txSearch)
+                         ).map(tx => {
                            const totals = getBillStats(tx, data.transactions);
                            const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
                            const unusedAmount = tx.type === 'payment' ? (totals.amount - (totals.used || 0)) : 0;
@@ -3975,31 +3997,37 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                    )}
 
                    {activeTab === 'assets' && (
-                       <div className="space-y-3">
+                       <div className="space-y-3">{/* CHANGE: Asset Search Bar */}
+                       <div className="relative mb-3">
+                            <Search className="absolute left-3 top-2.5 text-gray-400" size={14} />
+                            <input 
+                                className="w-full pl-9 pr-3 py-2 bg-gray-50 border rounded-xl text-xs" 
+                                placeholder="Search Asset Name, Brand..." 
+                                value={assetSearch} 
+                                onChange={e => setAssetSearch(e.target.value)} 
+                            />
+                       </div>
                            {(record.assets || []).length === 0 ? <div className="text-center py-10 text-gray-400">No Assets</div> : 
-                            record.assets.map((asset, idx) => {
+                           
+                            record.assets
+                            .filter(a => !assetSearch || a.name.toLowerCase().includes(assetSearch.toLowerCase()) || a.brand.toLowerCase().includes(assetSearch.toLowerCase()))
+                            .map((asset, idx) => {
                                 const isDue = asset.nextServiceDate && new Date(asset.nextServiceDate) <= new Date();
                                 return (
-                                   <div key={idx} className={`p-4 bg-white border rounded-2xl relative group ${isDue ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200'}`}>
-                                       <div className="absolute top-3 right-3 flex gap-2">
-                                            <button onClick={(e) => { e.stopPropagation(); setEditingAsset({...asset, index: idx}); }} className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"><Edit2 size={14}/></button>
-                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteAsset(asset.name); }} className="p-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100"><Trash2 size={14}/></button>
-                                       </div>
-                                       <div onClick={() => setSelectedAsset(asset)} className="cursor-pointer">
+                                   <div key={idx} onClick={() => setSelectedAsset(asset)} className={`p-4 bg-white border rounded-2xl relative group mb-2 cursor-pointer active:scale-95 transition-all ${isDue ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200'}`}>
+                                       {/* CHANGE: Buttons removed from here (Moved to Detail View) */}
+                                       <div>
                                            <div className="flex justify-between items-start mb-2">
                                                <div>
                                                    <p className="font-bold text-gray-800 text-lg">{asset.name}</p>
                                                    <p className="text-xs text-gray-500 font-bold">{asset.brand} {asset.model}</p>
                                                </div>
-                                               {isDue && <span className="bg-red-100 text-red-700 text-[9px] font-black px-2 py-1 rounded uppercase animate-pulse mr-16">Due</span>}
+                                               {isDue && <span className="bg-red-100 text-red-700 text-[9px] font-black px-2 py-1 rounded uppercase animate-pulse">Due</span>}
                                            </div>
                                            <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
                                                <Calendar size={14}/> <span>Next Service: <span className={`font-bold ${isDue ? 'text-red-600' : 'text-green-600'}`}>{asset.nextServiceDate ? formatDate(asset.nextServiceDate) : 'N/A'}</span></span>
                                            </div>
-                                           {/* --- NEW: PHOTO INDICATOR BADGE --- */}
                                            {asset.photosLink && <div className="mt-1 text-[9px] text-blue-600 font-bold flex items-center gap-1">📸 Photo Attached</div>}
-                                           
-                                           <div className="mt-2 text-[10px] text-blue-600 font-bold flex items-center justify-end gap-1">View History <ChevronRight size={12}/></div>
                                        </div>
                                    </div>
                                );
@@ -4168,6 +4196,12 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     const [showLinking, setShowLinking] = useState(false);
     const [showLocPicker, setShowLocPicker] = useState(false);
     const [linkSearch, setLinkSearch] = useState('');
+    // Helper for Salary Calc
+    const getMins = (t) => {
+        if(!t) return 0;
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+    };
 
     // ... (Helpers: currentVoucherId, totals, selectedParty, handleLocationSelect, unpaidBills, updateLine, itemOptions, partyOptions, handleLinkChange, allBrands) ...
     // Note: In helpers ko wesa hi rakhein jaisa pichle code me tha.
@@ -4182,7 +4216,63 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
     const partyOptions = data.parties.map(p => ({ ...p, subText: partyBalances[p.id] ? formatCurrency(Math.abs(partyBalances[p.id])) + (partyBalances[p.id]>0?' DR':' CR') : 'Settled', subColor: partyBalances[p.id]>0?'text-green-600':partyBalances[p.id]<0?'text-red-600':'text-gray-400' }));
     const handleLinkChange = (billId, value) => { const amt = parseFloat(value) || 0; let maxLimit = totals.final; if (type === 'payment') { const baseAmt = parseFloat(tx.amount || 0); const disc = parseFloat(tx.discountValue || 0); maxLimit = baseAmt + disc; } if (maxLimit <= 0) { alert("Please enter the Payment Amount first."); return; } let newLinked = [...(tx.linkedBills || [])]; const existingIdx = newLinked.findIndex(l => l.billId === billId); if (existingIdx >= 0) { if (amt <= 0) newLinked.splice(existingIdx, 1); else newLinked[existingIdx] = { ...newLinked[existingIdx], amount: amt }; } else if (amt > 0) { newLinked.push({ billId, amount: amt }); } const currentTotal = newLinked.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0); if (currentTotal > maxLimit) { alert(`Cannot link more than the Payment Amount (${maxLimit}). Current Total: ${currentTotal}`); return; } setTx({ ...tx, linkedBills: newLinked }); };
-    
+    // CHANGE: Auto Salary Calculation Logic
+    const handleAutoSalary = () => {
+        // 1. Ask User to Select Staff
+        const staffNames = data.staff.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
+        const selection = prompt(`Select Staff for Salary Calculation (Enter Number):\n${staffNames}`);
+        
+        if (!selection) return;
+        const index = parseInt(selection) - 1;
+        const staff = data.staff[index];
+        
+        if (!staff) return alert("Invalid Staff Selected");
+        if (!staff.salary || !staff.dutyHours) return alert("Please set Salary and Duty Hours in Staff Settings first.");
+
+        // 2. Calculate Working Hours from Attendance
+        const reportDate = new Date(tx.date); // Use Invoice Date
+        const currentMonth = reportDate.getMonth();
+        const currentYear = reportDate.getFullYear();
+
+        let totalMinutes = 0;
+
+        data.attendance.forEach(a => {
+            const aDate = new Date(a.date);
+            // Check if record belongs to selected staff AND current month/year AND date is <= invoice date
+            if (a.staffId === staff.id && aDate.getMonth() === currentMonth && aDate.getFullYear() === currentYear && aDate <= reportDate) {
+                const inM = getMins(a.checkIn);
+                const outM = getMins(a.checkOut);
+                const lsM = getMins(a.lunchStart);
+                const leM = getMins(a.lunchEnd);
+
+                let dailyGross = 0;
+                let dailyLunch = 0;
+
+                if (a.checkIn && a.checkOut) dailyGross = outM - inM;
+                if (a.lunchStart && a.lunchEnd) dailyLunch = leM - lsM;
+                
+                totalMinutes += (dailyGross - dailyLunch);
+            }
+        });
+
+        const totalHours = (totalMinutes / 60).toFixed(2);
+        
+        // 3. Calculate Rate (Salary / 30 / DutyHours)
+        // Rule: Month is always considered 30 days
+        const hourlyRate = (parseFloat(staff.salary) / 30 / parseFloat(staff.dutyHours)).toFixed(2);
+        
+        // 4. Update Items
+        const newItem = {
+            itemId: '', // No specific item ID
+            qty: totalHours,
+            price: hourlyRate,
+            buyPrice: 0,
+            description: `Salary: ${staff.name} for ${reportDate.toLocaleString('default', { month: 'long' })} (Auto Calc)`
+        };
+
+        setTx({ ...tx, items: [...tx.items, newItem] });
+        alert(`Calculated: ${totalHours} Hours x ${hourlyRate}/hr`);
+    };
     // --- Helper to add asset ---
 
     // --- State update for Duration ---
@@ -4330,6 +4420,11 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     return (
                         <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
                             <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
+                            {type === 'expense' && (
+                    <button onClick={handleAutoSalary} className="w-full mb-2 py-3 bg-green-50 text-green-700 border border-green-200 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
+                        <Users size={16}/> Auto Calculate Salary
+                    </button>
+                )}
                             <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine(idx, 'itemId', v)} placeholder="Select Item"/>
                             {selectedItemMaster && ( <SearchableSelect placeholder={specificBrandOptions.length > 0 ? "Select Brand/Variant" : "No Brands defined (Type manual)"} options={specificBrandOptions} value={line.brand || ''} onChange={v => updateLine(idx, 'brand', v)} onAddNew={() => { const newBrand = prompt(`Add new brand for ${selectedItemMaster.name}?`); if(newBrand) updateLine(idx, 'brand', newBrand); }} /> )}
                             <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
@@ -4652,7 +4747,7 @@ const toggleMobile = (mob) => {
   };
 
   const StaffForm = ({ record }) => {
-    const [form, setForm] = useState({ name: '', mobile: '', role: 'Staff', active: true, loginId: '', password: '', permissions: { canViewAccounts: false, canViewMasters: false, canViewTasks: true, canEditTasks: false, canViewDashboard: true }, ...(record || {}) });
+    const [form, setForm] = useState({ name: '', mobile: '', role: 'Staff', active: true, salary: '', dutyHours: '9', loginId: '', password: '', permissions: { canViewAccounts: false, canViewMasters: false, canViewTasks: true, canEditTasks: false, canViewDashboard: true }, ...(record || {}) });
     const togglePerm = (p) => setForm({ ...form, permissions: { ...form.permissions, [p]: !form.permissions[p] } });
     return (
       <div className="space-y-4">
@@ -4662,6 +4757,11 @@ const toggleMobile = (mob) => {
         <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.role} onChange={e => setForm({...form, role: e.target.value})}><option>Admin</option><option>Staff</option><option>Manager</option></select>
         <div className="p-4 bg-gray-50 rounded-xl border"><p className="font-bold text-xs uppercase text-gray-500 mb-2">Permissions</p><div className="grid grid-cols-2 gap-2"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewDashboard} onChange={() => togglePerm('canViewDashboard')}/> View Home</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewAccounts} onChange={() => togglePerm('canViewAccounts')}/> View Accounts</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewMasters} onChange={() => togglePerm('canViewMasters')}/> View Masters</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewTasks} onChange={() => togglePerm('canViewTasks')}/> View Tasks</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canEditTasks} onChange={() => togglePerm('canEditTasks')}/> Edit Tasks</label></div></div>
         <label className={`flex items-center gap-3 p-4 border rounded-xl font-bold cursor-pointer transition-colors ${form.active ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+        {/* CHANGE: Salary & Duty Hours Fields */}
+        <div className="grid grid-cols-2 gap-4">
+            <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Monthly Salary" value={form.salary} onChange={e => setForm({...form, salary: e.target.value})} />
+            <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Daily Duty (Hours)" value={form.dutyHours} onChange={e => setForm({...form, dutyHours: e.target.value})} />
+        </div>
             <input 
                 type="checkbox" 
                 className="w-5 h-5 rounded text-blue-600 focus:ring-0" 
