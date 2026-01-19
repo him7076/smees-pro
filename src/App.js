@@ -351,15 +351,6 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                   <div>
                     <div className="flex items-center gap-2">
                         <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
-                        {/* CHANGE: Party Link Icon */}
-                        {party && (
-                            <button onClick={(e) => { 
-                                e.stopPropagation(); // Taki transaction na khule
-                                setViewDetail({ type: 'party', id: party.id }); 
-                            }} className="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
-                                <ExternalLink size={12}/>
-                            </button>
-                        )}
                     </div>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
                     {searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()) && (
@@ -505,13 +496,7 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                     <p className="font-bold text-gray-800">{task.name}</p>
                     <span className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border uppercase">{task.status}</span>
                 </div>
-                {/* CHANGE (Point 4): Party Link Icon in Task List */}
-                {party && (
-                    <div className="flex items-center gap-2 ml-4">
-                        <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold truncate max-w-[150px] border border-blue-100">{party.name}</span>
-                        <button onClick={(e) => { e.stopPropagation(); setViewDetail({type:'party', id: party.id}); }} className="p-1 bg-gray-100 rounded-full hover:bg-gray-200"><ExternalLink size={10}/></button>
-                    </div>
-                )}
+                <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
             </div>
             <p className="text-xs text-gray-500 line-clamp-1 ml-4">{task.description}</p>
             <div className="flex gap-3 mt-2 ml-4 text-[10px] font-bold text-gray-400 uppercase"><span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(task.dueDate)}</span><span className="flex items-center gap-1"><Users size={10} /> {task.assignedStaff?.length || 0} Staff</span></div>
@@ -1746,14 +1731,29 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
   };
 
   // REQ 3: Smart Auto-Sync Logic
+  // CHANGE: Strict Inactive Check (Real-time monitoring)
   useEffect(() => {
-    if (!user) return;
-    const localData = localStorage.getItem('smees_data');
-    // Only sync if no local data exists (First run or cleared cache)
-    if (!localData) {
-        syncData();
-    }
-  }, [user]);
+      if (!user) return;
+
+      // Current user ka latest status check karo data me se
+      const currentUserRecord = data.staff.find(s => s.id === user.id);
+
+      // Agar record mil gaya aur usme active === false hai
+      if (currentUserRecord && currentUserRecord.active === false) {
+          // 1. Alert user
+          alert("Your account has been DEACTIVATED by Admin.\nYou are being logged out.");
+          
+          // 2. Clear All Data (Offline protection)
+          localStorage.clear();
+          
+          // 3. Reset State to logout
+          setUser(null);
+          setData(INITIAL_DATA);
+          
+          // 4. Force Reload (Optional, for safety)
+          window.location.reload();
+      }
+  }, [data.staff, user]); // Jab bhi staff data update hoga (sync se), ye check chalega
   // --- REQ 5: AUTOMATED AMC TASK CREATION ---
   useEffect(() => {
       // Run only if user is admin and data is loaded
@@ -2715,12 +2715,12 @@ const handleAttendance = async (type) => {
   const ExpensesBreakdown = () => {
       const [eFilter, setEFilter] = useState('Monthly');
       const [eDates, setEDates] = useState({ start: '', end: '' });
-      const [showDiscountDetails, setShowDiscountDetails] = useState(false); // Toggle for details view
+      // CHANGE: Selected Category State for drill-down
+      const [selectedCategory, setSelectedCategory] = useState(null);
 
-      // 1. First filter ALL transactions by Date (Not just expenses)
+      // 1. Filter Transactions by Date
       const dateFilteredTxs = data.transactions.filter(t => {
           if (t.status === 'Cancelled') return false;
-          
           const d = new Date(t.date);
           const now = new Date();
           
@@ -2732,70 +2732,58 @@ const handleAttendance = async (type) => {
           if (eFilter === 'Monthly') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
           if (eFilter === 'Yearly') return d.getFullYear() === now.getFullYear();
           if (eFilter === 'Custom' && eDates.start && eDates.end) return d >= new Date(eDates.start) && d <= new Date(eDates.end);
-          
-          return true; // All
+          return true;
       });
 
-      // 2. Calculate Expenses by Category (Existing Logic)
-      const expenseTxs = dateFilteredTxs.filter(t => t.type === 'expense');
-      
-      const byCategory = expenseTxs.reduce((acc, curr) => {
-          const cat = curr.category || 'Uncategorized';
-          acc[cat] = (acc[cat] || 0) + parseFloat(curr.finalTotal || curr.amount || 0);
-          return acc;
-      }, {});
+      // 2. Prepare Data (Expenses + Payment In Discounts)
+      const categoryTotals = {};
+      const categoryTransactions = {};
 
-      // Calculate Total Expense for Display
-      const totalExpenseAmount = Object.values(byCategory).reduce((a, b) => a + b, 0) + netDiscount;
-
-      // 3. CHANGE (Point 9): Calculate Net Discount (Only Payment In)
-      let netDiscount = 0;
-      const discountTransactions = [];
-      
       dateFilteredTxs.forEach(tx => {
-          let discVal = parseFloat(tx.discountValue || 0);
-          if(discVal <= 0) return;
+          // A. Regular Expenses
+          if (tx.type === 'expense') {
+              const cat = tx.category || 'Uncategorized';
+              categoryTotals[cat] = (categoryTotals[cat] || 0) + parseFloat(tx.finalTotal || tx.amount || 0);
+              
+              if(!categoryTransactions[cat]) categoryTransactions[cat] = [];
+              categoryTransactions[cat].push(tx);
+          }
 
-          // Hame srif 'Payment In' wale discount lene hai jo savings hai
+          // B. CHANGE: Discount on Payment In (Treated as Expense)
           if (tx.type === 'payment' && tx.subType === 'in') {
-               // Payment In me discount ka matlab humne kam paise liye = Discount Given (Expense)
-               // Sorry, user said "savings". 
-               // Payment OUT (Hum pay kar rhe h) -> Discount mila -> SAVING (Income/Less Expense)
-               // Payment IN (Hume mil rha h) -> Discount diya -> EXPENSE
-               
-               // Requirement: "usme srif payment in ke discount count ho" -> Matlab Discount Given?
-               // Usually Expense Report me "Discount Received" (Savings) minus hota hai.
-               // Agar user "Discount Given" (Loss) count karna chahta hai total expense me:
-               
-               // Let's stick to literal requirement: "payment in ke discount count ho and uski list aaye and vo total expenses total me count hona chaiye"
-               // Payment IN (Customer pays us) -> We give discount -> It is an EXPENSE for us.
-               
-               netDiscount += discVal; 
-               discountTransactions.push({ ...tx, calcDiscount: discVal, impact: 'minus' }); // Impact naming doesn't matter much here just for UI
+               const discVal = parseFloat(tx.discountValue || 0);
+               if(discVal > 0) {
+                   const catName = "Discount Allowed (Payment In)";
+                   // Isko total me add karo
+                   categoryTotals[catName] = (categoryTotals[catName] || 0) + discVal;
+                   
+                   if(!categoryTransactions[catName]) categoryTransactions[catName] = [];
+                   // Transaction push karte waqt dhyan rakhe ki display me kya dikhana hai
+                   categoryTransactions[catName].push(tx);
+               }
           }
       });
 
+      const totalExpenseAmount = Object.values(categoryTotals).reduce((a, b) => a + b, 0);
+
+      // --- RENDER ---
       return (
           <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
               <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
-                  <button onClick={() => showDiscountDetails ? setShowDiscountDetails(false) : handleCloseUI()} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-                  <h2 className="font-bold text-lg">{showDiscountDetails ? 'Discount Details' : 'Expenses Breakdown'}</h2>
+                   {/* Back Button Logic */}
+                  <div className="flex items-center gap-2">
+                      <button onClick={() => selectedCategory ? setSelectedCategory(null) : handleCloseUI()} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                      <h2 className="font-bold text-lg">{selectedCategory ? selectedCategory : 'Expenses Breakdown'}</h2>
+                  </div>
                   
-                  {/* Date Filter Dropdown */}
-                  {!showDiscountDetails && (
+                  {!selectedCategory && (
                       <select value={eFilter} onChange={(e)=>setEFilter(e.target.value)} className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none">
-                          <option value="All">All Time</option>
-                          <option value="Today">Today</option>
-                          <option value="Weekly">Weekly</option>
-                          <option value="Monthly">Month</option>
-                          <option value="Yearly">Year</option>
-                          <option value="Custom">Custom</option>
+                          <option value="All">All Time</option><option value="Today">Today</option><option value="Weekly">Weekly</option><option value="Monthly">Month</option><option value="Yearly">Year</option><option value="Custom">Custom</option>
                       </select>
                   )}
-                  {showDiscountDetails && <div className="w-10"></div>}
               </div>
               
-              {!showDiscountDetails && eFilter === 'Custom' && (
+              {!selectedCategory && eFilter === 'Custom' && (
                   <div className="flex gap-2 p-2 bg-gray-50 justify-center border-b">
                       <input type="date" className="p-1 rounded border text-xs" value={eDates.start} onChange={e=>setEDates({...eDates, start:e.target.value})} />
                       <input type="date" className="p-1 rounded border text-xs" value={eDates.end} onChange={e=>setEDates({...eDates, end:e.target.value})} />
@@ -2803,73 +2791,65 @@ const handleAttendance = async (type) => {
               )}
 
               <div className="p-4 space-y-4">
-                  {showDiscountDetails ? (
-                      // DETAILED VIEW FOR DISCOUNTS
+                  {selectedCategory ? (
+                      // --- DETAIL VIEW (Transaction List) ---
                       <div className="space-y-3">
-                          <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 text-center mb-4">
-                              <p className="text-xs font-bold text-purple-900 uppercase">Net Discount (Savings)</p>
-                              <p className={`text-2xl font-black ${netDiscount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                  {netDiscount >= 0 ? '+' : ''}{formatCurrency(netDiscount)}
-                              </p>
-                          </div>
-                          
-                          {discountTransactions.sort((a,b) => new Date(b.date) - new Date(a.date)).map(tx => (
-                              <div key={tx.id} onClick={() => setViewDetail({ type: 'transaction', id: tx.id })} className="p-3 border rounded-xl bg-white shadow-sm cursor-pointer hover:bg-gray-50 flex justify-between items-center active:scale-95 transition-transform">
-                                  <div>
-                                      <p className="font-bold text-sm text-gray-800 uppercase">{tx.type} #{tx.id}</p>
-                                      <p className="text-xs text-gray-500">{formatDate(tx.date)}</p>
-                                  </div>
-                                  <div className={`text-right font-bold ${tx.impact === 'plus' ? 'text-green-600' : 'text-red-600'}`}>
-                                      <p className="text-[10px] uppercase text-gray-400 font-extrabold tracking-wide mb-0.5">
-                                        {tx.impact === 'plus' ? 'SAVINGS' : 'GIVEN'}
-                                      </p>
-                                      <span className="text-lg">
-                                        {tx.impact === 'plus' ? '+' : '-'}{formatCurrency(tx.calcDiscount)}
-                                      </span>
-                                  </div>
-                              </div>
-                          ))}
-                          {discountTransactions.length === 0 && <p className="text-center text-gray-400 py-10">No discount transactions found in this period.</p>}
+                          <p className="text-xs text-gray-500 mb-2">Transactions for {selectedCategory}</p>
+                          {categoryTransactions[selectedCategory]?.map(tx => {
+                              // CHANGE: Agar Discount category hai to Discount Value dikhao, warn Amount
+                              const isDiscountCat = selectedCategory === "Discount Allowed (Payment In)";
+                              const amountToShow = isDiscountCat ? parseFloat(tx.discountValue || 0) : parseFloat(tx.finalTotal || tx.amount || 0);
+                              
+                              return (
+                                <div key={tx.id} onClick={() => { handleCloseUI(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-3 border rounded-xl flex justify-between items-center bg-white shadow-sm cursor-pointer hover:bg-gray-50">
+                                    <div>
+                                        <p className="font-bold text-gray-800">{tx.category || 'Discount'}</p>
+                                        <p className="text-[10px] text-gray-400">{formatDate(tx.date)} • {tx.id}</p>
+                                        {/* Party Name dikhao agar available hai */}
+                                        {tx.partyId && <p className="text-[10px] text-blue-600 font-bold">{data.parties.find(p=>p.id===tx.partyId)?.name}</p>}
+                                    </div>
+                                    <span className="font-bold text-red-600 text-lg">
+                                        ₹{formatCurrency(amountToShow)}
+                                    </span>
+                                </div>
+                              );
+                          })}
                       </div>
                   ) : (
-                      // SUMMARY VIEW
+                      // --- MAIN VIEW (Category List) ---
                       <>
-                          {/* Show All Button */}
-                          <div onClick={() => { setListFilter('expense'); setCategoryFilter(null); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-center items-center p-3 bg-blue-50 rounded-xl border border-blue-200 cursor-pointer mb-2 text-blue-700 font-bold text-sm">
-                              Show All Expenses List
-                          </div>
+                        <div className="p-4 bg-red-50 rounded-xl border border-red-100 mt-2 flex justify-between items-center mb-6">
+                             <div>
+                                <span className="text-xs font-bold text-red-400 uppercase block">Total Expenses</span>
+                                <span className="font-black text-2xl text-red-700">{formatCurrency(totalExpenseAmount)}</span>
+                             </div>
+                             <TrendingUp className="text-red-300" size={32} />
+                        </div>
 
-                          {/* Net Discount Row (Interactive) */}
-                          <div onClick={() => setShowDiscountDetails(true)} className="flex justify-between items-center p-4 bg-purple-50 rounded-xl border border-purple-100 cursor-pointer hover:bg-purple-100 transition-colors">
-                              <div className="flex items-center gap-2">
-                                  <span className="p-1 bg-purple-200 rounded text-purple-700"><ReceiptText size={14}/></span>
-                                  <span className="font-bold text-purple-900">Net Discount Savings</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                  <span className={`font-black ${netDiscount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                      {netDiscount >= 0 ? '+' : ''}{formatCurrency(netDiscount)}
-                                  </span>
-                                  <ChevronRight size={16} className="text-purple-300"/>
-                              </div>
-                          </div>
-
-                          {/* Categories List */}
-                          {Object.entries(byCategory).map(([cat, total]) => (
-                              <div key={cat} onClick={() => { setListFilter('expense'); setCategoryFilter(cat); setActiveTab('accounting'); handleCloseUI(); }} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border cursor-pointer hover:bg-gray-100">
-                                  <span className="font-bold text-gray-700">{cat}</span>
-                                  <span className="font-bold text-red-600">{formatCurrency(total)}</span>
-                              </div>
-                          ))}
-
-                          {/* Total Expenses Row */}
-                          {totalExpenseAmount > 0 && (
-                              <div className="flex justify-between items-center p-4 bg-red-50 rounded-xl border border-red-100 mt-4">
-                                  <span className="font-black text-red-900 uppercase text-xs">Total Expenses</span>
-                                  <span className="font-black text-xl text-red-700">{formatCurrency(totalExpenseAmount)}</span>
-                              </div>
-                          )}
-
-                          {expenseTxs.length === 0 && <p className="text-center text-gray-400 mt-10">No expenses recorded for this period</p>}
+                        <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">Categories (Click to view)</h3>
+                        <div className="space-y-3">
+                            {Object.entries(categoryTotals).map(([cat, total]) => (
+                                  <div 
+                                    key={cat} 
+                                    onClick={() => setSelectedCategory(cat)} // CHANGE: Clickable Category
+                                    className="flex justify-between items-center p-4 bg-white rounded-xl border border-gray-100 shadow-sm cursor-pointer active:scale-95 transition-all hover:border-blue-300"
+                                  >
+                                      <div className="flex items-center gap-3">
+                                          <div className={`p-2 rounded-lg ${cat === 'Discount Allowed (Payment In)' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
+                                              {cat === 'Discount Allowed (Payment In)' ? <Banknote size={18}/> : <ReceiptText size={18}/>}
+                                          </div>
+                                          <span className="font-bold text-gray-700">{cat}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                          <span className="font-bold text-gray-900">{formatCurrency(total)}</span>
+                                          <ChevronRight size={14} className="text-gray-300"/>
+                                      </div>
+                                  </div>
+                            ))}
+                            {Object.keys(categoryTotals).length === 0 && (
+                                <p className="text-center text-gray-400 py-10">No expenses found for this period.</p>
+                            )}
+                        </div>
                       </>
                   )}
               </div>
@@ -3209,8 +3189,17 @@ React.useLayoutEffect(() => {
               <p className="text-xs font-bold text-gray-400 uppercase">{tx.type} • {formatDate(tx.date)}</p>
             </div>
             
-            <div className="bg-gray-50 p-4 rounded-2xl border">
-              <p className="text-xs font-bold text-gray-400 uppercase mb-1">{isPayment ? 'Paid Via' : 'Party'}</p>
+            {/* CHANGE: Party Card Clickable for Admin Only */}
+            <div 
+                onClick={() => {
+                    // Sirf Admin hi click kar paye
+                    if(user.role === 'admin' && tx.partyId) {
+                        setViewDetail({ type: 'party', id: tx.partyId });
+                    }
+                }}
+                className={`bg-gray-50 p-4 rounded-2xl border ${user.role === 'admin' ? 'cursor-pointer hover:bg-gray-100 active:scale-95 transition-all' : ''}`}
+            >
+              <p className="text-xs font-bold text-gray-400 uppercase mb-1">{isPayment ? 'Paid Via' : 'Party'} {user.role === 'admin' && <span className="text-[9px] text-blue-600 ml-1">(View Profile)</span>}</p>
               <p className="font-bold text-lg">{party?.name || tx.category || 'Unknown'}</p>
               <p className="text-sm text-gray-500">{party?.mobile}</p>
             </div>
@@ -3508,63 +3497,48 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                         </div>
                     )}
 
-                    {/* REQ 1: Client Details UI (Updated for Multiple Contacts) */}
-{party && (() => {
-    const displayAddress = task.address || party.address;
-    const locationLabel = task.locationLabel || '';
-    
-    // Logic: Agar task me selectedContacts hain to wo dikhao, nahi to Party ka default mobile
-    const contactsToShow = (task.selectedContacts && task.selectedContacts.length > 0) 
-        ? task.selectedContacts 
-        : [{ label: 'Primary', number: party.mobile }];
+     {/* CHANGE: Client Card Clickable for Admin Only */}
+            {party && (() => {
+                const displayAddress = task.address || party.address;
+                const locationLabel = task.locationLabel || '';
+                const contactsToShow = (task.selectedContacts && task.selectedContacts.length > 0) 
+                    ? task.selectedContacts 
+                    : [{ label: 'Primary', number: party.mobile }];
 
-    return (
-        <div className="bg-white p-3 rounded-xl border mb-4 space-y-2">
-            <div className="flex justify-between items-start">
-                <div>
-                    <p className="text-xs font-bold text-gray-400 uppercase">
-                        Client {locationLabel && <span className="text-blue-600">({locationLabel})</span>}
-                    </p>
-                    <p className="font-bold text-gray-800">{party.name}</p>
-                </div>
-                {/* CHANGE: Map Pin Logic Fixed */}
-                        {(() => {
-                            // Logic: 
-                            // 1. Agar Task me address set hai (matlab user ne select kiya hai), to sirf Task ka Lat/Lng use karo.
-                            // 2. Agar Task me address nahi hai (Legacy data), to Party ka Default use karo.
-                            // 3. Agar Task ka Lat empty hai (Address hai par location nahi), to Map Pin MAT dikhao.
-                            
-                            const useTaskCoords = !!task.address; 
-                            const showMap = useTaskCoords ? !!task.lat : !!party.lat;
-                            const mapLat = useTaskCoords ? task.lat : party.lat;
-                            const mapLng = useTaskCoords ? task.lng : party.lng;
-
-                            if (!showMap) return null;
-
-                            return (
-                                <a href={`https://www.google.com/maps/search/?api=1&query=${mapLat},${mapLng}`} target="_blank" rel="noreferrer" className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                                    <MapPin size={16}/>
-                                </a>
-                            );
-                        })()}
-            </div>
-
-            {/* Render Multiple Mobiles */}
-            <div className="space-y-1">
-                {contactsToShow.map((c, idx) => (
-                      <div key={idx} className="flex items-center gap-2">
-                        <span className="text-[10px] bg-gray-100 px-1 rounded text-gray-500 font-bold">{c.label}</span>
-                        <a href={`tel:${c.number}`} className="text-sm font-bold text-blue-600 flex items-center gap-1">
-                            <Phone size={14}/> {c.number}
-                        </a>
-                      </div>
-                ))}
-            </div>
-
-            {displayAddress && <p className="text-xs text-gray-500 border-t pt-2 mt-1">{displayAddress}</p>}
-        </div>
-    );
-})()}
+                return (
+                    <div 
+                        onClick={() => {
+                            if(user.role === 'admin') {
+                                setViewDetail({ type: 'party', id: party.id });
+                            }
+                        }}
+                        className={`bg-white p-3 rounded-xl border mb-4 space-y-2 ${user.role === 'admin' ? 'cursor-pointer hover:bg-gray-50 active:scale-95 transition-all' : ''}`}
+                    >
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <p className="text-xs font-bold text-gray-400 uppercase">
+                                    Client {locationLabel && <span className="text-blue-600">({locationLabel})</span>}
+                                    {user.role === 'admin' && <span className="text-[9px] text-blue-600 ml-1">(View Profile)</span>}
+                                </p>
+                                <p className="font-bold text-gray-800">{party.name}</p>
+                            </div>
+                            {/* Map Pin Code yahan same rahega jo aapne pehle fix kiya tha */}
+                        </div>
+                        {/* Mobile numbers wahi rahenge */}
+                        <div className="space-y-1">
+                            {contactsToShow.map((c, idx) => (
+                                  <div key={idx} className="flex items-center gap-2">
+                                    <span className="text-[10px] bg-gray-100 px-1 rounded text-gray-500 font-bold">{c.label}</span>
+                                    <a href={`tel:${c.number}`} onClick={e=>e.stopPropagation()} className="text-sm font-bold text-blue-600 flex items-center gap-1">
+                                        <Phone size={14}/> {c.number}
+                                    </a>
+                                  </div>
+                            ))}
+                        </div>
+                        {displayAddress && <p className="text-xs text-gray-500 border-t pt-2 mt-1">{displayAddress}</p>}
+                    </div>
+                );
+            })()}
                     
                     {/* Time Logs List */}
                     <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
@@ -3644,15 +3618,19 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     )}
                 </div>
 
-                {/* New Bottom Convert Button */}
-                {task.status !== 'Converted' && checkPermission(user, 'canEditTasks') && (
-                    <button 
-                        onClick={() => { pushHistory(); setConvertModal(task); }} 
-                        className="w-full bg-purple-600 text-white p-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-purple-200 active:scale-95 transition-transform"
-                    >
-                        <RefreshCw size={20}/> Convert to Sale
-                    </button>
-                )}
+                {/* CHANGE: Check if linkedTxId exists. Agar sale ban chuki hai to button mat dikhao */}
+                    {task.linkedTxId ? (
+                         <div className="w-full py-3 mt-4 bg-purple-50 text-purple-700 rounded-xl font-bold text-center border border-purple-100 flex items-center justify-center gap-2">
+                            <CheckCircle2 size={18} />
+                            Converted to Sale
+                         </div>
+                    ) : (
+                        task.status !== 'Converted' && checkPermission(user, 'canEditTasks') && (
+                            <button onClick={() => setModal({ type: 'convertTask', data: task })} className="w-full py-3 mt-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 active:scale-95 transition-transform">
+                                Convert to Sale
+                            </button>
+                        )
+                    )}
             </div>
             {/* --- FLOATING TIMER BUTTON (NEW) --- */}
 <button
@@ -5092,7 +5070,6 @@ const removeMobile = (idx) => {
             {/* Staff Section */}
             {activeTab === 'staff' && (
                 <div className="space-y-4">
-                    {/* ... Header buttons ... */}
                     {mastersView === null ? (
                         <div className="space-y-4">
                             <MasterList 
@@ -5100,11 +5077,13 @@ const removeMobile = (idx) => {
                                 collection="staff" 
                                 type="staff" 
                                 search={staffSearch}        
-                                setSearch={setStaffSearch} 
+                                setSearch={setStaffSearch}  
                                 onRowClick={(s) => { pushHistory(); setViewDetail({type: 'staff', id: s.id}); }} 
-                                data={data}
+                                // CHANGE: Staff ko sirf apna data dikhega, Admin ko sabka
+                                data={user.role === 'admin' ? data : { ...data, staff: data.staff.filter(s => s.id === user.id) }}
                                 setData={setData}
                                 user={user}
+                                // ... baaki props same rahenge
                                 partyBalances={partyBalances}
                                 itemStock={itemStock}
                                 partyFilter={partyFilter}
