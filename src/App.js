@@ -350,7 +350,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                   <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                   <div>
                     <div className="flex items-center gap-2">
-                        <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
+                        <p className="font-bold text-gray-800">{party?.name || t.category || 'N/A'}</p>
                     </div>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
                     {searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()) && (
