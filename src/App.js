@@ -349,7 +349,18 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                 <div className="flex gap-4 items-center">
                   <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                   <div>
-                    <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
+                    <div className="flex items-center gap-2">
+                        <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
+                        {/* CHANGE: Party Link Icon */}
+                        {party && (
+                            <button onClick={(e) => { 
+                                e.stopPropagation(); // Taki transaction na khule
+                                setViewDetail({ type: 'party', id: party.id }); 
+                            }} className="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
+                                <ExternalLink size={12}/>
+                            </button>
+                        )}
+                    </div>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
                     {searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()) && (
                         <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p>
@@ -389,17 +400,20 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
 };
 
 const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPermission }) => {
-    const [sort, setSort] = useState('DateAsc');
+    // CHANGE (Point 6): LocalStorage se sort uthao
+    const [sort, setSort] = useState(localStorage.getItem('smees_task_sort') || 'DateAsc');
     const [search, setSearch] = useState('');
-    const [statusFilter, setStatusFilter] = useState('All');
-    // NEW: Mode Switch (Tasks vs AMC)
-    const [viewMode, setViewMode] = useState('tasks'); // 'tasks' or 'amc'
+    // CHANGE (Point 5): Default filter 'To Do' kar diya
+    const [statusFilter, setStatusFilter] = useState('To Do');
+    const [viewMode, setViewMode] = useState('tasks'); 
+
+    // CHANGE (Point 6): Sort save karo
+    useEffect(() => { localStorage.setItem('smees_task_sort', sort); }, [sort]);
 
     const definedStatuses = data.categories.taskStatus || ["To Do", "In Progress", "Done"];
     const filterOptions = ['All', ...definedStatuses];
     if (!filterOptions.includes('Converted')) filterOptions.push('Converted');
 
-    // 1. Task Filter Logic
     const filteredTasks = data.tasks.filter(t => {
         const clientName = data.parties.find(p => p.id === t.partyId)?.name || '';
         const searchText = search.toLowerCase();
@@ -410,39 +424,72 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
         return true;
     });
     
-    const sortedTasks = sortData(filteredTasks, sort);
+    // CHANGE (Point 7): Custom Sorting Logic (No Due Date Last)
+    const sortedTasks = [...filteredTasks].sort((a, b) => {
+        // Handle No Date (Put at bottom)
+        const dateA = a.dueDate ? new Date(a.dueDate).getTime() : (sort === 'DateAsc' ? 9999999999999 : 0);
+        const dateB = b.dueDate ? new Date(b.dueDate).getTime() : (sort === 'DateAsc' ? 9999999999999 : 0);
 
-    // 2. Upcoming AMC Logic
+        if (sort === 'DateAsc') return dateA - dateB;
+        if (sort === 'DateDesc') return dateB - dateA;
+        if (sort === 'A-Z') return a.name.localeCompare(b.name);
+        return 0;
+    });
+
+    // CHANGE (Point 7): Group By Date Helper
+    const groupTasksByDate = (tasks) => {
+        if(sort === 'A-Z') return { 'All Tasks': tasks }; // A-Z me grouping mat karo
+
+        const groups = {};
+        const today = new Date().toISOString().split('T')[0];
+        const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+        const tmrwStr = tomorrow.toISOString().split('T')[0];
+
+        tasks.forEach(t => {
+            let key = t.dueDate ? t.dueDate : 'No Due Date';
+            if (t.dueDate === today) key = 'Today';
+            else if (t.dueDate === tmrwStr) key = 'Tomorrow';
+            else if (t.dueDate && t.dueDate < today) key = 'Overdue / Past';
+            
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(t);
+        });
+        return groups;
+    };
+
+    const groupedTasks = groupTasksByDate(sortedTasks);
+    // Keys sort karne ka logic (Today pehle, No Due Date last)
+    const sortedKeys = Object.keys(groupedTasks).sort((a,b) => {
+        if(a === 'Today') return -1;
+        if(b === 'Today') return 1;
+        if(a === 'Tomorrow') return -1;
+        if(b === 'Tomorrow') return 1;
+        if(a === 'No Due Date') return 1;
+        if(b === 'No Due Date') return -1;
+        return a.localeCompare(b);
+    });
+
     const upcomingAMC = useMemo(() => {
         if (viewMode !== 'amc') return [];
         const list = [];
         const today = new Date();
         const limitDate = new Date();
-        limitDate.setDate(today.getDate() + 45); // Show upcoming 45 days
+        limitDate.setDate(today.getDate() + 45); 
 
         data.parties.forEach(p => {
             (p.assets || []).forEach(a => {
                 if (a.nextServiceDate) {
                     const d = new Date(a.nextServiceDate);
-                    // Filter: Date passed or upcoming soon
                     if (d <= limitDate) {
-                        // Check if task already exists for this asset recently (optional but good)
-                        // const hasTask = data.tasks.some(t => t.partyId === p.id && t.description.includes(a.name) && t.status !== 'Done');
-                        
-                        list.push({
-                            party: p,
-                            asset: a,
-                            date: a.nextServiceDate,
-                            isOverdue: d < today
-                        });
+                        list.push({ party: p, asset: a, date: a.nextServiceDate, isOverdue: d < today });
                     }
                 }
             });
         });
         return list.sort((a,b) => new Date(a.date) - new Date(b.date));
-    }, [data.parties, viewMode]); // data.tasks dependency removed for perf, but can add if strict check needed
+    }, [data.parties, viewMode]);
 
-    const TaskItem = ({ task }) => { /* ... Keep TaskItem Code Same as Before ... */ 
+    const TaskItem = ({ task }) => { 
       const party = data.parties.find(p => p.id === task.partyId);
       let statusColor = 'bg-gray-400';
       if(task.status === 'Done') statusColor = 'bg-green-500';
@@ -453,8 +500,18 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
         <div onClick={() => { pushHistory(); setViewDetail({ type: 'task', id: task.id }); }} className="p-4 bg-white border rounded-2xl mb-2 flex justify-between items-start cursor-pointer active:scale-95 transition-transform">
           <div className="flex-1">
             <div className="flex flex-col gap-1 mb-1">
-                <div className="flex items-center gap-2"><span className={`w-2 h-2 rounded-full ${statusColor}`} /><p className="font-bold text-gray-800">{task.name}</p><span className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border uppercase">{task.status}</span></div>
-                {party && (<span className="self-start text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold truncate max-w-[150px] ml-4 border border-blue-100">{party.name}</span>)}
+                <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${statusColor}`} />
+                    <p className="font-bold text-gray-800">{task.name}</p>
+                    <span className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border uppercase">{task.status}</span>
+                </div>
+                {/* CHANGE (Point 4): Party Link Icon in Task List */}
+                {party && (
+                    <div className="flex items-center gap-2 ml-4">
+                        <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold truncate max-w-[150px] border border-blue-100">{party.name}</span>
+                        <button onClick={(e) => { e.stopPropagation(); setViewDetail({type:'party', id: party.id}); }} className="p-1 bg-gray-100 rounded-full hover:bg-gray-200"><ExternalLink size={10}/></button>
+                    </div>
+                )}
             </div>
             <p className="text-xs text-gray-500 line-clamp-1 ml-4">{task.description}</p>
             <div className="flex gap-3 mt-2 ml-4 text-[10px] font-bold text-gray-400 uppercase"><span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(task.dueDate)}</span><span className="flex items-center gap-1"><Users size={10} /> {task.assignedStaff?.length || 0} Staff</span></div>
@@ -473,7 +530,6 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
             </div>
         </div>
 
-        {/* VIEW SWITCHER */}
         <div className="flex bg-gray-100 p-1 rounded-xl">
             <button onClick={()=>setViewMode('tasks')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${viewMode==='tasks' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>My Tasks</button>
             <button onClick={()=>setViewMode('amc')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${viewMode==='amc' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>Upcoming AMC</button>
@@ -481,7 +537,6 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
 
         {viewMode === 'tasks' ? (
             <>
-                {/* Search & Sort for Tasks */}
                 <div className="flex gap-2 items-center">
                     <input className="p-2 border rounded-xl text-xs w-full" placeholder="Search Tasks..." value={search} onChange={e => setSearch(e.target.value)}/>
                     <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}>
@@ -496,12 +551,17 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                     ))}
                 </div>
                 <div className="space-y-2 pb-20">
-                    {sortedTasks.map(t => <TaskItem key={t.id} task={t} />)}
+                    {/* CHANGE (Point 7): Render Grouped Tasks */}
+                    {sortedKeys.map(groupKey => (
+                        <div key={groupKey}>
+                            <h3 className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2 mt-4 ml-1">{groupKey}</h3>
+                            {groupedTasks[groupKey].map(t => <TaskItem key={t.id} task={t} />)}
+                        </div>
+                    ))}
                     {sortedTasks.length === 0 && <p className="text-center text-gray-400 py-10">No tasks found.</p>}
                 </div>
             </>
         ) : (
-            // AMC LIST VIEW
             <div className="space-y-3 pb-20">
                 {upcomingAMC.length === 0 && <div className="text-center text-gray-400 py-10">No upcoming services in next 45 days.</div>}
                 {upcomingAMC.map((item, idx) => (
@@ -516,7 +576,6 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                         </div>
                         <button 
                             onClick={() => {
-                                // Pre-fill Task Modal
                                 pushHistory();
                                 setModal({
                                     type: 'task',
@@ -526,7 +585,6 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                                         description: `AMC Service for ${item.asset.brand} ${item.asset.model}. Due on ${item.date}`,
                                         dueDate: item.date,
                                         status: 'To Do',
-                                        // Tag to prevent duplicate auto-creation
                                         linkedAssetStr: item.asset.name 
                                     }
                                 });
@@ -1409,7 +1467,7 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
         <div className="relative">
             <Search className="absolute left-3 top-3 text-gray-400" size={18} />
             <input 
-                autoFocus 
+                /* CHANGE: autoFocus hata diya taki keyboard apne aap na khule */
                 className="w-full pl-10 pr-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500" 
                 placeholder={`Search ${title}...`} 
                 value={search} 
@@ -1501,11 +1559,28 @@ export default function App() {
   }, []);
   
   // Load from LocalStorage ONLY on the client-side after mount
-  useEffect(() => {
-    // Load User
+  useEffect(() => {// Load User & Check Active Status
     const savedUser = localStorage.getItem('smees_user');
     if (savedUser) {
-        try { setUser(JSON.parse(savedUser)); } catch (e) { console.error(e); }
+        try { 
+            const u = JSON.parse(savedUser);
+            
+            // --- CHANGE: Check Active/Inactive ---
+            if (u.active === false) {
+                // Agar user inactive hai:
+                // 1. Sara Local Data Delete karo
+                localStorage.clear(); 
+                // 2. User state null karo (Logout)
+                setUser(null);
+                // 3. Data state reset karo
+                setData(INITIAL_DATA);
+                // 4. Message dikhao
+                alert("Your account is INACTIVE. Contact Admin.");
+            } else {
+                // Agar active hai to normal login
+                setUser(u); 
+            }
+        } catch (e) { console.error(e); }
     }
 
     // Load Data
@@ -1526,9 +1601,12 @@ export default function App() {
   const [reportView, setReportView] = useState(null);
   const [statementModal, setStatementModal] = useState(null);
 
- const [txSearchQuery, setTxSearchQuery] = useState(''); // Transaction Search ke liye
- const [txDateRange, setTxDateRange] = useState({ start: '', end: '' }); // Date Filter ke liye
- const [masterSearch, setMasterSearch] = useState(''); // Party/Item List Search ke liye  
+const [txSearchQuery, setTxSearchQuery] = useState(''); 
+ const [txDateRange, setTxDateRange] = useState({ start: '', end: '' }); 
+ // CHANGE: Search ko alag alag kiya (Point 3)
+ const [partySearch, setPartySearch] = useState(''); 
+ const [itemSearch, setItemSearch] = useState('');
+ const [staffSearch, setStaffSearch] = useState('');
 const [navStack, setNavStack] = useState([]); // Navigation History rakhne ke liye
 const scrollPos = useRef({}); // Scroll position save karne ke liye
     
@@ -2668,51 +2746,32 @@ const handleAttendance = async (type) => {
       }, {});
 
       // Calculate Total Expense for Display
-      const totalExpenseAmount = Object.values(byCategory).reduce((a, b) => a + b, 0);
+      const totalExpenseAmount = Object.values(byCategory).reduce((a, b) => a + b, 0) + netDiscount;
 
-      // 3. Calculate Net Discount and Collect Transactions
+      // 3. CHANGE (Point 9): Calculate Net Discount (Only Payment In)
       let netDiscount = 0;
       const discountTransactions = [];
       
       dateFilteredTxs.forEach(tx => {
           let discVal = parseFloat(tx.discountValue || 0);
-          
-          // If discount is 0, skip
           if(discVal <= 0) return;
 
-          // If type is %, calculate amount (EXCLUDING PAYMENTS which are always Amt)
-          if (tx.discountType === '%' && tx.type !== 'payment') {
-              let baseAmount = 0;
-              if (tx.items && tx.items.length > 0) {
-                   // For Item based (Sale/Purchase)
-                   baseAmount = tx.items.reduce((acc, i) => acc + (parseFloat(i.qty || 0) * parseFloat(i.price || 0)), 0);
-              } else {
-                   // For direct amount (Expense)
-                   baseAmount = parseFloat(tx.amount || 0);
-              }
-              discVal = (baseAmount * discVal) / 100;
-          }
-
-          let impact = 'neutral';
-          // Apply Formula
-          if (tx.type === 'purchase' || tx.type === 'expense') {
-              netDiscount += discVal; // Saved money (Positive)
-              impact = 'plus';
-          } else if (tx.type === 'sales') {
-              netDiscount -= discVal; // Lost money (Negative)
-              impact = 'minus';
-          } else if (tx.type === 'payment') {
-              if (tx.subType === 'out') {
-                  netDiscount += discVal; // Discount received (Positive)
-                  impact = 'plus';
-              } else {
-                  netDiscount -= discVal; // Discount given (Negative)
-                  impact = 'minus';
-              }
-          }
-
-          if(impact !== 'neutral') {
-              discountTransactions.push({ ...tx, calcDiscount: discVal, impact });
+          // Hame srif 'Payment In' wale discount lene hai jo savings hai
+          if (tx.type === 'payment' && tx.subType === 'in') {
+               // Payment In me discount ka matlab humne kam paise liye = Discount Given (Expense)
+               // Sorry, user said "savings". 
+               // Payment OUT (Hum pay kar rhe h) -> Discount mila -> SAVING (Income/Less Expense)
+               // Payment IN (Hume mil rha h) -> Discount diya -> EXPENSE
+               
+               // Requirement: "usme srif payment in ke discount count ho" -> Matlab Discount Given?
+               // Usually Expense Report me "Discount Received" (Savings) minus hota hai.
+               // Agar user "Discount Given" (Loss) count karna chahta hai total expense me:
+               
+               // Let's stick to literal requirement: "payment in ke discount count ho and uski list aaye and vo total expenses total me count hona chaiye"
+               // Payment IN (Customer pays us) -> We give discount -> It is an EXPENSE for us.
+               
+               netDiscount += discVal; 
+               discountTransactions.push({ ...tx, calcDiscount: discVal, impact: 'minus' }); // Impact naming doesn't matter much here just for UI
           }
       });
 
@@ -3430,6 +3489,15 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 <div className="bg-gray-50 p-4 rounded-2xl border">
                     <h1 className="text-xl font-black text-gray-800 mb-2">{task.name}</h1>
                     <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
+                    {/* CHANGE: Assigned Staff Names */}
+    {task.assignedStaff && task.assignedStaff.length > 0 && (
+        <div className="flex gap-1">
+            {task.assignedStaff.map(sid => {
+                const sName = data.staff.find(s => s.id === sid)?.name || 'Unknown';
+                return <span key={sid} className="text-[10px] bg-gray-100 border px-1.5 py-0.5 rounded text-gray-600 font-bold">{sName}</span>;
+            })}
+        </div>
+    )}
                     <p className="text-sm text-gray-600 my-4">{task.description}</p>
                     {/* FIX #5: Photos Link Button in Task Detail */}
                     {task.photosLink && (
@@ -3459,11 +3527,26 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     </p>
                     <p className="font-bold text-gray-800">{party.name}</p>
                 </div>
-                {(task.lat || party.lat) && (
-                    <a href={`https://www.google.com/maps/search/?api=1&query=${task.lat || party.lat},${task.lng || party.lng}`} target="_blank" rel="noreferrer" className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                        <MapPin size={16}/>
-                    </a>
-                )}
+                {/* CHANGE: Map Pin Logic Fixed */}
+                        {(() => {
+                            // Logic: 
+                            // 1. Agar Task me address set hai (matlab user ne select kiya hai), to sirf Task ka Lat/Lng use karo.
+                            // 2. Agar Task me address nahi hai (Legacy data), to Party ka Default use karo.
+                            // 3. Agar Task ka Lat empty hai (Address hai par location nahi), to Map Pin MAT dikhao.
+                            
+                            const useTaskCoords = !!task.address; 
+                            const showMap = useTaskCoords ? !!task.lat : !!party.lat;
+                            const mapLat = useTaskCoords ? task.lat : party.lat;
+                            const mapLng = useTaskCoords ? task.lng : party.lng;
+
+                            if (!showMap) return null;
+
+                            return (
+                                <a href={`https://www.google.com/maps/search/?api=1&query=${mapLat},${mapLng}`} target="_blank" rel="noreferrer" className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                                    <MapPin size={16}/>
+                                </a>
+                            );
+                        })()}
             </div>
 
             {/* Render Multiple Mobiles */}
@@ -3884,6 +3967,16 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                  <div>
                                    <p className="font-bold text-gray-800 uppercase text-xs">{tx.type} #{tx.id}</p>
                                    <p className="text-[10px] text-gray-400 font-bold">{formatDate(tx.date)}</p>
+{/* CHANGE: Show Linked Asset in List */}
+{tx.linkedAssets && tx.linkedAssets.length > 0 && (
+    <div className="flex flex-wrap gap-1 mt-1">
+        {tx.linkedAssets.map((a, ai) => (
+            <span key={ai} className="text-[9px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 font-bold flex items-center gap-1">
+                <Package size={8}/> {a.name}
+            </span>
+        ))}
+    </div>
+)}
                                    <div className="flex gap-1 mt-1">
                                        {['sales', 'purchase', 'expense', 'payment'].includes(tx.type) && (
                                            <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${(totals.status === 'PAID' || totals.status === 'FULLY USED') ? 'bg-green-100 text-green-700' : (totals.status === 'PARTIAL' || totals.status === 'PARTIALLY USED') ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>
@@ -4590,6 +4683,15 @@ const toggleMobile = (mob) => {
         <div className="grid grid-cols-2 gap-4"><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Login ID" value={form.loginId} onChange={e => setForm({...form, loginId: e.target.value})} /><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} /></div>
         <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.role} onChange={e => setForm({...form, role: e.target.value})}><option>Admin</option><option>Staff</option><option>Manager</option></select>
         <div className="p-4 bg-gray-50 rounded-xl border"><p className="font-bold text-xs uppercase text-gray-500 mb-2">Permissions</p><div className="grid grid-cols-2 gap-2"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewDashboard} onChange={() => togglePerm('canViewDashboard')}/> View Home</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewAccounts} onChange={() => togglePerm('canViewAccounts')}/> View Accounts</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewMasters} onChange={() => togglePerm('canViewMasters')}/> View Masters</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canViewTasks} onChange={() => togglePerm('canViewTasks')}/> View Tasks</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.permissions.canEditTasks} onChange={() => togglePerm('canEditTasks')}/> Edit Tasks</label></div></div>
+        <label className={`flex items-center gap-3 p-4 border rounded-xl font-bold cursor-pointer transition-colors ${form.active ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+            <input 
+                type="checkbox" 
+                className="w-5 h-5 rounded text-blue-600 focus:ring-0" 
+                checked={form.active !== false} // Default true rahega
+                onChange={(e) => setForm({ ...form, active: e.target.checked })}
+            />
+            <span>{form.active !== false ? 'Staff Account is ACTIVE' : 'Staff Account is INACTIVE (Blocked)'}</span>
+        </label>
         <button onClick={() => saveRecord('staff', form, 'staff')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Staff</button>
       </div>
     );
@@ -4997,8 +5099,8 @@ const removeMobile = (idx) => {
                                 title="Team Members" 
                                 collection="staff" 
                                 type="staff" 
-                                search={masterSearch}        
-                                setSearch={setMasterSearch}  
+                                search={staffSearch}        
+                                setSearch={setStaffSearch} 
                                 onRowClick={(s) => { pushHistory(); setViewDetail({type: 'staff', id: s.id}); }} 
                                 data={data}
                                 setData={setData}
@@ -5053,8 +5155,8 @@ const removeMobile = (idx) => {
                                 title="Items" 
                                 collection="items" 
                                 type="item" 
-                                search={masterSearch} 
-                                setSearch={setMasterSearch} 
+                                search={itemSearch} 
+                                setSearch={setItemSearch} 
                                 onRowClick={(item) => { pushHistory(); setViewDetail({type: 'item', id: item.id}); }} 
                                 data={data}
                                 setData={setData}
@@ -5073,8 +5175,8 @@ const removeMobile = (idx) => {
                                 title="Parties" 
                                 collection="parties" 
                                 type="party" 
-                                search={masterSearch} 
-                                setSearch={setMasterSearch} 
+                                search={partySearch} 
+                                setSearch={setPartySearch} 
                                 onRowClick={(item) => { pushHistory(); setViewDetail({type: 'party', id: item.id}); }} 
                                 data={data}
                                 setData={setData}
