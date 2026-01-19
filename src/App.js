@@ -496,7 +496,7 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                     <p className="font-bold text-gray-800">{task.name}</p>
                     <span className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border uppercase">{task.status}</span>
                 </div>
-                <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
+                <p className="font-bold text-gray-800">{party?.name || t.category || 'N/A'}</p>
             </div>
             <p className="text-xs text-gray-500 line-clamp-1 ml-4">{task.description}</p>
             <div className="flex gap-3 mt-2 ml-4 text-[10px] font-bold text-gray-400 uppercase"><span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(task.dueDate)}</span><span className="flex items-center gap-1"><Users size={10} /> {task.assignedStaff?.length || 0} Staff</span></div>
