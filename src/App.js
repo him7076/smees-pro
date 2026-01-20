@@ -675,20 +675,30 @@ const LoginScreen = ({ setUser }) => {
   );
 };
 
-const ConvertTaskModal = ({ task, onClose, saveRecord, setViewDetail, handleCloseUI }) => {
-  // Initial State with Safety Check
+const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) => {
+  const record = task || data;
+  const party = data.parties.find(p => p.id === record.partyId); // Party Data nikalo
+  
   const [form, setForm] = useState({ 
       date: new Date().toISOString().split('T')[0], 
       received: '', 
-      mode: 'Cash' 
+      mode: 'Cash',
+      linkedAssets: [] // New State for Assets
   });
 
-  // Agar task hi nahi mila to null return karo (Crash Bachane ke liye)
-  if (!task) return null;
+  // Default Asset Date Logic (+3 Months)
+  const handleAddAsset = (assetName) => {
+      const d = new Date(form.date);
+      d.setMonth(d.getMonth() + 3); // Default 3 Month
+      const nextDate = d.toISOString().split('T')[0];
+      setForm(prev => ({...prev, linkedAssets: [...prev.linkedAssets, { name: assetName, nextServiceDate: nextDate }] }));
+  };
+
+  if (!record) return null;
 
   const handleConfirm = async () => {
-      // Data Prepare
-      const saleItems = (task.itemsUsed || []).map(i => ({ 
+      // Items Calculation
+      const saleItems = (record.itemsUsed || []).map(i => ({ 
           itemId: i.itemId, 
           qty: i.qty, 
           price: i.price, 
@@ -698,15 +708,14 @@ const ConvertTaskModal = ({ task, onClose, saveRecord, setViewDetail, handleClos
       }));
 
       const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty || 0)*parseFloat(i.price || 0)), 0);
-      
-      const workDoneBy = (task.timeLogs || []).map(l => `${l.staffName} (${l.duration}m)`).join(', ');
-      const totalMins = (task.timeLogs || []).reduce((acc,l) => acc + (parseFloat(l.duration)||0), 0);
-      const workSummary = `${workDoneBy} | Total: ${totalMins} mins`;
+      const workDoneBy = (record.timeLogs || []).map(l => `${l.staffName} (${l.duration}m)`).join(', ');
+      const totalMins = (record.timeLogs || []).reduce((acc,l) => acc + (parseFloat(l.duration)||0), 0);
+      const workSummary = totalMins > 0 ? `${workDoneBy} | Total: ${totalMins} mins` : '';
 
       const newSale = { 
           type: 'sales', 
           date: form.date, 
-          partyId: task.partyId, 
+          partyId: record.partyId, 
           items: saleItems, 
           discountType: '%', 
           discountValue: 0, 
@@ -714,52 +723,91 @@ const ConvertTaskModal = ({ task, onClose, saveRecord, setViewDetail, handleClos
           paymentMode: form.mode, 
           grossTotal: gross, 
           finalTotal: gross, 
-          convertedFromTask: task.id, 
+          convertedFromTask: record.id, 
           workSummary: workSummary, 
-          description: `Converted from Task ${task.id}.\nWork: ${workSummary}` 
+          description: `Converted from Task ${record.id}.\n${workSummary}`,
+          linkedAssets: form.linkedAssets // Add Linked Assets
       };
       
-      // 1. Sale Save karo
+      // 1. Asset Service Date Update (Firebase & Local)
+      if (form.linkedAssets.length > 0 && party && party.assets) {
+          const updatedAssets = party.assets.map(a => {
+              const match = form.linkedAssets.find(la => la.name === a.name);
+              return match ? { ...a, nextServiceDate: match.nextServiceDate } : a;
+          });
+          const updatedParty = { ...party, assets: updatedAssets };
+          // Background update
+          setDoc(doc(db, "parties", party.id), updatedParty); 
+      }
+
+      // 2. Save Sale
       const saleId = await saveRecord('transactions', newSale, 'sales');
       
-      // 2. Task Update karo
-      const updatedTask = { ...task, status: 'Converted', generatedSaleId: saleId };
+      // 3. Update Task Status
+      const updatedTask = { ...record, status: 'Converted', generatedSaleId: saleId };
       await saveRecord('tasks', updatedTask, 'task');
       
-      // 3. Close Modal & Open Sale
       if(onClose) onClose();
       if(setViewDetail) setViewDetail({ type: 'transaction', id: saleId });
   };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-        <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl animate-in zoom-in-95">
+        <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
                 <h3 className="font-bold text-lg text-gray-800">Convert to Sale</h3>
-                {/* Close Button (Safety) */}
-                <button onClick={onClose} className="p-1 bg-gray-100 rounded-full text-gray-500 hover:bg-gray-200">
-                    <X size={20}/>
-                </button>
+                <button onClick={onClose} className="p-1 bg-gray-100 rounded-full text-gray-500 hover:bg-gray-200"><X size={20}/></button>
             </div>
             
             <div className="space-y-4">
+                {/* Basic Fields */}
                 <div className="space-y-1">
                     <label className="text-xs font-bold text-gray-500 uppercase">Conversion Date</label>
                     <input type="date" className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" value={form.date} onChange={e => setForm({...form, date: e.target.value})}/>
                 </div>
-                <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-500 uppercase">Payment Mode</label>
-                    <select className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" value={form.mode} onChange={e => setForm({...form, mode: e.target.value})}>
-                        <option>Cash</option>
-                        <option>Bank</option>
-                        <option>UPI</option>
-                    </select>
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-500 uppercase">Mode</label>
+                        <select className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" value={form.mode} onChange={e => setForm({...form, mode: e.target.value})}><option>Cash</option><option>Bank</option><option>UPI</option></select>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-500 uppercase">Received</label>
+                        <input type="number" className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" placeholder="0.00" value={form.received} onChange={e => setForm({...form, received: e.target.value})}/>
+                    </div>
                 </div>
-                <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-500 uppercase">Received Amount (Advance)</label>
-                    <input type="number" className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" placeholder="0.00" value={form.received} onChange={e => setForm({...form, received: e.target.value})}/>
-                </div>
-                
+
+                {/* --- NEW: Link Assets Section --- */}
+                {party?.assets?.length > 0 && (
+                    <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 space-y-2">
+                        <label className="text-xs font-bold text-blue-700 uppercase">Link Assets / AMC</label>
+                        <select 
+                            className="w-full p-2 border rounded-lg text-xs" 
+                            value="" 
+                            onChange={(e) => handleAddAsset(e.target.value)}
+                        >
+                            <option value="">+ Select Asset to Link</option>
+                            {party.assets.map((a, i) => (
+                                <option key={i} value={a.name} disabled={form.linkedAssets.some(la => la.name === a.name)}>
+                                    {a.name} ({a.brand}) {form.linkedAssets.some(la => la.name === a.name) ? '✓' : ''}
+                                </option>
+                            ))}
+                        </select>
+                        {/* List Selected */}
+                        {form.linkedAssets.map((asset, idx) => (
+                            <div key={idx} className="bg-white p-2 rounded-lg border flex justify-between items-center">
+                                <div>
+                                    <p className="font-bold text-xs text-blue-900">{asset.name}</p>
+                                    <input type="date" className="mt-1 p-1 border rounded text-[10px]" value={asset.nextServiceDate} onChange={(e) => {
+                                        const n = [...form.linkedAssets]; n[idx].nextServiceDate = e.target.value;
+                                        setForm({...form, linkedAssets: n});
+                                    }}/>
+                                </div>
+                                <button onClick={() => setForm(prev => ({...prev, linkedAssets: prev.linkedAssets.filter((_,i)=>i!==idx)}))} className="text-red-500"><X size={14}/></button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
                 <div className="flex gap-3 pt-2 mt-2">
                     <button onClick={onClose} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-200">Cancel</button>
                     <button onClick={handleConfirm} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-blue-200 hover:bg-blue-700">Confirm & Save</button>
@@ -828,14 +876,20 @@ const StatementModal = ({ isOpen, onClose, partyId, data }) => {
           totalDr += debit;
           totalCr += credit;
 
-          // Item Details Row
+          // Item Details Row (Improved)
           let detailsHTML = '';
           if (showItems && tx.items && tx.items.length > 0) {
               const itemsList = tx.items.map(item => {
                   const iName = data.items.find(x => x.id === item.itemId)?.name || 'Item';
-                  return `<div style="font-size:10px; color:#666; padding-left:10px;">• ${iName} ${item.brand ? `(${item.brand})` : ''} - ${item.qty} x ${item.price}</div>`;
+                  // CHANGE: Format -> Name (Brand) - Desc | Qty x Rate = Total
+                  const brandStr = item.brand ? `(${item.brand})` : '';
+                  const descStr = item.description ? `- ${item.description}` : '';
+                  return `<div style="font-size:10px; color:#555; padding-left:10px; margin-bottom:2px;">
+                      • <strong>${iName} ${brandStr}</strong> ${descStr} <br/>
+                      <span style="color:#888;">&nbsp;&nbsp; Qty: ${item.qty} x ₹${item.price} = ₹${(item.qty * item.price).toFixed(2)}</span>
+                  </div>`;
               }).join('');
-              detailsHTML = `<div style="margin-top:2px;">${itemsList}</div>`;
+              detailsHTML = `<div style="margin-top:4px; padding-top:2px; border-top:1px dashed #eee;">${itemsList}</div>`;
           }
 
           // Note Row
@@ -2995,10 +3049,10 @@ const deleteRecord = async (collectionName, id) => {
 
     const filteredDate = useMemo(() => {
         const now = new Date();
-        // 1. Filter Sales & Exclude Cancelled
+        // Sales only, Active only
         let txs = data.transactions.filter(t => ['sales'].includes(t.type) && t.status !== 'Cancelled');
         
-        // 2. Apply Date Filter (Exact logic from Dashboard)
+        // Date Filter (Same logic)
         return txs.filter(t => {
             const d = new Date(t.date);
             const tDate = d.toDateString();
@@ -3006,18 +3060,13 @@ const deleteRecord = async (collectionName, id) => {
             
             if (pnlFilter === 'Today') return tDate === nDate;
             if (pnlFilter === 'Weekly') {
-                const startOfWeek = new Date(now);
-                startOfWeek.setDate(now.getDate() - now.getDay());
-                startOfWeek.setHours(0,0,0,0);
-                return d >= startOfWeek;
+                const start = new Date(now); start.setDate(now.getDate() - now.getDay()); start.setHours(0,0,0,0);
+                return d >= start;
             }
             if (pnlFilter === 'Monthly') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
             if (pnlFilter === 'Yearly') return d.getFullYear() === now.getFullYear();
             if (pnlFilter === 'Custom' && pnlCustomDates.start && pnlCustomDates.end) {
-                const s = new Date(pnlCustomDates.start);
-                const e = new Date(pnlCustomDates.end);
-                e.setHours(23,59,59,999);
-                return d >= s && d <= e;
+                return d >= new Date(pnlCustomDates.start) && d <= new Date(pnlCustomDates.end);
             }
             return true;
         }).sort((a,b) => new Date(b.date) - new Date(a.date));
@@ -3033,10 +3082,11 @@ const deleteRecord = async (collectionName, id) => {
                     <h2 className="font-bold text-lg">Profit & Loss Report</h2>
                     <p className="text-[10px] text-gray-500 font-bold uppercase">{pnlFilter} View</p>
                 </div>
-                <div className="w-9" /> {/* Spacer for centering */}
+                <div className="w-9" />
             </div>
             <div className="p-4 space-y-4">
                 {visibleData.map(tx => {
+                    // Profit Calc
                     let serviceP = 0, goodsP = 0;
                     (tx.items || []).forEach(item => {
                         const m = data.items.find(i => i.id === item.itemId);
@@ -3047,32 +3097,44 @@ const deleteRecord = async (collectionName, id) => {
                         if(type === 'Service') serviceP += (sell * qty);
                         else goodsP += ((sell - buy) * qty);
                     });
-                    const totalP = serviceP + goodsP;
+                    const totalP = serviceP + goodsP - parseFloat(tx.discountValue || 0);
+
+                    // Party & Balance Info (CHANGE: Added these details)
+                    const party = data.parties.find(p => p.id === tx.partyId);
+                    const totals = getTransactionTotals(tx); // Uses existing helper for Paid/Unpaid status
+                    const isPaid = totals.status === 'PAID';
+                    const isPartial = totals.status === 'PARTIAL';
+
                     return (
-                        <div key={tx.id} className="p-3 border rounded-xl bg-white shadow-sm cursor-pointer hover:bg-gray-50 active:scale-95 transition-transform" onClick={() => setViewDetail({ type: 'transaction', id: tx.id })}>
-                            <div className="flex justify-between items-center mb-2">
-                                <span className="font-bold text-gray-800">{tx.id} • {formatDate(tx.date)}</span>
-                                <span className="font-black text-green-600">{formatCurrency(totalP)}</span>
+                        <div key={tx.id} className="p-4 border rounded-xl bg-white shadow-sm cursor-pointer hover:bg-gray-50 active:scale-95 transition-transform" onClick={() => setViewDetail({ type: 'transaction', id: tx.id })}>
+                            <div className="flex justify-between items-start mb-2">
+                                <div>
+                                    <p className="font-bold text-gray-800 text-sm">#{tx.id} • {formatDate(tx.date)}</p>
+                                    <p className="text-xs text-blue-600 font-bold">{party?.name || 'Cash Sale'}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="font-black text-lg text-gray-800">{formatCurrency(totals.final)}</p>
+                                    <span className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase ${isPaid ? 'bg-green-100 text-green-700' : isPartial ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                        {totals.status}
+                                    </span>
+                                </div>
                             </div>
-                            <div className="text-xs text-gray-500 flex justify-between">
-                                <span>Service Profit: {formatCurrency(serviceP)}</span>
-                                <span>Goods Profit: {formatCurrency(goodsP)}</span>
+                            
+                            <div className="grid grid-cols-2 gap-2 text-xs bg-gray-50 p-2 rounded-lg mb-2">
+                                <span>Goods Profit: <span className="font-bold">{formatCurrency(goodsP)}</span></span>
+                                <span>Service Profit: <span className="font-bold">{formatCurrency(serviceP)}</span></span>
+                            </div>
+
+                            <div className="flex justify-between items-center pt-2 border-t">
+                                <span className="text-xs text-gray-500">Net Profit</span>
+                                <span className="font-black text-xl text-green-600">{formatCurrency(totalP)}</span>
                             </div>
                         </div>
                     );
                 })}
-                
-                {filteredDate.length === 0 && (
-                    <div className="text-center py-10 text-gray-400">No sales found for this period.</div>
-                )}
-
+                {/* Load More Button Code... */}
                 {visibleCount < filteredDate.length && (
-                    <button 
-                        onClick={() => setVisibleCount(prev => prev + 50)} 
-                        className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-200"
-                    >
-                        Load More ({filteredDate.length - visibleCount} remaining)
-                    </button>
+                    <button onClick={() => setVisibleCount(prev => prev + 50)} className="w-full py-3 bg-gray-100 font-bold rounded-xl text-sm">Load More</button>
                 )}
             </div>
         </div>
@@ -3226,13 +3288,14 @@ React.useLayoutEffect(() => {
                     <th class="text-right">TOTAL</th>
                   </tr>
                 </thead>
-                <tbody>
+<tbody>
                   ${(tx.items || []).map(item => {
                     const m = data.items.find(x => x.id === item.itemId);
+                    // CHANGE: Added Brand and better layout
                     return `
                       <tr>
                         <td>
-                          <div style="font-weight:bold;">${m?.name || 'Item'}</div>
+                          <div style="font-weight:bold;">${m?.name || 'Item'} <span style="font-weight:normal; color:#2563eb;">${item.brand ? `(${item.brand})` : ''}</span></div>
                           <div style="font-size:10px; color:#6b7280;">${item.description || ''}</div>
                         </td>
                         <td class="text-right">${item.qty}</td>
@@ -4524,7 +4587,34 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                             <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
                     
                             <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine(idx, 'itemId', v)} placeholder="Select Item"/>
-                            {selectedItemMaster && ( <SearchableSelect placeholder={specificBrandOptions.length > 0 ? "Select Brand/Variant" : "No Brands defined (Type manual)"} options={specificBrandOptions} value={line.brand || ''} onChange={v => updateLine(idx, 'brand', v)} onAddNew={() => { const newBrand = prompt(`Add new brand for ${selectedItemMaster.name}?`); if(newBrand) updateLine(idx, 'brand', newBrand); }} /> )}
+                            
+                            {/* FIX #7: Permanent Brand Add */}
+                            {selectedItemMaster && ( 
+                                <SearchableSelect 
+                                    placeholder={specificBrandOptions.length > 0 ? "Select Brand" : "No Brands (Add New)"} 
+                                    options={specificBrandOptions} 
+                                    value={line.brand || ''} 
+                                    onChange={v => updateLine(idx, 'brand', v)} 
+                                    onAddNew={async () => { 
+                                        const newBrand = prompt(`Add new brand for ${selectedItemMaster.name}?`); 
+                                        if(!newBrand) return;
+                                        
+                                        const sPrice = prompt("Selling Price for this brand?", line.price || selectedItemMaster.sellPrice);
+                                        const bPrice = prompt("Buying Price for this brand?", line.buyPrice || selectedItemMaster.buyPrice);
+
+                                        // Update Master Data
+                                        const newBrandObj = { name: newBrand, sellPrice: sPrice, buyPrice: bPrice };
+                                        const updatedItem = { ...selectedItemMaster, brands: [...(selectedItemMaster.brands || []), newBrandObj] };
+                                        
+                                        // Save to Cloud & Local
+                                        await setDoc(doc(db, "items", selectedItemMaster.id), updatedItem);
+                                        setData(prev => ({ ...prev, items: prev.items.map(i => i.id === selectedItemMaster.id ? updatedItem : i) }));
+                                        
+                                        // Update current line
+                                        updateLine(idx, 'brand', newBrand); 
+                                    }} 
+                                /> 
+                            )}
                             <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
                             <div className="flex gap-2">
                                 <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} />
@@ -4593,7 +4683,8 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 }
 
                 // 4. Save Transaction
-                await saveRecord('transactions', finalRecord, tx.type); 
+                await saveRecord('transactions', finalRecord, tx.type);
+                setModal({ type: null }); 
             }} 
             className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200 hover:shadow-xl transition-all"
         >
@@ -4627,20 +4718,30 @@ const updateItem = (idx, field, val) => {
     const n = [...form.itemsUsed];
     n[idx][field] = val;
 
+    const item = data.items.find(i => i.id === n[idx].itemId);
+
     if (field === 'itemId') {
-        const item = data.items.find(i => i.id === val);
         if (item) {
-            // --- Last Price Fetch Logic for Tasks ---
-            const lastTx = data.transactions
-                .filter(t => t.status !== 'Cancelled' && t.items?.some(line => line.itemId === val))
-                .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-
-            const lastItemData = lastTx?.items.find(line => line.itemId === val);
-
-            // Task me humesha Sell Price hi dikhana hota h as Price
-            n[idx].price = lastItemData ? lastItemData.price : item.sellPrice;
-            n[idx].buyPrice = lastItemData ? (lastItemData.buyPrice || item.buyPrice) : item.buyPrice;
+            // Reset to default
+            n[idx].price = item.sellPrice;
+            n[idx].buyPrice = item.buyPrice;
             n[idx].description = item.description || '';
+            n[idx].brand = '';
+        }
+    }
+    
+    // CHANGE: Update Price when Brand Changes
+    if (field === 'brand') {
+        if (item && item.brands) {
+            const brandData = item.brands.find(b => b.name === val);
+            if (brandData) {
+                n[idx].price = brandData.sellPrice;
+                n[idx].buyPrice = brandData.buyPrice;
+            } else if (!val) {
+                // If brand cleared, revert to item default
+                n[idx].price = item.sellPrice;
+                n[idx].buyPrice = item.buyPrice;
+            }
         }
     }
     setForm({ ...form, itemsUsed: n });
@@ -4783,18 +4884,41 @@ const toggleMobile = (mob) => {
                 <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
                     <button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
                     <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} />
-                    {/* FIX #7: Brand Select for Task Items */}
-                    {data.items.find(i => i.id === line.itemId)?.brands?.length > 0 && (
+                    {/* FIX #6 & #8: Brand Select with Add New & Price Update */}
+                    {data.items.find(i => i.id === line.itemId)?.brands && (
                         <div className="mb-2">
                              <select 
                                 className="w-full p-2 border rounded-lg text-xs bg-blue-50 text-blue-800 font-bold outline-none"
                                 value={line.brand || ''} 
-                                onChange={(e) => updateItem(idx, 'brand', e.target.value)}
+                                onChange={(e) => {
+                                    if (e.target.value === 'ADD_NEW_BRAND') {
+                                        // Create New Brand Logic
+                                        const bName = prompt("Enter New Brand Name:");
+                                        if(!bName) return;
+                                        const sPrice = prompt("Selling Price?", line.price);
+                                        const bPrice = prompt("Buying Price?", line.buyPrice);
+                                        
+                                        // Update Master Item
+                                        const item = data.items.find(i => i.id === line.itemId);
+                                        const newBrandObj = { name: bName, sellPrice: sPrice, buyPrice: bPrice };
+                                        const updatedItem = { ...item, brands: [...(item.brands || []), newBrandObj] };
+                                        
+                                        // Save to DB
+                                        setDoc(doc(db, "items", item.id), updatedItem);
+                                        setData(prev => ({ ...prev, items: prev.items.map(i => i.id === item.id ? updatedItem : i) }));
+                                        
+                                        // Select it
+                                        updateItem(idx, 'brand', bName);
+                                    } else {
+                                        updateItem(idx, 'brand', e.target.value);
+                                    }
+                                }}
                             >
                                 <option value="">Select Brand/Variant</option>
                                 {data.items.find(i => i.id === line.itemId).brands.map((b, bi) => (
                                     <option key={bi} value={b.name}>{b.name} (₹{b.sellPrice})</option>
                                 ))}
+                                <option value="ADD_NEW_BRAND" className="font-bold text-blue-600">+ Add New Brand</option>
                             </select>
                         </div>
                     )}
@@ -5401,6 +5525,7 @@ const removeMobile = (idx) => {
       {modal?.type === 'convertTask' && (
         <ConvertTaskModal 
             task={modal.data} 
+            data={data}
             onClose={handleCloseUI} 
             saveRecord={saveRecord} 
             setViewDetail={setViewDetail} 
