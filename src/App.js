@@ -391,15 +391,18 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
 };
 
 const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPermission }) => {
-    // CHANGE (Point 6): LocalStorage se sort uthao
+    // 1. States
     const [sort, setSort] = useState(localStorage.getItem('smees_task_sort') || 'DateAsc');
     const [search, setSearch] = useState('');
-    // CHANGE (Point 5): Default filter 'To Do' kar diya
     const [statusFilter, setStatusFilter] = useState('To Do');
     const [viewMode, setViewMode] = useState('tasks'); 
+    
+    // NEW STATES (For AMC Search & Grouping)
+    const [amcSearch, setAmcSearch] = useState('');
+    const [amcGroup, setAmcGroup] = useState(localStorage.getItem('smees_amc_group') || 'Month');
 
-    // CHANGE (Point 6): Sort save karo
     useEffect(() => { localStorage.setItem('smees_task_sort', sort); }, [sort]);
+    useEffect(() => { localStorage.setItem('smees_amc_group', amcGroup); }, [amcGroup]);
 
     const definedStatuses = data.categories.taskStatus || ["To Do", "In Progress", "Done"];
     const filterOptions = ['All', ...definedStatuses];
@@ -415,22 +418,17 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
         return true;
     });
     
-    // CHANGE (Point 7): Custom Sorting Logic (No Due Date Last)
     const sortedTasks = [...filteredTasks].sort((a, b) => {
-        // Handle No Date (Put at bottom)
         const dateA = a.dueDate ? new Date(a.dueDate).getTime() : (sort === 'DateAsc' ? 9999999999999 : 0);
         const dateB = b.dueDate ? new Date(b.dueDate).getTime() : (sort === 'DateAsc' ? 9999999999999 : 0);
-
         if (sort === 'DateAsc') return dateA - dateB;
         if (sort === 'DateDesc') return dateB - dateA;
         if (sort === 'A-Z') return a.name.localeCompare(b.name);
         return 0;
     });
 
-    // CHANGE (Point 7): Group By Date Helper
     const groupTasksByDate = (tasks) => {
-        if(sort === 'A-Z') return { 'All Tasks': tasks }; // A-Z me grouping mat karo
-
+        if(sort === 'A-Z') return { 'All Tasks': tasks };
         const groups = {};
         const today = new Date().toISOString().split('T')[0];
         const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
@@ -441,7 +439,6 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
             if (t.dueDate === today) key = 'Today';
             else if (t.dueDate === tmrwStr) key = 'Tomorrow';
             else if (t.dueDate && t.dueDate < today) key = 'Overdue / Past';
-            
             if (!groups[key]) groups[key] = [];
             groups[key].push(t);
         });
@@ -449,7 +446,6 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
     };
 
     const groupedTasks = groupTasksByDate(sortedTasks);
-    // Keys sort karne ka logic (Today pehle, No Due Date last)
     const sortedKeys = Object.keys(groupedTasks).sort((a,b) => {
         if(a === 'Today') return -1;
         if(b === 'Today') return 1;
@@ -460,25 +456,51 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
         return a.localeCompare(b);
     });
 
-    const upcomingAMC = useMemo(() => {
-        if (viewMode !== 'amc') return [];
+    // NEW AMC LOGIC
+    const amcData = useMemo(() => {
+        if (viewMode !== 'amc') return { grouped: {}, keys: [] };
+        
         const list = [];
         const today = new Date();
-        const limitDate = new Date();
-        limitDate.setDate(today.getDate() + 45); 
-
+        
         data.parties.forEach(p => {
             (p.assets || []).forEach(a => {
                 if (a.nextServiceDate) {
                     const d = new Date(a.nextServiceDate);
-                    if (d <= limitDate) {
-                        list.push({ party: p, asset: a, date: a.nextServiceDate, isOverdue: d < today });
+                    const matchesSearch = !amcSearch || 
+                        a.name.toLowerCase().includes(amcSearch.toLowerCase()) || 
+                        p.name.toLowerCase().includes(amcSearch.toLowerCase());
+
+                    if (matchesSearch) {
+                        list.push({ party: p, asset: a, date: a.nextServiceDate, dateObj: d, isOverdue: d < today });
                     }
                 }
             });
         });
-        return list.sort((a,b) => new Date(a.date) - new Date(b.date));
-    }, [data.parties, viewMode]);
+
+        list.sort((a,b) => a.dateObj - b.dateObj);
+
+        const grouped = {};
+        list.forEach(item => {
+            let key = 'Others';
+            if(amcGroup === 'Date') key = formatDate(item.date);
+            else if(amcGroup === 'Week') {
+                const d = new Date(item.date);
+                const firstDay = new Date(d.getFullYear(), 0, 1);
+                const pastDays = (d - firstDay) / 86400000;
+                const weekNum = Math.ceil((pastDays + firstDay.getDay() + 1) / 7);
+                key = `Week ${weekNum}, ${d.getFullYear()}`;
+            }
+            else if(amcGroup === 'Month') {
+                key = new Date(item.date).toLocaleString('default', { month: 'long', year: 'numeric' });
+            }
+            
+            if(!grouped[key]) grouped[key] = [];
+            grouped[key].push(item);
+        });
+
+        return { grouped, keys: Object.keys(grouped) };
+    }, [data.parties, viewMode, amcSearch, amcGroup]);
 
     const TaskItem = ({ task }) => { 
       const party = data.parties.find(p => p.id === task.partyId);
@@ -496,7 +518,11 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                     <p className="font-bold text-gray-800">{task.name}</p>
                     <span className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border uppercase">{task.status}</span>
                 </div>
-                <p className="font-bold text-gray-800">{party?.name || task.category || 'N/A'}</p>
+                {party && (
+                    <div className="flex items-center gap-2 ml-4">
+                        <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold truncate max-w-[150px] border border-blue-100">{party.name}</span>
+                    </div>
+                )}
             </div>
             <p className="text-xs text-gray-500 line-clamp-1 ml-4">{task.description}</p>
             <div className="flex gap-3 mt-2 ml-4 text-[10px] font-bold text-gray-400 uppercase"><span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(task.dueDate)}</span><span className="flex items-center gap-1"><Users size={10} /> {task.assignedStaff?.length || 0} Staff</span></div>
@@ -536,7 +562,6 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                     ))}
                 </div>
                 <div className="space-y-2 pb-20">
-                    {/* CHANGE (Point 7): Render Grouped Tasks */}
                     {sortedKeys.map(groupKey => (
                         <div key={groupKey}>
                             <h3 className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2 mt-4 ml-1">{groupKey}</h3>
@@ -548,36 +573,54 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
             </>
         ) : (
             <div className="space-y-3 pb-20">
-                {upcomingAMC.length === 0 && <div className="text-center text-gray-400 py-10">No upcoming services in next 45 days.</div>}
-                {upcomingAMC.map((item, idx) => (
-                    <div key={idx} className={`p-4 bg-white border rounded-2xl flex justify-between items-center ${item.isOverdue ? 'border-red-200 bg-red-50' : ''}`}>
-                        <div>
-                            <div className="flex items-center gap-2 mb-1">
-                                <span className="font-bold text-gray-800">{item.asset.name}</span>
-                                {item.isOverdue && <span className="text-[9px] bg-red-600 text-white px-1.5 rounded font-bold">OVERDUE</span>}
+                <div className="flex gap-2">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-2 top-2 text-gray-400" size={14}/>
+                        <input className="w-full pl-8 p-2 border rounded-xl text-xs" placeholder="Search Asset/Client..." value={amcSearch} onChange={e=>setAmcSearch(e.target.value)} />
+                    </div>
+                    <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={amcGroup} onChange={e=>setAmcGroup(e.target.value)}>
+                        <option value="Date">By Date</option>
+                        <option value="Week">By Week</option>
+                        <option value="Month">By Month</option>
+                    </select>
+                </div>
+
+                {amcData.keys.length === 0 && <div className="text-center text-gray-400 py-10">No upcoming services found.</div>}
+                
+                {amcData.keys.map(groupKey => (
+                    <div key={groupKey}>
+                        <h3 className="text-xs font-black text-indigo-500 uppercase tracking-wider mb-2 mt-4 ml-1 sticky top-0 bg-gray-50 py-1 z-10">{groupKey}</h3>
+                        {amcData.grouped[groupKey].map((item, idx) => (
+                            <div key={idx} className={`p-4 bg-white border rounded-2xl flex justify-between items-center mb-2 ${item.isOverdue ? 'border-red-200 bg-red-50' : ''}`}>
+                                <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="font-bold text-gray-800">{item.asset.name}</span>
+                                        {item.isOverdue && <span className="text-[9px] bg-red-600 text-white px-1.5 rounded font-bold">OVERDUE</span>}
+                                    </div>
+                                    <p className="text-xs text-gray-600 font-bold">{item.party.name}</p>
+                                    <p className="text-[10px] text-gray-500 mt-1">Due: {formatDate(item.date)} ({item.asset.brand})</p>
+                                </div>
+                                <button 
+                                    onClick={() => {
+                                        pushHistory();
+                                        setModal({
+                                            type: 'task',
+                                            data: {
+                                                name: `Service: ${item.asset.name}`,
+                                                partyId: item.party.id,
+                                                description: `AMC Service for ${item.asset.brand} ${item.asset.model}. Due on ${item.date}`,
+                                                dueDate: item.date,
+                                                status: 'To Do',
+                                                linkedAssetStr: item.asset.name 
+                                            }
+                                        });
+                                    }}
+                                    className="px-3 py-2 bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs whitespace-nowrap"
+                                >
+                                    Create Task
+                                </button>
                             </div>
-                            <p className="text-xs text-gray-600 font-bold">{item.party.name}</p>
-                            <p className="text-[10px] text-gray-500 mt-1">Due: {formatDate(item.date)} ({item.asset.brand})</p>
-                        </div>
-                        <button 
-                            onClick={() => {
-                                pushHistory();
-                                setModal({
-                                    type: 'task',
-                                    data: {
-                                        name: `Service: ${item.asset.name}`,
-                                        partyId: item.party.id,
-                                        description: `AMC Service for ${item.asset.brand} ${item.asset.model}. Due on ${item.date}`,
-                                        dueDate: item.date,
-                                        status: 'To Do',
-                                        linkedAssetStr: item.asset.name 
-                                    }
-                                });
-                            }}
-                            className="px-3 py-2 bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs whitespace-nowrap"
-                        >
-                            Create Task
-                        </button>
+                        ))}
                     </div>
                 ))}
             </div>
@@ -585,7 +628,6 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
       </div>
     );
 };
-
 // --- EXTERNALIZED SUB-COMPONENTS END ---
 
 const LoginScreen = ({ setUser }) => {
@@ -634,24 +676,33 @@ const LoginScreen = ({ setUser }) => {
 };
 
 const ConvertTaskModal = ({ task, onClose, saveRecord, setViewDetail, handleCloseUI }) => {
-  const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], received: '', mode: 'Cash' });
+  // Initial State with Safety Check
+  const [form, setForm] = useState({ 
+      date: new Date().toISOString().split('T')[0], 
+      received: '', 
+      mode: 'Cash' 
+  });
+
+  // Agar task hi nahi mila to null return karo (Crash Bachane ke liye)
+  if (!task) return null;
 
   const handleConfirm = async () => {
+      // Data Prepare
       const saleItems = (task.itemsUsed || []).map(i => ({ 
           itemId: i.itemId, 
           qty: i.qty, 
           price: i.price, 
           buyPrice: i.buyPrice || 0, 
           description: i.description || '',
-          brand: i.brand || ''  // <--- YE LINE ADD KI (Brand carry forward hoga)
+          brand: i.brand || '' 
       }));
-      
-      const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty)*parseFloat(i.price)), 0);
+
+      const gross = saleItems.reduce((acc, i) => acc + (parseFloat(i.qty || 0)*parseFloat(i.price || 0)), 0);
       
       const workDoneBy = (task.timeLogs || []).map(l => `${l.staffName} (${l.duration}m)`).join(', ');
       const totalMins = (task.timeLogs || []).reduce((acc,l) => acc + (parseFloat(l.duration)||0), 0);
       const workSummary = `${workDoneBy} | Total: ${totalMins} mins`;
-      
+
       const newSale = { 
           type: 'sales', 
           date: form.date, 
@@ -665,36 +716,32 @@ const ConvertTaskModal = ({ task, onClose, saveRecord, setViewDetail, handleClos
           finalTotal: gross, 
           convertedFromTask: task.id, 
           workSummary: workSummary, 
-          description: `Converted from Task ${task.id}. Work: ${workSummary}` 
+          description: `Converted from Task ${task.id}.\nWork: ${workSummary}` 
       };
       
-      // 1. Sale Save karo aur ID lo
+      // 1. Sale Save karo
       const saleId = await saveRecord('transactions', newSale, 'sales');
       
       // 2. Task Update karo
       const updatedTask = { ...task, status: 'Converted', generatedSaleId: saleId };
       await saveRecord('tasks', updatedTask, 'task');
       
-      // 3. Modal band karo
-      onClose(); 
-
-      // --- FIX START: Direct Naye Invoice par jao ---
-      // List par wapas jane ki jagah, seedha naye transaction ko open karo
-      
-      // Agar NavStack use kar rahe ho to current task ko stack me daalo (Optional)
-      // setNavStack(prev => [...prev, viewDetail]); 
-      
-      // Naya view set karo
-      setViewDetail({ type: 'transaction', id: saleId }); 
-      
-      // Note: Hum handleCloseUI() call NAHI karenge taki hum detail view me hi rahein
-      // --- FIX END ---
+      // 3. Close Modal & Open Sale
+      if(onClose) onClose();
+      if(setViewDetail) setViewDetail({ type: 'transaction', id: saleId });
   };
-    
+
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-        <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
-            <h3 className="font-bold text-lg mb-4">Convert to Sale</h3>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold text-lg text-gray-800">Convert to Sale</h3>
+                {/* Close Button (Safety) */}
+                <button onClick={onClose} className="p-1 bg-gray-100 rounded-full text-gray-500 hover:bg-gray-200">
+                    <X size={20}/>
+                </button>
+            </div>
+            
             <div className="space-y-4">
                 <div className="space-y-1">
                     <label className="text-xs font-bold text-gray-500 uppercase">Conversion Date</label>
@@ -709,12 +756,13 @@ const ConvertTaskModal = ({ task, onClose, saveRecord, setViewDetail, handleClos
                     </select>
                 </div>
                 <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-500 uppercase">Received Amount</label>
+                    <label className="text-xs font-bold text-gray-500 uppercase">Received Amount (Advance)</label>
                     <input type="number" className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" placeholder="0.00" value={form.received} onChange={e => setForm({...form, received: e.target.value})}/>
                 </div>
-                <div className="flex gap-3 pt-2">
-                    <button onClick={handleCloseUI} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold text-sm text-gray-600">Cancel</button>
-                    <button onClick={handleConfirm} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-blue-200">Confirm & Save</button>
+                
+                <div className="flex gap-3 pt-2 mt-2">
+                    <button onClick={onClose} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-200">Cancel</button>
+                    <button onClick={handleConfirm} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-blue-200 hover:bg-blue-700">Confirm & Save</button>
                 </div>
             </div>
         </div>
@@ -2120,7 +2168,18 @@ if (tx.type === 'payment') {
     const safeRecord = cleanData(record);
     
     // ... (Baki ka code same rahega: setData, setDoc, Toast etc.) ...
-    setData(newData); setModal({ type: null, data: null }); handleCloseUI(); showToast("Saved");
+    // CHANGE: Use Functional State Update to ensure Instant Reflection
+    setData(prev => {
+        const updatedList = record.id && prev[collectionName].some(r => r.id === record.id)
+            ? prev[collectionName].map(r => r.id === record.id ? record : r)
+            : [...prev[collectionName], record];
+            
+        return {
+            ...prev,
+            [collectionName]: updatedList,
+            counters: newCounters || prev.counters
+        };
+    });
     
     try {
         await setDoc(doc(db, collectionName, finalId.toString()), safeRecord);
@@ -2343,190 +2402,264 @@ const deleteRecord = async (collectionName, id) => {
 
   // --- SUB-COMPONENTS ---
 
-  const StaffDetailView = ({ staff }) => {
+ const StaffDetailView = ({ staff, data, setData, user, pushHistory, setManualAttModal, setSelectedTimeLog, showToast, setViewDetail }) => {
       const [sTab, setSTab] = useState('attendance');
+      const [attFilter, setAttFilter] = useState('This Month');
+      const [attCustom, setAttCustom] = useState({ start: '', end: '' });
+
+      // --- 1. Helper Functions (DEFINED AT TOP) ---
+      const getMins = (t) => {
+          if(!t) return 0;
+          const [h, m] = t.split(':').map(Number);
+          return h * 60 + m;
+      };
+
+      const formatDur = (m) => {
+          if(m <= 0) return '-';
+          const h = Math.floor(m / 60);
+          const mins = m % 60;
+          return `${h}h ${mins}m`;
+      };
+
+      const formatTime = (isoString) => {
+        if(!isoString) return '';
+        return new Date(isoString).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+      };
+
+      const formatDate = (dateStr) => {
+         if(!dateStr) return '';
+         return new Date(dateStr).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+
+      // --- 2. Data Preparation ---
+      const attToday = (data && data.attendance) ? (data.attendance.find(a => a.staffId === staff.id && a.date === new Date().toISOString().split('T')[0]) || {}) : {};
+
+      const getFilteredAttendance = () => {
+          const now = new Date();
+          if(!data || !data.attendance) return [];
+
+          return data.attendance.filter(a => {
+              if(a.staffId !== staff.id) return false;
+              const d = new Date(a.date);
+              
+              if(attFilter === 'This Month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+              if(attFilter === 'Last Month') {
+                  const last = new Date(); last.setMonth(last.getMonth() - 1);
+                  return d.getMonth() === last.getMonth() && d.getFullYear() === last.getFullYear();
+              }
+              if(attFilter === 'This Week') {
+                  const start = new Date(now); start.setDate(now.getDate() - now.getDay()); start.setHours(0,0,0,0);
+                  return d >= start;
+              }
+              if(attFilter === 'Custom' && attCustom.start && attCustom.end) {
+                  return d >= new Date(attCustom.start) && d <= new Date(attCustom.end);
+              }
+              return true; // All Time
+          }).sort((a,b) => new Date(b.date) - new Date(a.date));
+      };
+
+      const filteredAtt = getFilteredAttendance();
+
+      const attStats = filteredAtt.reduce((acc, item) => {
+          const inM = getMins(item.checkIn);
+          const outM = getMins(item.checkOut);
+          const lsM = getMins(item.lunchStart);
+          const leM = getMins(item.lunchEnd);
+          let dailyNet = 0;
+          
+          if (item.checkIn && item.checkOut) {
+              const gross = outM - inM;
+              const lunch = (item.lunchStart && item.lunchEnd) ? (leM - lsM) : 0;
+              dailyNet = gross - lunch;
+          }
+          return { count: acc.count + 1, mins: acc.mins + dailyNet };
+      }, { count: 0, mins: 0 });
       
-      const attToday = data.attendance.find(a => a.staffId === staff.id && a.date === new Date().toISOString().split('T')[0]) || {};
-      const attHistory = data.attendance.filter(a => a.staffId === staff.id).sort((a,b) => new Date(b.date) - new Date(a.date));
-      
-      const workLogs = data.tasks.flatMap(t => 
+      const workLogs = (data && data.tasks) ? data.tasks.flatMap(t => 
         (t.timeLogs || []).map((l, i) => ({ ...l, taskId: t.id, originalIndex: i, taskName: t.name }))
         .filter(l => l.staffId === staff.id)
-      ).sort((a,b) => new Date(b.start) - new Date(a.start));
+      ).sort((a,b) => new Date(b.start) - new Date(a.start)) : [];
 
-      // --- 1. Helper Functions (Time Calculation) ---
-      // "HH:MM" string ko minutes me badalta hai
-      const getMins = (t) => {
-        if(!t) return 0;
-        const [h, m] = t.split(':').map(Number);
-        return h * 60 + m;
+
+      // --- 3. Check-In/Out Logic ---
+      const handleAttendance = async (type) => {
+          // Safety Check: Agar User nahi hai to alert do (Debugging ke liye)
+          if (!user) { alert("Error: User session not found. Please reload."); return; }
+
+          const now = new Date();
+          const todayStr = now.toISOString().split('T')[0];
+          const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const timestamp = new Date().toISOString();
+          
+          const attId = `ATT-${staff.id}-${todayStr}`;
+          
+          const updatePayload = { updatedAt: timestamp };
+          if (type === 'checkIn') updatePayload.checkIn = timeStr;
+          if (type === 'checkOut') updatePayload.checkOut = timeStr;
+          if (type === 'lunchStart') updatePayload.lunchStart = timeStr;
+          if (type === 'lunchEnd') updatePayload.lunchEnd = timeStr;
+
+          const existingDoc = data.attendance.find(a => a.id === attId);
+          let newAttRecord;
+          
+          if (existingDoc) {
+              newAttRecord = { ...existingDoc, ...updatePayload };
+          } else {
+              newAttRecord = {
+                  id: attId,
+                  staffId: staff.id,
+                  date: todayStr,
+                  status: 'Present',
+                  createdAt: timestamp,
+                  ...updatePayload
+              };
+              // Fill missing fields to avoid undefined errors
+              ['checkIn', 'checkOut', 'lunchStart', 'lunchEnd'].forEach(k => {
+                  if(!newAttRecord[k]) newAttRecord[k] = '';
+              });
+          }
+
+          // 1. Update UI Instantly
+          const newAttList = [...data.attendance.filter(a => a.id !== attId), newAttRecord];
+          setData(prev => ({ ...prev, attendance: newAttList }));
+
+          // 2. Update Firebase
+          try {
+              await setDoc(doc(db, "attendance", attId), newAttRecord, { merge: true });
+              if(showToast) showToast(`${type} Recorded`);
+          } catch (e) {
+              console.error(e);
+              if(showToast) showToast("Error Saving Attendance", "error");
+          }
       };
+
+      const deleteAtt = async (id) => {
+          if(!window.confirm("Delete this attendance record?")) return;
+          await deleteDoc(doc(db, "attendance", id));
+          setData(prev => ({...prev, attendance: prev.attendance.filter(a => a.id !== id)}));
+      }
       
-      // Minutes ko "8h 30m" format me badalta hai
-      const formatDur = (m) => {
-        if(m <= 0) return '-';
-        const h = Math.floor(m / 60);
-        const mins = m % 60;
-        return `${h}h ${mins}m`;
-      };
-
-  // --- FIX FOR ATTENDANCE SYNC (MERGE LOGIC) ---
-const handleAttendance = async (type) => {
-    if (!user) return;
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
-    const timestamp = new Date().toISOString();
-    
-    // ID Generate karo
-    const attId = `ATT-${staff.id}-${todayStr}`;
-    
-    // Update Payload banao (Sirf wahi jo change ho rha h)
-    const updatePayload = {
-        updatedAt: timestamp
-    };
-
-    // Sirf specific field add karo payload me
-    if (type === 'checkIn') updatePayload.checkIn = timeStr;
-    if (type === 'checkOut') updatePayload.checkOut = timeStr;
-    if (type === 'lunchStart') updatePayload.lunchStart = timeStr;
-    if (type === 'lunchEnd') updatePayload.lunchEnd = timeStr;
-
-    // Local State Update (UI fast dikhane ke liye)
-    const existingDoc = data.attendance.find(a => a.id === attId);
-    let newAttRecord;
-    
-    if (existingDoc) {
-        // Agar record hai, to purane me naya payload mix karo
-        newAttRecord = { ...existingDoc, ...updatePayload };
-    } else {
-        // Agar naya record hai, to mandatory fields bhi daalo
-        newAttRecord = {
-            id: attId,
-            staffId: staff.id,
-            date: todayStr,
-            status: 'Present',
-            createdAt: timestamp,
-            ...updatePayload
-        };
-        // Naye record ke liye hume wo fields bhi chahiye jo updatePayload me nahi hain (taki undefined na ho)
-        if(!newAttRecord.checkIn) newAttRecord.checkIn = '';
-        if(!newAttRecord.checkOut) newAttRecord.checkOut = '';
-        if(!newAttRecord.lunchStart) newAttRecord.lunchStart = '';
-        if(!newAttRecord.lunchEnd) newAttRecord.lunchEnd = '';
-    }
-
-    const newAttList = [...data.attendance.filter(a => a.id !== attId), newAttRecord];
-    setData(prev => ({ ...prev, attendance: newAttList }));
-
-    try {
-        // --- KEY FIX: merge: true ---
-        // Ye server par jo data hai usse replace nahi karega, bas nayi fields mila dega
-        await setDoc(doc(db, "attendance", attId), newAttRecord, { merge: true });
-        showToast(`${type} Recorded`);
-    } catch (e) {
-        console.error(e);
-        showToast("Error Saving Attendance", "error");
-    }
-};
-
-    const deleteAtt = async (id) => {
-        if(!window.confirm("Delete this attendance record?")) return;
-        await deleteDoc(doc(db, "attendance", id));
-        setData(prev => ({...prev, attendance: prev.attendance.filter(a => a.id !== id)}));
-    }
-    
-    const editAtt = (record) => {
-        pushHistory();
-        setManualAttModal({ ...record, isEdit: true });
-    }
+      const editAtt = (record) => {
+          if(pushHistory) pushHistory();
+          if(setManualAttModal) setManualAttModal({ ...record, isEdit: true });
+      }
 
       return (
-          <div className="p-4 space-y-6">
-             <div className="p-4 bg-gray-50 rounded-2xl border">
-                <div className="flex justify-between items-center mb-2"><p className="font-bold text-lg text-gray-800">{staff.role}</p><span className={`px-2 py-1 rounded text-xs font-bold ${staff.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{staff.active ? 'Active' : 'Inactive'}</span></div>
-                <p className="text-sm text-gray-500 flex items-center gap-2"><Phone size={14}/> {staff.mobile}</p>
+          <div className="fixed inset-0 z-50 bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+             <div className="p-4 space-y-6">
+               <div className="flex items-center gap-3 mb-4">
+                  <button onClick={() => setViewDetail(null)} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                  <h2 className="font-bold text-lg">{staff.name}</h2>
+               </div>
+
+              <div className="p-4 bg-gray-50 rounded-2xl border">
+                 <div className="flex justify-between items-center mb-2"><p className="font-bold text-lg text-gray-800">{staff.role}</p><span className={`px-2 py-1 rounded text-xs font-bold ${staff.active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{staff.active ? 'Active' : 'Inactive'}</span></div>
+                 <p className="text-sm text-gray-500 flex items-center gap-2"><Phone size={14}/> {staff.mobile}</p>
+              </div>
+
+              <div className="flex bg-gray-100 p-1 rounded-xl">
+                 <button onClick={()=>setSTab('attendance')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${sTab==='attendance' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Attendance</button>
+                 <button onClick={()=>setSTab('work')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${sTab==='work' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Work Logs</button>
+              </div>
+
+              {sTab === 'attendance' && (
+                 <div className="space-y-4">
+                       <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                         <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2"><UserCheck size={18}/> Actions (Today)</h3>
+                         <div className="grid grid-cols-2 gap-2 mb-3">
+                             <button onClick={() => handleAttendance('checkIn')} disabled={!!attToday.checkIn} className="p-3 bg-green-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 disabled:bg-gray-400">Check In <br/> <span className="text-xs font-normal">{attToday.checkIn || '--:--'}</span></button>
+                             <button onClick={() => handleAttendance('checkOut')} className="p-3 bg-red-600 text-white rounded-xl font-bold text-sm">Check Out <br/> <span className="text-xs font-normal">{attToday.checkOut || '--:--'}</span></button>
+                             <button onClick={() => handleAttendance('lunchStart')} disabled={!!attToday.lunchStart} className="p-2 bg-yellow-100 text-yellow-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50"><Coffee size={14}/> Start Lunch <br/>{attToday.lunchStart}</button>
+                             <button onClick={() => handleAttendance('lunchEnd')} disabled={!!attToday.lunchEnd} className="p-2 bg-yellow-100 text-yellow-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50"><Briefcase size={14}/> End Lunch <br/>{attToday.lunchEnd}</button>
+                         </div>
+                     </div>
+                     
+                     {/* ADMIN ADD ATTENDANCE BUTTON */}
+                     {user && user.role === 'admin' && (
+                         <button onClick={() => { pushHistory(); setManualAttModal({ staffId: staff.id }); }} className="w-full p-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 font-bold text-xs flex items-center justify-center gap-2 hover:bg-gray-50">+ Add/Edit Attendance (Admin)</button>
+                     )}
+
+                     <div className="bg-white p-3 rounded-xl border space-y-3">
+                         <div className="flex gap-2">
+                             <select value={attFilter} onChange={e=>setAttFilter(e.target.value)} className="bg-gray-100 p-2 rounded-lg text-xs font-bold flex-1">
+                                 <option>This Month</option>
+                                 <option>Last Month</option>
+                                 <option>This Week</option>
+                                 <option>All Time</option>
+                                 <option>Custom</option>
+                             </select>
+                             {attFilter === 'Custom' && (
+                                 <div className="flex gap-1 flex-1">
+                                     <input type="date" className="w-1/2 text-[10px] p-1 border rounded" value={attCustom.start} onChange={e=>setAttCustom({...attCustom, start:e.target.value})} />
+                                     <input type="date" className="w-1/2 text-[10px] p-1 border rounded" value={attCustom.end} onChange={e=>setAttCustom({...attCustom, end:e.target.value})} />
+                                 </div>
+                             )}
+                         </div>
+                         <div className="flex justify-between items-center bg-gray-50 p-2 rounded-lg">
+                             <div className="text-center flex-1 border-r">
+                                 <p className="text-[10px] text-gray-400 uppercase font-bold">Present Days</p>
+                                 <p className="text-lg font-black text-blue-600">{attStats.count}</p>
+                             </div>
+                             <div className="text-center flex-1">
+                                 <p className="text-[10px] text-gray-400 uppercase font-bold">Total Hours</p>
+                                 <p className="text-lg font-black text-green-600">{formatDur(attStats.mins)}</p>
+                             </div>
+                         </div>
+                     </div>
+                     <div className="space-y-2">
+                         {filteredAtt.map(item => {
+                             const inM = getMins(item.checkIn);
+                             const outM = getMins(item.checkOut);
+                             const lsM = getMins(item.lunchStart);
+                             const leM = getMins(item.lunchEnd);
+                             
+                             let gross = 0, lunch = 0, net = 0;
+                             if (item.checkIn && item.checkOut) gross = outM - inM;
+                             if (item.lunchStart && item.lunchEnd) lunch = leM - lsM;
+                             net = gross - lunch;
+                             
+                             return (
+                                 <div key={item.id} className="p-3 border rounded-xl bg-white text-xs relative">
+                                     {user && user.role === 'admin' && (
+                                         <div className="absolute top-2 right-2 flex gap-2">
+                                             <button onClick={() => editAtt(item)} className="text-blue-500"><Edit2 size={14}/></button>
+                                             <button onClick={() => deleteAtt(item.id)} className="text-red-500"><Trash2 size={14}/></button>
+                                         </div>
+                                     )}
+                                     <div className="flex justify-between font-bold text-gray-800 mb-1"><span>{formatDate(item.date)}</span></div>
+                                     <div className="flex justify-between text-gray-600"><span>In: {item.checkIn || '-'}</span><span>Out: {item.checkOut || '-'}</span></div>
+                                     {item.lunchStart && <div className="text-gray-400 mt-1">Lunch: {item.lunchStart} - {item.lunchEnd}</div>}
+                                     
+                                     {gross > 0 && (
+                                         <div className="mt-2 pt-2 border-t flex justify-between text-[10px] text-gray-500 bg-gray-50 p-2 rounded-lg">
+                                             <span>Total: {formatDur(gross)}</span>
+                                             <span>Lunch: {formatDur(lunch)}</span>
+                                             <span className="font-bold text-gray-800">Final: {formatDur(net)}</span>
+                                         </div>
+                                     )}
+                                 </div>
+                             );
+                         })}
+                     </div>
+                 </div>
+              )}
+
+              {sTab === 'work' && (
+                 <div className="space-y-2">
+                     {workLogs.map((item, idx) => (
+                         <div 
+                             key={idx} 
+                             onClick={() => { pushHistory(); setSelectedTimeLog({ task: data.tasks.find(t => t.id === item.taskId), index: item.originalIndex }); }}
+                             className="p-3 border rounded-xl bg-white text-xs cursor-pointer hover:bg-blue-50 transition-colors"
+                         >
+                             <div className="flex justify-between font-bold text-gray-800 mb-1"><span>Task: {item.taskName}</span><span>{new Date(item.start).toLocaleDateString()}</span></div>
+                             <div className="flex justify-between text-gray-500"><span>{formatTime(item.start)} - {item.end ? formatTime(item.end) : 'Active'}</span><span className="font-bold">{item.duration}m</span></div>
+                         </div>
+                     ))}
+                 </div>
+              )}
              </div>
-
-             <div className="flex bg-gray-100 p-1 rounded-xl">
-                <button onClick={()=>setSTab('attendance')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${sTab==='attendance' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Attendance</button>
-                <button onClick={()=>setSTab('work')} className={`flex-1 py-2 rounded-lg text-xs font-bold ${sTab==='work' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Work Logs</button>
-             </div>
-
-             {sTab === 'attendance' && (
-                <div className="space-y-4">
-                      <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                        <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2"><UserCheck size={18}/> Actions (Today)</h3>
-                        <div className="grid grid-cols-2 gap-2 mb-3">
-                            <button onClick={() => handleAttendance('checkIn')} disabled={!!attToday.checkIn} className="p-3 bg-green-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 disabled:bg-gray-400">Check In <br/> <span className="text-xs font-normal">{attToday.checkIn || '--:--'}</span></button>
-                            <button onClick={() => handleAttendance('checkOut')} className="p-3 bg-red-600 text-white rounded-xl font-bold text-sm">Check Out <br/> <span className="text-xs font-normal">{attToday.checkOut || '--:--'}</span></button>
-                            <button onClick={() => handleAttendance('lunchStart')} disabled={!!attToday.lunchStart} className="p-2 bg-yellow-100 text-yellow-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50"><Coffee size={14}/> Start Lunch <br/>{attToday.lunchStart}</button>
-                            <button onClick={() => handleAttendance('lunchEnd')} disabled={!!attToday.lunchEnd} className="p-2 bg-yellow-100 text-yellow-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50"><Briefcase size={14}/> End Lunch <br/>{attToday.lunchEnd}</button>
-                        </div>
-                    </div>
-                    
-                    {user.role === 'admin' && (
-                        <button onClick={() => { pushHistory(); setManualAttModal({ staffId: staff.id }); }} className="w-full p-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 font-bold text-xs flex items-center justify-center gap-2 hover:bg-gray-50">+ Add/Edit Attendance (Admin)</button>
-                    )}
-
-                    <div className="space-y-2">
-                        {attHistory.map(item => {
-                            // --- 2. Duration Calculations ---
-                            const inM = getMins(item.checkIn);
-                            const outM = getMins(item.checkOut);
-                            const lsM = getMins(item.lunchStart);
-                            const leM = getMins(item.lunchEnd);
-                            
-                            let gross = 0, lunch = 0, net = 0;
-                            // Check-in se Check-out ka total time
-                            if (item.checkIn && item.checkOut) gross = outM - inM;
-                            // Lunch ka total time
-                            if (item.lunchStart && item.lunchEnd) lunch = leM - lsM;
-                            // Net (Final) Duration = Gross - Lunch
-                            net = gross - lunch;
-                            
-                            return (
-                                <div key={item.id} className="p-3 border rounded-xl bg-white text-xs relative">
-                                    {user.role === 'admin' && (
-                                        <div className="absolute top-2 right-2 flex gap-2">
-                                            <button onClick={() => editAtt(item)} className="text-blue-500"><Edit2 size={14}/></button>
-                                            <button onClick={() => deleteAtt(item.id)} className="text-red-500"><Trash2 size={14}/></button>
-                                        </div>
-                                    )}
-                                    <div className="flex justify-between font-bold text-gray-800 mb-1"><span>{formatDate(item.date)}</span></div>
-                                    <div className="flex justify-between text-gray-600"><span>In: {item.checkIn || '-'}</span><span>Out: {item.checkOut || '-'}</span></div>
-                                    {item.lunchStart && <div className="text-gray-400 mt-1">Lunch: {item.lunchStart} - {item.lunchEnd}</div>}
-                                    
-                                    {/* --- 3. UI Display for Durations --- */}
-                                    {gross > 0 && (
-                                        <div className="mt-2 pt-2 border-t flex justify-between text-[10px] text-gray-500 bg-gray-50 p-2 rounded-lg">
-                                            <span>Total: {formatDur(gross)}</span>
-                                            <span>Lunch: {formatDur(lunch)}</span>
-                                            <span className="font-bold text-gray-800">Final: {formatDur(net)}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-             )}
-
-             {sTab === 'work' && (
-                <div className="space-y-2">
-                    {workLogs.map((item, idx) => (
-                        <div 
-                            key={idx} 
-                            onClick={() => { pushHistory(); setSelectedTimeLog({ task: data.tasks.find(t => t.id === item.taskId), index: item.originalIndex }); }}
-                            className="p-3 border rounded-xl bg-white text-xs cursor-pointer hover:bg-blue-50 transition-colors"
-                        >
-                            <div className="flex justify-between font-bold text-gray-800 mb-1"><span>Task: {item.taskName}</span><span>{new Date(item.start).toLocaleDateString()}</span></div>
-                            <div className="flex justify-between text-gray-500"><span>{formatTime(item.start)} - {item.end ? formatTime(item.end) : 'Active'}</span><span className="font-bold">{item.duration}m</span></div>
-                        </div>
-                    ))}
-                </div>
-             )}
-         </div>
+          </div>
       );
   };
 
@@ -3619,18 +3752,32 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 </div>
 
                 {/* CHANGE: Check if linkedTxId exists. Agar sale ban chuki hai to button mat dikhao */}
-                    {task.linkedTxId ? (
-                         <div className="w-full py-3 mt-4 bg-purple-50 text-purple-700 rounded-xl font-bold text-center border border-purple-100 flex items-center justify-center gap-2">
-                            <CheckCircle2 size={18} />
-                            Converted to Sale
-                         </div>
-                    ) : (
-                        task.status !== 'Converted' && checkPermission(user, 'canEditTasks') && (
-                            <button onClick={() => setModal({ type: 'convertTask', data: task })} className="w-full py-3 mt-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 active:scale-95 transition-transform">
-                                Convert to Sale
-                            </button>
-                        )
-                    )}
+                    {/* CHANGE: Prevent Double Conversion Logic */}
+                {task.generatedSaleId ? (
+                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl">
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs font-bold text-green-700 uppercase flex items-center gap-1">
+                                <CheckCircle2 size={14}/> Converted
+                            </span>
+                            <span className="text-[10px] text-gray-500">Invoice Already Generated</span>
+                        </div>
+                        <button 
+                            onClick={() => setViewDetail({ type: 'transaction', id: task.generatedSaleId })}
+                            className="w-full py-3 bg-white border border-green-200 text-green-700 rounded-lg font-bold text-sm shadow-sm flex items-center justify-center gap-2 hover:bg-green-100 transition-colors"
+                        >
+                            View Invoice #{task.generatedSaleId} <ExternalLink size={14}/>
+                        </button>
+                    </div>
+                ) : (
+                    task.status !== 'Converted' && checkPermission(user, 'canEditTasks') && (
+                        <button 
+                            onClick={() => setModal({ type: 'convertTask', data: task })} 
+                            className="w-full py-3 mt-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 active:scale-95 transition-transform"
+                        >
+                            Convert to Sale
+                        </button>
+                    )
+                )}
             </div>
             {/* --- FLOATING TIMER BUTTON (NEW) --- */}
 <button
@@ -3659,15 +3806,26 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     if (viewDetail.type === 'staff') {
         const staff = data.staff.find(s => s.id === viewDetail.id);
         if (!staff) return null;
-        
         return (
             <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
                 <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
                     <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
                     <h2 className="font-bold text-lg">{staff.name}</h2>
-                    {user.role === 'admin' && <button onClick={() => { pushHistory(); setModal({ type: 'staff', data: staff }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>}
+                    {user && user.role === 'admin' && <button onClick={() => { pushHistory(); setModal({ type: 'staff', data: staff }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>}
                 </div>
-                <StaffDetailView staff={staff} />
+                
+                {/* ✅ YE HAI NAYA CODE WITH PROPS */}
+                <StaffDetailView 
+                    staff={staff} 
+                    data={data} 
+                    setData={setData} 
+                    user={user} 
+                    pushHistory={pushHistory} 
+                    setManualAttModal={setManualAttModal} 
+                    setSelectedTimeLog={setSelectedTimeLog} 
+                    showToast={showToast}
+                    setViewDetail={setViewDetail}
+                />
             </div>
         );
     }
@@ -4216,63 +4374,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
     const partyOptions = data.parties.map(p => ({ ...p, subText: partyBalances[p.id] ? formatCurrency(Math.abs(partyBalances[p.id])) + (partyBalances[p.id]>0?' DR':' CR') : 'Settled', subColor: partyBalances[p.id]>0?'text-green-600':partyBalances[p.id]<0?'text-red-600':'text-gray-400' }));
     const handleLinkChange = (billId, value) => { const amt = parseFloat(value) || 0; let maxLimit = totals.final; if (type === 'payment') { const baseAmt = parseFloat(tx.amount || 0); const disc = parseFloat(tx.discountValue || 0); maxLimit = baseAmt + disc; } if (maxLimit <= 0) { alert("Please enter the Payment Amount first."); return; } let newLinked = [...(tx.linkedBills || [])]; const existingIdx = newLinked.findIndex(l => l.billId === billId); if (existingIdx >= 0) { if (amt <= 0) newLinked.splice(existingIdx, 1); else newLinked[existingIdx] = { ...newLinked[existingIdx], amount: amt }; } else if (amt > 0) { newLinked.push({ billId, amount: amt }); } const currentTotal = newLinked.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0); if (currentTotal > maxLimit) { alert(`Cannot link more than the Payment Amount (${maxLimit}). Current Total: ${currentTotal}`); return; } setTx({ ...tx, linkedBills: newLinked }); };
-    // CHANGE: Auto Salary Calculation Logic
-    const handleAutoSalary = () => {
-        // 1. Ask User to Select Staff
-        const staffNames = data.staff.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
-        const selection = prompt(`Select Staff for Salary Calculation (Enter Number):\n${staffNames}`);
-        
-        if (!selection) return;
-        const index = parseInt(selection) - 1;
-        const staff = data.staff[index];
-        
-        if (!staff) return alert("Invalid Staff Selected");
-        if (!staff.salary || !staff.dutyHours) return alert("Please set Salary and Duty Hours in Staff Settings first.");
-
-        // 2. Calculate Working Hours from Attendance
-        const reportDate = new Date(tx.date); // Use Invoice Date
-        const currentMonth = reportDate.getMonth();
-        const currentYear = reportDate.getFullYear();
-
-        let totalMinutes = 0;
-
-        data.attendance.forEach(a => {
-            const aDate = new Date(a.date);
-            // Check if record belongs to selected staff AND current month/year AND date is <= invoice date
-            if (a.staffId === staff.id && aDate.getMonth() === currentMonth && aDate.getFullYear() === currentYear && aDate <= reportDate) {
-                const inM = getMins(a.checkIn);
-                const outM = getMins(a.checkOut);
-                const lsM = getMins(a.lunchStart);
-                const leM = getMins(a.lunchEnd);
-
-                let dailyGross = 0;
-                let dailyLunch = 0;
-
-                if (a.checkIn && a.checkOut) dailyGross = outM - inM;
-                if (a.lunchStart && a.lunchEnd) dailyLunch = leM - lsM;
-                
-                totalMinutes += (dailyGross - dailyLunch);
-            }
-        });
-
-        const totalHours = (totalMinutes / 60).toFixed(2);
-        
-        // 3. Calculate Rate (Salary / 30 / DutyHours)
-        // Rule: Month is always considered 30 days
-        const hourlyRate = (parseFloat(staff.salary) / 30 / parseFloat(staff.dutyHours)).toFixed(2);
-        
-        // 4. Update Items
-        const newItem = {
-            itemId: '', // No specific item ID
-            qty: totalHours,
-            price: hourlyRate,
-            buyPrice: 0,
-            description: `Salary: ${staff.name} for ${reportDate.toLocaleString('default', { month: 'long' })} (Auto Calc)`
-        };
-
-        setTx({ ...tx, items: [...tx.items, newItem] });
-        alert(`Calculated: ${totalHours} Hours x ${hourlyRate}/hr`);
-    };
+    
     // --- Helper to add asset ---
 
     // --- State update for Duration ---
@@ -4420,11 +4522,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     return (
                         <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
                             <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
-                            {type === 'expense' && (
-                    <button onClick={handleAutoSalary} className="w-full mb-2 py-3 bg-green-50 text-green-700 border border-green-200 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
-                        <Users size={16}/> Auto Calculate Salary
-                    </button>
-                )}
+                    
                             <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine(idx, 'itemId', v)} placeholder="Select Item"/>
                             {selectedItemMaster && ( <SearchableSelect placeholder={specificBrandOptions.length > 0 ? "Select Brand/Variant" : "No Brands defined (Type manual)"} options={specificBrandOptions} value={line.brand || ''} onChange={v => updateLine(idx, 'brand', v)} onAddNew={() => { const newBrand = prompt(`Add new brand for ${selectedItemMaster.name}?`); if(newBrand) updateLine(idx, 'brand', newBrand); }} /> )}
                             <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
@@ -4465,31 +4563,32 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 // 2. Prepare Final Record
                 const finalRecord = { ...tx, ...totals, amount: finalAmount };
 
-                // 3. AUTO-UPDATE ASSET SERVICE DATE (Fixed Logic)
-                // Hum ise 'await' nahi karenge taaki UI fast rahe, par logic synchronous update karega
-                if (type === 'sales' && tx.partyId && tx.linkedAssetId) {
+                // 3. CHANGE: AUTO-UPDATE ASSET SERVICE DATE (Fixed for Multiple Assets)
+                if (['sales'].includes(type) && tx.partyId && tx.linkedAssets?.length > 0) {
                     const p = data.parties.find(x => x.id === tx.partyId);
                     
-                    // Sirf tab update karein agar Asset exist karta ho aur Date bhari ho
-                    if (p && p.assets && tx.nextServiceDate) {
+                    if (p && p.assets) {
+                        let assetUpdated = false;
                         const updatedAssets = p.assets.map(a => {
-                            // Name match karte waqt trim karein taaki space ki galti na ho
-                            if (a.name.trim() === tx.linkedAssetId.trim()) {
-                                return { ...a, nextServiceDate: tx.nextServiceDate };
+                            // Find matching linked asset
+                            const linkedMatch = tx.linkedAssets.find(la => la.name.trim() === a.name.trim());
+                            if (linkedMatch && linkedMatch.nextServiceDate) {
+                                assetUpdated = true;
+                                return { ...a, nextServiceDate: linkedMatch.nextServiceDate };
                             }
                             return a;
                         });
                         
-                        const updatedParty = { ...p, assets: updatedAssets };
-                        
-                        // Local Data Update (Instant UI Refresh ke liye)
-                        setData(prev => ({ 
-                            ...prev, 
-                            parties: prev.parties.map(party => party.id === p.id ? updatedParty : party) 
-                        }));
-
-                        // Firebase Update (Background)
-                        setDoc(doc(db, "parties", p.id), updatedParty).catch(e => console.error("Asset Date Update Failed", e));
+                        if(assetUpdated) {
+                            const updatedParty = { ...p, assets: updatedAssets };
+                            // Local & Firebase Update
+                            setData(prev => ({ 
+                                ...prev, 
+                                parties: prev.parties.map(party => party.id === p.id ? updatedParty : party) 
+                            }));
+                            // No await needed here, let it run in background
+                            setDoc(doc(db, "parties", p.id), updatedParty);
+                        }
                     }
                 }
 
@@ -5285,7 +5384,8 @@ const removeMobile = (idx) => {
             return <button key={tab.id} onClick={() => { setActiveTab(tab.id); setMastersView(null); setListFilter('all'); }} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${activeTab === tab.id ? 'text-blue-600 bg-blue-50' : 'text-gray-400'}`}>{tab.icon}<span className="text-[10px] font-bold uppercase tracking-wider">{tab.label}</span></button>;
         })}
       </nav>
-      <Modal isOpen={!!modal.type} onClose={handleCloseUI} title={modal.type ? (modal.data ? `Edit ${modal.type}` : `New ${modal.type}`) : ''}>
+      {/* CHANGE: Added check to ignore 'convertTask' */}
+<Modal isOpen={!!modal.type && modal.type !== 'convertTask'} onClose={handleCloseUI} title={modal.type ? (modal.data ? `Edit ${modal.type}` : `New ${modal.type}`) : ''}>
         {modal.type === 'company' && <CompanyForm />}
         {modal.type === 'party' && <PartyForm record={modal.data} />}
         {modal.type === 'item' && <ItemForm record={modal.data} />}
@@ -5297,10 +5397,11 @@ const removeMobile = (idx) => {
       {showPnlReport && <PnlReportView />}
       
       {/* RENDER MODALS OUTSIDE MAIN FLOW WITH PROPS */}
-      {convertModal && (
+      {/* CHANGE: Correctly render ConvertTaskModal using modal state */}
+      {modal?.type === 'convertTask' && (
         <ConvertTaskModal 
-            task={convertModal} 
-            onClose={() => setConvertModal(null)} 
+            task={modal.data} 
+            onClose={handleCloseUI} 
             saveRecord={saveRecord} 
             setViewDetail={setViewDetail} 
             handleCloseUI={handleCloseUI} 
