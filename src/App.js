@@ -353,6 +353,10 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                         <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
                     </div>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
+                    {/* CHANGE: Show Note for Payments */}
+{tx.type === 'payment' && tx.description && (
+    <p className="text-[10px] text-gray-400 italic mt-0.5 line-clamp-1">"{tx.description}"</p>
+)}
                     {searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()) && (
                         <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p>
                     )}
@@ -1162,144 +1166,153 @@ const CashAdjustmentModal = ({ adjustCashModal, setAdjustCashModal, saveRecord, 
   );
 };
 
-const TimeLogModal = ({ editingTimeLog, setEditingTimeLog, data, setData, handleCloseUI, showToast }) => {
-    const [form, setForm] = useState({ start: '', end: '' });
-
-    useEffect(() => {
-        if (editingTimeLog) {
-            const { task, index } = editingTimeLog;
-            const log = task.timeLogs[index];
-            setForm({
-                start: log.start ? new Date(log.start).toISOString().slice(0, 16) : '',
-                end: log.end ? new Date(log.end).toISOString().slice(0, 16) : ''
-            });
-        }
-    }, [editingTimeLog]);
-
-    if (!editingTimeLog) return null;
-
-    const handleSave = async () => {
-        const { task, index } = editingTimeLog;
-        const start = new Date(form.start);
-        const end = form.end ? new Date(form.end) : null;
-        
-        // Calculate new duration
-        let duration = 0;
-        if (end) {
-            duration = ((end - start) / 1000 / 60).toFixed(0);
-        }
-
-        const updatedLogs = [...task.timeLogs];
-        updatedLogs[index] = { ...updatedLogs[index], start: start.toISOString(), end: end ? end.toISOString() : null, duration };
-
-        const updatedTask = { ...task, timeLogs: updatedLogs };
-        
-        setData(prev => ({
-            ...prev,
-            tasks: prev.tasks.map(t => t.id === task.id ? updatedTask : t)
-        }));
-        
-        await setDoc(doc(db, "tasks", task.id), updatedTask);
-        setEditingTimeLog(null);
-        handleCloseUI();
-        showToast("Time Log Updated");
-    };
-
-    return (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
-                <h3 className="font-bold text-lg mb-4">Edit Time Log</h3>
-                <div className="space-y-4">
-                    <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">Start Time</label>
-                        <input type="datetime-local" className="w-full p-3 border rounded-xl" value={form.start} onChange={e => setForm({...form, start: e.target.value})} />
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase">End Time</label>
-                        <input type="datetime-local" className="w-full p-3 border rounded-xl" value={form.end} onChange={e => setForm({...form, end: e.target.value})} />
-                    </div>
-                    <div className="flex gap-2 pt-2">
-                          <button onClick={() => { setEditingTimeLog(null); handleCloseUI(); }} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
-                          <button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Save</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseUI, saveRecord, setEditingTimeLog }) => {
+const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseUI, saveRecord, data, setData, showToast }) => {
     if (!selectedTimeLog) return null;
     const { task, index } = selectedTimeLog;
     const log = task.timeLogs[index];
 
-    // Delete Logic
+    // --- 1. Helper to format Date for Input (YYYY-MM-DDThh:mm) ---
+    const toInputFormat = (isoString) => {
+        if (!isoString) return '';
+        const d = new Date(isoString);
+        const pad = (n) => String(n).padStart(2, '0');
+        // Local time me convert karo
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    // Local State
+    const [isEditing, setIsEditing] = useState(false);
+    
+    // --- 2. Initialize State with formatted dates ---
+    const [form, setForm] = useState({
+        start: toInputFormat(log.start),
+        end: log.end ? toInputFormat(log.end) : '',
+        note: log.note || '' 
+    });
+
     const handleDelete = async () => {
-        if(!window.confirm("Are you sure you want to delete this time log?")) return;
-        
-        // Remove item from array
-        const updatedLogs = [...task.timeLogs];
-        updatedLogs.splice(index, 1);
-        
+        if(!window.confirm("Delete this log?")) return;
+        const updatedLogs = task.timeLogs.filter((_, i) => i !== index);
         const updatedTask = { ...task, timeLogs: updatedLogs };
+        
+        const updatedTasks = data.tasks.map(t => t.id === task.id ? updatedTask : t);
+        setData(prev => ({ ...prev, tasks: updatedTasks }));
+        await saveRecord('tasks', updatedTask, 'task');
+        
+        setSelectedTimeLog(null);
+    };
+
+    const handleSave = async () => {
+        // Safety Check: Agar data ya data.tasks nahi hai to error mat do, bas return kar jao
+        if (!data || !data.tasks) {
+            console.error("Data or Tasks missing in TimeLogDetailsModal");
+            return;
+        }
+
+        const updatedLogs = [...task.timeLogs];
+        
+        // Dates wapis Date Object me convert karo
+        const s = new Date(form.start);
+        const e = form.end ? new Date(form.end) : null;
+        
+        let duration = 0;
+        if (e) duration = Math.round((e - s) / 60000);
+
+        updatedLogs[index] = { 
+            ...log, 
+            start: s.toISOString(), 
+            end: e ? e.toISOString() : null, 
+            duration: duration,
+            note: form.note 
+        };
+
+        const updatedTask = { ...task, timeLogs: updatedLogs };
+        
+        // Update Local & Firebase using correct 'data.tasks'
+        const updatedTasks = data.tasks.map(t => t.id === task.id ? updatedTask : t);
+        
+        // Update State
+        if (setData) {
+            setData(prev => ({ ...prev, tasks: updatedTasks }));
+        }
         
         // Save to Firebase
         await saveRecord('tasks', updatedTask, 'task');
         
-        setSelectedTimeLog(null);
-        handleCloseUI();
+        if(showToast) showToast("Time Log Updated");
+        setIsEditing(false);
     };
 
     return (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-white p-6 rounded-2xl w-full max-w-sm relative">
-                <button onClick={() => { setSelectedTimeLog(null); handleCloseUI(); }} className="absolute top-4 right-4 p-1 bg-gray-100 rounded-full"><X size={20}/></button>
-                <h3 className="font-bold text-lg mb-4">Time Log Details</h3>
-                <div className="space-y-3">
-                    <div className="p-3 bg-gray-50 rounded-xl border">
-                        <p className="text-xs font-bold text-gray-400 uppercase">Task</p>
-                        <p className="font-bold">{task.name}</p>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="bg-white p-5 rounded-2xl w-full max-w-sm shadow-xl relative">
+                <button onClick={() => setSelectedTimeLog(null)} className="absolute top-4 right-4 p-1 bg-gray-100 rounded-full"><X size={20}/></button>
+                <h3 className="font-bold text-lg mb-4">{isEditing ? 'Edit Time Log' : 'Time Log Details'}</h3>
+
+                {isEditing ? (
+                    // --- EDIT MODE ---
+                    <div className="space-y-4">
+                        <div>
+                            <label className="text-xs font-bold text-gray-500">Start Time</label>
+                            <input type="datetime-local" className="w-full p-2 border rounded-lg text-sm bg-gray-50" value={form.start} onChange={e=>setForm({...form, start: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500">End Time</label>
+                            <input type="datetime-local" className="w-full p-2 border rounded-lg text-sm bg-gray-50" value={form.end} onChange={e=>setForm({...form, end: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500">Note / Description</label>
+                            <textarea className="w-full p-2 border rounded-lg text-sm bg-gray-50 h-20" placeholder="Add note..." value={form.note} onChange={e=>setForm({...form, note: e.target.value})} />
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                            <button onClick={() => setIsEditing(false)} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancel</button>
+                            <button onClick={handleSave} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold">Save</button>
+                        </div>
                     </div>
-                    <div className="p-3 bg-gray-50 rounded-xl border">
-                          <p className="text-xs font-bold text-gray-400 uppercase">Staff</p>
-                          <p className="font-bold">{log.staffName}</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
+                ) : (
+                    // --- VIEW MODE ---
+                    <div className="space-y-3">
                         <div className="p-3 bg-gray-50 rounded-xl border">
-                             <p className="text-xs font-bold text-gray-400 uppercase">Start</p>
-                             <p className="text-sm font-bold">{new Date(log.start).toLocaleString()}</p>
+                            <p className="text-xs font-bold text-gray-400 uppercase">Task</p>
+                            <p className="font-bold">{task.name}</p>
                         </div>
                         <div className="p-3 bg-gray-50 rounded-xl border">
-                             <p className="text-xs font-bold text-gray-400 uppercase">End</p>
-                             <p className="text-sm font-bold">{log.end ? new Date(log.end).toLocaleString() : 'Running'}</p>
+                             <p className="text-xs font-bold text-gray-400 uppercase">Staff</p>
+                             <p className="font-bold">{log.staffName}</p>
                         </div>
-                    </div>
-                    <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
-                          <p className="text-xs font-bold text-blue-500 uppercase">Duration</p>
-                          <p className="font-black text-xl text-blue-700">{log.duration} mins</p>
-                    </div>
-                    {log.location && (
-                        <div className="p-3 bg-green-50 rounded-xl border border-green-100 flex justify-between items-center">
-                            <div>
-                                <p className="text-xs font-bold text-green-600 uppercase">Location Captured</p>
-                                <p className="text-[10px] text-gray-500">{log.location.lat.toFixed(5)}, {log.location.lng.toFixed(5)}</p>
+                        {/* Note Display */}
+                        {log.note && (
+                            <div className="p-3 bg-yellow-50 rounded-xl border border-yellow-100">
+                                <p className="text-xs font-bold text-yellow-600 uppercase">Note</p>
+                                <p className="text-sm">{log.note}</p>
                             </div>
-                            <a href={`https://www.google.com/maps?q=${log.location.lat},${log.location.lng}`} target="_blank" rel="noreferrer" className="p-2 bg-white rounded-lg shadow-sm text-green-700">
-                                <MapIcon size={20}/>
-                            </a>
+                        )}
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="p-3 bg-gray-50 rounded-xl border">
+                                 <p className="text-xs font-bold text-gray-400 uppercase">Start</p>
+                                 <p className="text-sm font-bold">{new Date(log.start).toLocaleString()}</p>
+                            </div>
+                            <div className="p-3 bg-gray-50 rounded-xl border">
+                                 <p className="text-xs font-bold text-gray-400 uppercase">End</p>
+                                 <p className="text-sm font-bold">{log.end ? new Date(log.end).toLocaleString() : 'Running'}</p>
+                            </div>
                         </div>
-                    )}
-                    
-                    {/* EDIT AND DELETE BUTTONS */}
-                    <div className="flex gap-3 pt-2">
-                          <button onClick={handleDelete} className="flex-1 p-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Trash2 size={16}/> Delete</button>
-                          <button onClick={() => { setEditingTimeLog({ task, index }); setSelectedTimeLog(null); }} className="flex-1 p-3 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Edit2 size={16}/> Edit</button>
+                        <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
+                              <p className="text-xs font-bold text-blue-500 uppercase">Duration</p>
+                              <p className="font-black text-xl text-blue-700">{log.duration} mins</p>
+                        </div>
+                        
+                        <div className="flex gap-3 pt-2">
+                              <button onClick={handleDelete} className="flex-1 p-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Trash2 size={16}/> Delete</button>
+                              <button onClick={() => setIsEditing(true)} className="flex-1 p-3 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl font-bold text-sm flex items-center justify-center gap-2"><Edit2 size={16}/> Edit</button>
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </div>
     );
 };
+
 
 // --- MAIN APP COMPONENT ---
 
@@ -3052,7 +3065,6 @@ const deleteRecord = async (collectionName, id) => {
         // Sales only, Active only
         let txs = data.transactions.filter(t => ['sales'].includes(t.type) && t.status !== 'Cancelled');
         
-        // Date Filter (Same logic)
         return txs.filter(t => {
             const d = new Date(t.date);
             const tDate = d.toDateString();
@@ -3099,11 +3111,27 @@ const deleteRecord = async (collectionName, id) => {
                     });
                     const totalP = serviceP + goodsP - parseFloat(tx.discountValue || 0);
 
-                    // Party & Balance Info (CHANGE: Added these details)
+                    // Party Info
                     const party = data.parties.find(p => p.id === tx.partyId);
-                    const totals = getTransactionTotals(tx); // Uses existing helper for Paid/Unpaid status
-                    const isPaid = totals.status === 'PAID';
-                    const isPartial = totals.status === 'PARTIAL';
+                    
+                    // CHANGE: Calculate Real Balance (Checking Linked Payments)
+                    const linkedPayments = data.transactions.filter(t => t.type === 'payment' && t.linkedTxId === tx.id);
+                    const totalPaidViaLink = linkedPayments.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+                    const totalReceived = parseFloat(tx.received || 0) + totalPaidViaLink;
+                    const finalTotal = parseFloat(tx.finalTotal || 0);
+                    const balance = finalTotal - totalReceived;
+                    
+                    // Determine Status
+                    let status = 'UNPAID';
+                    let statusColor = 'bg-red-100 text-red-700';
+                    
+                    if (balance <= 0.5) { // 0.5 margin for float errors
+                        status = 'PAID';
+                        statusColor = 'bg-green-100 text-green-700';
+                    } else if (totalReceived > 0) {
+                        status = 'PARTIAL';
+                        statusColor = 'bg-yellow-100 text-yellow-700';
+                    }
 
                     return (
                         <div key={tx.id} className="p-4 border rounded-xl bg-white shadow-sm cursor-pointer hover:bg-gray-50 active:scale-95 transition-transform" onClick={() => setViewDetail({ type: 'transaction', id: tx.id })}>
@@ -3113,9 +3141,9 @@ const deleteRecord = async (collectionName, id) => {
                                     <p className="text-xs text-blue-600 font-bold">{party?.name || 'Cash Sale'}</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-black text-lg text-gray-800">{formatCurrency(totals.final)}</p>
-                                    <span className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase ${isPaid ? 'bg-green-100 text-green-700' : isPartial ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                                        {totals.status}
+                                    <p className="font-black text-lg text-gray-800">{formatCurrency(finalTotal)}</p>
+                                    <span className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase ${statusColor}`}>
+                                        {status} {balance > 0.5 ? `(Bal: ${Math.round(balance)})` : ''}
                                     </span>
                                 </div>
                             </div>
@@ -3132,10 +3160,6 @@ const deleteRecord = async (collectionName, id) => {
                         </div>
                     );
                 })}
-                {/* Load More Button Code... */}
-                {visibleCount < filteredDate.length && (
-                    <button onClick={() => setVisibleCount(prev => prev + 50)} className="w-full py-3 bg-gray-100 font-bold rounded-xl text-sm">Load More</button>
-                )}
             </div>
         </div>
     );
@@ -3463,6 +3487,16 @@ React.useLayoutEffect(() => {
                         <div key={i} className="flex justify-between p-3 border rounded-xl bg-white">
                           <div className="flex-1">
                               {/* --- FIX: Removed Duplicate Name Line here --- */}
+                              {/* Payment/Receipt Info... (Existing Code) */}
+                
+                {/* CHANGE: Show Note/Description */}
+                {tx.description && (
+                    <div className="bg-yellow-50 p-3 rounded-xl border border-yellow-100 mt-3">
+                        <p className="text-[10px] text-yellow-700 font-bold uppercase mb-1">Note / Description</p>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{tx.description}</p>
+                    </div>
+                )}
+
                               
                               {/* Item Details Block */}
                               <div>
@@ -4684,6 +4718,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
 
                 // 4. Save Transaction
                 await saveRecord('transactions', finalRecord, tx.type);
+                handleCloseUI();
                 setModal({ type: null }); 
             }} 
             className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200 hover:shadow-xl transition-all"
@@ -5106,13 +5141,13 @@ const removeMobile = (idx) => {
                     </div>
                     <div className="flex gap-2">
                         <input 
-        className="flex-1 p-2 border rounded-lg text-xs" 
+        className="p-2 bg-gray-50 border rounded-lg text-xs" 
         placeholder="Lat" 
         value={newLoc.lat} 
         onChange={e => setNewLoc({...newLoc, lat: e.target.value})} 
     />
     <input 
-        className="flex-1 p-2 border rounded-lg text-xs" 
+        className="p-2 bg-gray-50 border rounded-lg text-xs" 
         placeholder="Lng" 
         value={newLoc.lng} 
         onChange={e => setNewLoc({...newLoc, lng: e.target.value})} 
@@ -5578,8 +5613,10 @@ const removeMobile = (idx) => {
             selectedTimeLog={selectedTimeLog} 
             setSelectedTimeLog={setSelectedTimeLog} 
             handleCloseUI={handleCloseUI} 
-            saveRecord={saveRecord}           // <----- Ye line honi chahiye
-            setEditingTimeLog={setEditingTimeLog} // <--- Ye line honi chahiye
+            saveRecord={saveRecord} 
+            data={data}       // <--- YE LINE BAHUT JARURI HAI
+            setData={setData} // <--- YE BHI JARURI HAI
+            showToast={showToast} 
         />
       )}
     </div>
