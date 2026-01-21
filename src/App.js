@@ -245,6 +245,7 @@ const cleanData = (obj) => {
 
 
 // Change: Added setAdjustCashModal to props
+// Change: Added setAdjustCashModal to props
 const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange, data, listFilter, listPaymentMode, categoryFilter, pushHistory, setViewDetail, setAdjustCashModal }) => {
     const [sort, setSort] = useState('DateDesc');
     const [filter, setFilter] = useState(listFilter);
@@ -252,40 +253,55 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
     
     useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
-    let filtered = data.transactions.filter(tx => {
-        if (filter !== 'all' && tx.type !== filter) return false;
-        if (listPaymentMode && (tx.paymentMode || 'Cash') !== listPaymentMode) return false;
-        if (categoryFilter && tx.category !== categoryFilter) return false;
+    // --- OPTIMIZATION START: useMemo lagaya taki har baar calculate na ho ---
+    const filtered = useMemo(() => {
+        return data.transactions.filter(tx => {
+            if (filter !== 'all' && tx.type !== filter) return false;
+            if (listPaymentMode && (tx.paymentMode || 'Cash') !== listPaymentMode) return false;
+            if (categoryFilter && tx.category !== categoryFilter) return false;
 
-        if (dateRange.start && tx.date < dateRange.start) return false;
-        if (dateRange.end && tx.date > dateRange.end) return false;
+            if (dateRange.start && tx.date < dateRange.start) return false;
+            if (dateRange.end && tx.date > dateRange.end) return false;
 
-        if (searchQuery) {
-            const lowerQuery = searchQuery.toLowerCase();
-            const party = data.parties.find(p => p.id === tx.partyId);
+            if (searchQuery) {
+                const lowerQuery = searchQuery.toLowerCase();
+                const party = data.parties.find(p => p.id === tx.partyId);
+                
+                const matchVoucher = tx.id.toLowerCase().includes(lowerQuery);
+                const matchName = (party?.name || tx.category || '').toLowerCase().includes(lowerQuery);
+                const matchDesc = (tx.description || '').toLowerCase().includes(lowerQuery);
+                const matchAddress = (party?.address || '').toLowerCase().includes(lowerQuery);
+                const matchAmount = (tx.amount || tx.finalTotal || 0).toString().includes(lowerQuery);
+
+                return matchVoucher || matchName || matchDesc || matchAddress || matchAmount;
+            }
+
+            return true;
+        });
+    }, [data.transactions, filter, listPaymentMode, categoryFilter, dateRange, searchQuery, data.parties]);
+
+    // --- OPTIMIZATION: Filtered Total Cache ---
+    const filteredTotal = useMemo(() => {
+        return filtered.reduce((acc, tx) => acc + parseFloat(tx.amount || tx.finalTotal || 0), 0);
+    }, [filtered]);
+
+    // --- OPTIMIZATION: Filtered Pending Cache (Ye sabse heavy tha) ---
+    const filteredPending = useMemo(() => {
+        return filtered.reduce((acc, tx) => {
+            // Sirf Sales/Purchase/Expense ka hi due count karein taaki fast chale
+            if(!['sales', 'purchase', 'expense'].includes(tx.type)) return acc;
             
-            const matchVoucher = tx.id.toLowerCase().includes(lowerQuery);
-            const matchName = (party?.name || tx.category || '').toLowerCase().includes(lowerQuery);
-            const matchDesc = (tx.description || '').toLowerCase().includes(lowerQuery);
-            const matchAddress = (party?.address || '').toLowerCase().includes(lowerQuery);
-            const matchAmount = (tx.amount || tx.finalTotal || 0).toString().includes(lowerQuery);
+            const stats = getBillStats(tx, data.transactions);
+            return acc + (parseFloat(stats.pending) || 0);
+        }, 0);
+    }, [filtered, data.transactions]);
 
-            return matchVoucher || matchName || matchDesc || matchAddress || matchAmount;
-        }
+    const sortedData = useMemo(() => {
+        return sortData(filtered, sort);
+    }, [filtered, sort]);
+    // --- OPTIMIZATION END ---
 
-        return true;
-    });
-
-    // --- FIX: Add this missing line ---
-    const filteredTotal = filtered.reduce((acc, tx) => acc + parseFloat(tx.amount || tx.finalTotal || 0), 0);
-
-    const filteredPending = filtered.reduce((acc, tx) => {
-        const stats = getBillStats(tx, data.transactions);
-        return acc + (parseFloat(stats.pending) || 0);
-    }, 0);
-
-    filtered = sortData(filtered, sort);
-    const visibleData = filtered.slice(0, visibleCount);
+    const visibleData = sortedData.slice(0, visibleCount);
 
     return (
       <div className="space-y-4">
@@ -347,7 +363,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
     <button 
         key={t} 
         onClick={() => { 
-            setFilter(t); // <--- YE MISSING THA
+            setFilter(t); 
             setSearchQuery(''); 
         }} 
         className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
@@ -395,8 +411,8 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                 </div>
                 <div className="text-right">
                   <p className={`font-bold ${isCancelled ? 'text-gray-400 line-through' : isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
-                  {/* FIX #2: Add 'expense' here */}
-{['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
+                  
+                  {['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
 
                   {tx.type === 'payment' && !isCancelled && unusedAmount > 0.1 && <p className="text-[10px] font-bold text-orange-600">Unused: {formatCurrency(unusedAmount)}</p>}
                 </div>
