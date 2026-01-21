@@ -353,10 +353,6 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                         <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
                     </div>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
-                    {/* CHANGE: Show Note for Payments */}
-{tx.type === 'payment' && tx.description && (
-    <p className="text-[10px] text-gray-400 italic mt-0.5 line-clamp-1">"{tx.description}"</p>
-)}
                     {searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()) && (
                         <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p>
                     )}
@@ -3049,12 +3045,12 @@ const deleteRecord = async (collectionName, id) => {
       );
   };
 
-  const PnlReportView = () => {
+const PnlReportView = () => {
     const [visibleCount, setVisibleCount] = useState(50);
 
     const filteredDate = useMemo(() => {
         const now = new Date();
-        // Sales only, Active only
+        // Sirf Sales aur jo Cancelled nahi hai
         let txs = data.transactions.filter(t => ['sales'].includes(t.type) && t.status !== 'Cancelled');
         
         return txs.filter(t => {
@@ -3090,7 +3086,7 @@ const deleteRecord = async (collectionName, id) => {
             </div>
             <div className="p-4 space-y-4">
                 {visibleData.map(tx => {
-                    // Profit Calc
+                    // 1. PROFIT CALCULATION
                     let serviceP = 0, goodsP = 0;
                     (tx.items || []).forEach(item => {
                         const m = data.items.find(i => i.id === item.itemId);
@@ -3103,37 +3099,74 @@ const deleteRecord = async (collectionName, id) => {
                     });
                     const totalP = serviceP + goodsP - parseFloat(tx.discountValue || 0);
 
-                    // Party Info
+                    // 2. PARTY INFO
                     const party = data.parties.find(p => p.id === tx.partyId);
                     
-                    // CHANGE: Calculate Real Balance (Checking Linked Payments)
-                    const linkedPayments = data.transactions.filter(t => t.type === 'payment' && t.linkedTxId === tx.id);
-                    const totalPaidViaLink = linkedPayments.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-                    const totalReceived = parseFloat(tx.received || 0) + totalPaidViaLink;
-                    const finalTotal = parseFloat(tx.finalTotal || 0);
-                    const balance = finalTotal - totalReceived;
+                    // --- 3. ROBUST PAYMENT & BALANCE LOGIC ---
                     
-                    // Determine Status
+                    // A. Invoice Total (Total Bill Amount)
+                    const invoiceTotal = parseFloat(tx.finalTotal || tx.grossTotal || 0);
+
+                    // B. Direct Received (Jo bill banate time mila)
+                    const directReceived = parseFloat(tx.received || 0);
+
+                    // C. Linked Payments (Ab ye har tarah ka link check karega)
+                    // Payment Transactions only
+                    const paymentTxs = data.transactions.filter(t => t.type === 'payment' && t.status !== 'Cancelled');
+                    
+                    const paidViaLinks = paymentTxs.reduce((sum, p) => {
+                        // Check 1: Direct Link (Simple ID match)
+                        if (p.linkedTxId === tx.id) {
+                            return sum + parseFloat(p.amount || 0);
+                        }
+                        // Check 2: Multi-Bill Link (Agar linkedBills array me ye bill ID hai)
+                        if (p.linkedBills && Array.isArray(p.linkedBills)) {
+                            const match = p.linkedBills.find(l => l.billId === tx.id);
+                            if (match) {
+                                return sum + parseFloat(match.amount || 0);
+                            }
+                        }
+                        return sum;
+                    }, 0);
+                    
+                    // D. Total Paid
+                    const totalReceived = directReceived + paidViaLinks;
+                    
+                    // E. Actual Balance
+                    const balance = invoiceTotal - totalReceived;
+                    
+                    // F. Status
                     let status = 'UNPAID';
                     let statusColor = 'bg-red-100 text-red-700';
                     
-                    if (balance <= 0.5) { // 0.5 margin for float errors
+                    if (balance <= 0.5) { 
                         status = 'PAID';
                         statusColor = 'bg-green-100 text-green-700';
-                    } else if (totalReceived > 0) {
+                    } else if (totalReceived > 0.1) {
                         status = 'PARTIAL';
                         statusColor = 'bg-yellow-100 text-yellow-700';
                     }
 
                     return (
-                        <div key={tx.id} className="p-4 border rounded-xl bg-white shadow-sm cursor-pointer hover:bg-gray-50 active:scale-95 transition-transform" onClick={() => setViewDetail({ type: 'transaction', id: tx.id })}>
+                        <div 
+                            key={tx.id} 
+                            // --- FIX 4: CLICKABLE ROW ---
+                            onClick={() => { 
+                                pushHistory(); 
+                                setViewDetail({ type: 'transaction', id: tx.id }); 
+                            }}
+                            className="p-4 border rounded-xl bg-white shadow-sm cursor-pointer hover:bg-gray-50 active:scale-95 transition-transform"
+                        >
                             <div className="flex justify-between items-start mb-2">
                                 <div>
                                     <p className="font-bold text-gray-800 text-sm">#{tx.id} • {formatDate(tx.date)}</p>
                                     <p className="text-xs text-blue-600 font-bold">{party?.name || 'Cash Sale'}</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-black text-lg text-gray-800">{formatCurrency(finalTotal)}</p>
+                                    {/* --- FIX 1: INVOICE TOTAL HERE (NOT BALANCE) --- */}
+                                    <p className="font-black text-lg text-gray-800">{formatCurrency(invoiceTotal)}</p>
+                                    
+                                    {/* Status me Balance */}
                                     <span className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase ${statusColor}`}>
                                         {status} {balance > 0.5 ? `(Bal: ${Math.round(balance)})` : ''}
                                     </span>
@@ -3152,6 +3185,9 @@ const deleteRecord = async (collectionName, id) => {
                         </div>
                     );
                 })}
+                {visibleCount < filteredDate.length && (
+                    <button onClick={() => setVisibleCount(prev => prev + 50)} className="w-full py-3 bg-gray-100 font-bold rounded-xl text-sm">Load More</button>
+                )}
             </div>
         </div>
     );
@@ -3363,7 +3399,7 @@ React.useLayoutEffect(() => {
       };
 
       return (
-        <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+        <div className="fixed inset-0 z-[70] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
           <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
             <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
             <div className="flex gap-2">
@@ -3665,7 +3701,7 @@ const updateTaskState = async (updatedTask) => {
 const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.end);
 
         return (
-          <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+          <div className="fixed inset-0 z-[70] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
             <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
               <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
               <h2 className="font-bold text-lg">Task Details</h2>
@@ -3974,7 +4010,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
             const brands = Object.keys(groups).filter(k => k !== 'All').sort();
 
             return (
-                <div id="detail-scroller" className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+                <div id="detail-scroller" className="fixed inset-0 z-[70] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
                     <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
                         <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
                         <h2 className="font-bold text-lg truncate max-w-[150px]">{record.name}</h2>
@@ -4155,7 +4191,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
             }
 
             return (
-              <div id="detail-scroller" className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+              <div id="detail-scroller" className="fixed inset-0 z-[70] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
                 <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
                   <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
                   <h2 className="font-bold text-lg">{record.name}</h2>
@@ -5103,13 +5139,13 @@ const removeMobile = (idx) => {
                     </div>
                     <div className="flex gap-2">
                         <input 
-        className="p-2 bg-gray-50 border rounded-lg text-xs" 
-        placeholder="Lat" 
-        value={newLoc.lat} 
-        onChange={e => setNewLoc({...newLoc, lat: e.target.value})} 
-    />
+                          className="p-2 bg-gray-50 border rounded-lg text-xs col-span-1" 
+                     placeholder="Lat" 
+                      value={newLoc.lat} 
+                      onChange={e => setNewLoc({...newLoc, lat: e.target.value})} 
+                     />
     <input 
-        className="p-2 bg-gray-50 border rounded-lg text-xs" 
+        className="p-2 bg-gray-50 border rounded-lg text-xs col-span-1" 
         placeholder="Lng" 
         value={newLoc.lng} 
         onChange={e => setNewLoc({...newLoc, lng: e.target.value})} 
