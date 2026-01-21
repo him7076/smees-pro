@@ -244,7 +244,8 @@ const cleanData = (obj) => {
 
 
 
-const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange, data, listFilter, listPaymentMode, categoryFilter, pushHistory, setViewDetail }) => {
+// Change: Added setAdjustCashModal to props
+const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange, data, listFilter, listPaymentMode, categoryFilter, pushHistory, setViewDetail, setAdjustCashModal }) => {
     const [sort, setSort] = useState('DateDesc');
     const [filter, setFilter] = useState(listFilter);
     const [visibleCount, setVisibleCount] = useState(50); 
@@ -275,7 +276,13 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
         return true;
     });
 
+    // --- FIX: Add this missing line ---
     const filteredTotal = filtered.reduce((acc, tx) => acc + parseFloat(tx.amount || tx.finalTotal || 0), 0);
+
+    const filteredPending = filtered.reduce((acc, tx) => {
+        const stats = getBillStats(tx, data.transactions);
+        return acc + (parseFloat(stats.pending) || 0);
+    }, 0);
 
     filtered = sortData(filtered, sort);
     const visibleData = filtered.slice(0, visibleCount);
@@ -283,8 +290,21 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
     return (
       <div className="space-y-4">
         <div className="flex flex-col gap-3">
-            <div className="flex justify-between items-center">
-              <h1 className="text-xl font-bold">Accounting {categoryFilter && `(${categoryFilter})`}</h1>
+           <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-bold">
+                    {listPaymentMode ? `${listPaymentMode} Book` : `Accounting ${categoryFilter ? `(${categoryFilter})` : ''}`}
+                  </h1>
+                  {/* Show Adjust Button only if Cash/Bank is selected */}
+                  {listPaymentMode && (
+                      <button 
+                        onClick={() => setAdjustCashModal({ type: listPaymentMode })} 
+                        className="px-2 py-1 bg-gray-800 text-white text-[10px] rounded-lg font-bold"
+                      >
+                        Adjust {listPaymentMode}
+                      </button>
+                  )}
+              </div>
               <div className="flex gap-2 items-center">
                   <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option><option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option></select>
               </div>
@@ -307,9 +327,15 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
         </div>
 
         <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex justify-between items-center shadow-sm">
-            <div>
-                <p className="text-[10px] font-bold text-blue-500 uppercase">Filtered Total</p>
-                <p className="text-lg font-black text-blue-800">{formatCurrency(filteredTotal)}</p>
+            <div className="flex gap-4">
+                <div>
+                    <p className="text-[10px] font-bold text-blue-500 uppercase">Total Amount</p>
+                    <p className="text-lg font-black text-blue-800">{formatCurrency(filteredTotal)}</p>
+                </div>
+                <div>
+                    <p className="text-[10px] font-bold text-red-500 uppercase">Total Due</p>
+                    <p className="text-lg font-black text-red-800">{formatCurrency(filteredPending)}</p>
+                </div>
             </div>
             <div className="bg-white px-3 py-1 rounded-lg text-xs font-bold text-blue-600 shadow-sm border border-blue-100">
                 Count: {filtered.length}
@@ -353,9 +379,11 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                         <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
                     </div>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
-                    {searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()) && (
+                    
+                    {/* CHANGE: Payment ka description hamesha dikhega */}
+                    {(tx.type === 'payment' || (searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()))) && tx.description && (
                         <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p>
-                    )}
+                     )}
                     <div className="flex gap-1 mt-1">
                         {isCancelled ? (
                            <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span>
@@ -2457,7 +2485,8 @@ const deleteRecord = async (collectionName, id) => {
 
   // --- SUB-COMPONENTS ---
 
- const StaffDetailView = ({ staff, data, setData, user, pushHistory, setManualAttModal, setSelectedTimeLog, showToast, setViewDetail }) => {
+ // Change: Added setModal to props
+const StaffDetailView = ({ staff, data, setData, user, pushHistory, setManualAttModal, setSelectedTimeLog, showToast, setViewDetail, setModal }) => {
       const [sTab, setSTab] = useState('attendance');
       const [attFilter, setAttFilter] = useState('This Month');
       const [attCustom, setAttCustom] = useState({ start: '', end: '' });
@@ -2602,9 +2631,15 @@ const deleteRecord = async (collectionName, id) => {
       return (
           <div className="fixed inset-0 z-50 bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
              <div className="p-4 space-y-6">
-               <div className="flex items-center gap-3 mb-4">
-                  <button onClick={() => setViewDetail(null)} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-                  <h2 className="font-bold text-lg">{staff.name}</h2>
+               <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                      <button onClick={() => setViewDetail(null)} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                      <h2 className="font-bold text-lg">{staff.name}</h2>
+                  </div>
+                  {/* CHANGE: Edit Button Added inside Component */}
+                  {user && user.role === 'admin' && (
+                      <button onClick={() => { pushHistory(); setModal({ type: 'staff', data: staff }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
+                  )}
                </div>
 
               <div className="p-4 bg-gray-50 rounded-2xl border">
@@ -2773,7 +2808,7 @@ const deleteRecord = async (collectionName, id) => {
                  const buy = parseFloat(item.buyPrice || itemMaster?.buyPrice || 0);
                  const sell = parseFloat(item.price || 0);
                  const qty = parseFloat(item.qty || 0);
-                 if(type === 'Service') profit += (sell * qty); else profit += ((sell - buy) * qty);
+                 profit += ((sell - buy) * qty);
              });
           });
           return profit;
@@ -2805,16 +2840,19 @@ const deleteRecord = async (collectionName, id) => {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-              {/* NET PROFIT CARD */}
-              <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-4 rounded-2xl text-white shadow-lg cursor-pointer" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
+              {/* GROSS PROFIT CARD (Renamed & Fixed Dropdown) */}
+              <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-4 rounded-2xl text-white shadow-lg cursor-pointer relative z-0" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
                   <div className="flex justify-between items-start">
                     <div>
-                        <p className="text-xs opacity-80 font-bold mb-1">NET PROFIT</p>
+                        <p className="text-xs opacity-80 font-bold mb-1">GROSS PROFIT</p>
                         <p className="text-2xl font-black">{formatCurrency(pnlData)}</p>
                     </div>
-                    <select onClick={(e)=>e.stopPropagation()} value={pnlFilter} onChange={(e)=>setPnlFilter(e.target.value)} className="bg-blue-900/50 text-xs border-none rounded p-1 outline-none text-white max-w-[80px]">
-                        <option value="Today">Today</option><option value="Weekly">Weekly</option><option value="Monthly">Month</option><option value="Yearly">Year</option><option value="Custom">Custom</option>
-                    </select>
+                    {/* UI Fix: Added relative positioning and z-index to dropdown container */}
+                    <div className="relative z-50">
+                        <select onClick={(e)=>e.stopPropagation()} value={pnlFilter} onChange={(e)=>setPnlFilter(e.target.value)} className="bg-blue-900 text-xs border-none rounded p-1 outline-none text-white">
+                            <option value="Today">Today</option><option value="Weekly">Weekly</option><option value="Monthly">Month</option><option value="Yearly">Year</option><option value="Custom">Custom</option>
+                        </select>
+                    </div>
                   </div>
                   {pnlFilter === 'Custom' && (
                     <div onClick={(e)=>e.stopPropagation()} className="flex gap-1 mt-2">
@@ -2824,11 +2862,10 @@ const deleteRecord = async (collectionName, id) => {
                   )}
               </div>
               
-              {/* CASH / BANK CARD */}
+              {/* CASH / BANK CARD - Adjust button removed */}
               <div className="bg-white p-4 rounded-2xl border shadow-sm relative group">
                   <div className="flex justify-between items-start mb-1">
                       <p className="text-xs font-bold text-gray-400">CASH / BANK</p>
-                      <button onClick={() => { pushHistory(); setAdjustCashModal({ type: 'Cash' }); }} className="p-1 bg-gray-100 rounded text-blue-600 font-bold text-[10px] flex items-center gap-1">Adjust</button>
                   </div>
                   <div className="flex justify-between text-sm mb-1 cursor-pointer" onClick={() => { setListFilter('all'); setListPaymentMode('Cash'); setActiveTab('accounting'); }}><span>Cash:</span><span className="font-bold text-green-600">{formatCurrency(stats.cashInHand)}</span></div>
                   <div className="flex justify-between text-sm cursor-pointer" onClick={() => { setListFilter('all'); setListPaymentMode('Bank'); setActiveTab('accounting'); }}><span>Bank:</span><span className="font-bold text-blue-600">{formatCurrency(stats.bankBalance)}</span></div>
@@ -3094,8 +3131,10 @@ const PnlReportView = () => {
                         const buy = parseFloat(item.buyPrice || m?.buyPrice || 0);
                         const sell = parseFloat(item.price || 0);
                         const qty = parseFloat(item.qty || 0);
-                        if(type === 'Service') serviceP += (sell * qty);
-                        else goodsP += ((sell - buy) * qty);
+                        // Change: Service Logic Updated
+const itemProfit = (sell - buy) * qty;
+if(type === 'Service') serviceP += itemProfit;
+else goodsP += itemProfit;
                     });
                     const totalP = serviceP + goodsP - parseFloat(tx.discountValue || 0);
 
@@ -3260,8 +3299,10 @@ React.useLayoutEffect(() => {
             const qty = parseFloat(item.qty || 0);
             const sell = parseFloat(item.price || 0);
             const buy = parseFloat(item.buyPrice || itemMaster?.buyPrice || 0);
-            if (type === 'Service') pnl.service += (sell * qty);
-            else pnl.goods += ((sell - buy) * qty);
+           // Change: Service Profit uses Buy Price now
+const iProfit = (sell - buy) * qty;
+if (type === 'Service') pnl.service += iProfit;
+else pnl.goods += iProfit;
           });
           
           // 4. Net Profit
@@ -3927,27 +3968,20 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     if (viewDetail.type === 'staff') {
         const staff = data.staff.find(s => s.id === viewDetail.id);
         if (!staff) return null;
+        // CHANGE: Removed wrapper div and passed setModal prop
         return (
-            <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
-                <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
-                    <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-                    <h2 className="font-bold text-lg">{staff.name}</h2>
-                    {user && user.role === 'admin' && <button onClick={() => { pushHistory(); setModal({ type: 'staff', data: staff }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>}
-                </div>
-                
-                {/* ✅ YE HAI NAYA CODE WITH PROPS */}
-                <StaffDetailView 
-                    staff={staff} 
-                    data={data} 
-                    setData={setData} 
-                    user={user} 
-                    pushHistory={pushHistory} 
-                    setManualAttModal={setManualAttModal} 
-                    setSelectedTimeLog={setSelectedTimeLog} 
-                    showToast={showToast}
-                    setViewDetail={setViewDetail}
-                />
-            </div>
+            <StaffDetailView 
+                staff={staff} 
+                data={data} 
+                setData={setData} 
+                user={user} 
+                pushHistory={pushHistory} 
+                setManualAttModal={setManualAttModal} 
+                setSelectedTimeLog={setSelectedTimeLog} 
+                showToast={showToast}
+                setViewDetail={setViewDetail}
+                setModal={setModal} // <--- Added setModal here
+            />
         );
     }
 
@@ -4997,7 +5031,7 @@ const toggleMobile = (mob) => {
     {/* Converted option ko hidden rakh sakte hain ya dikha sakte hain, usually manual select nahi karte */}
     <option value="Converted">Converted (System)</option>
 </select></div>
-        <button onClick={() => saveRecord('tasks', form, 'task')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
+        <button onClick={async () => { await saveRecord('tasks', form, 'task'); handleCloseUI(); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
       </div>
     );
   };
@@ -5026,7 +5060,7 @@ const toggleMobile = (mob) => {
             />
             <span>{form.active !== false ? 'Staff Account is ACTIVE' : 'Staff Account is INACTIVE (Blocked)'}</span>
         </label>
-        <button onClick={() => saveRecord('staff', form, 'staff')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Staff</button>
+        <button onClick={async () => { await saveRecord('staff', form, 'staff'); handleCloseUI(); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Staff</button>
       </div>
     );
   };
@@ -5131,37 +5165,37 @@ const removeMobile = (idx) => {
                     </div>
                 ))}
 
-                {/* Add New Location Inputs */}
-                <div className="space-y-2 pt-2 border-t border-blue-200">
-                    <div className="flex gap-2">
-                        <input className="w-1/3 p-2 border rounded-lg text-xs" placeholder="Label (e.g. Office)" value={newLoc.label} onChange={e => setNewLoc({...newLoc, label: e.target.value})} />
-                        <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Address" value={newLoc.address} onChange={e => setNewLoc({...newLoc, address: e.target.value})} />
+                    {/* Add New Location Inputs */}
+                    <div className="space-y-2 pt-2 border-t border-blue-200">
+                        <div className="flex gap-2">
+                            <input className="w-1/3 p-2 border rounded-lg text-xs" placeholder="Label (e.g. Office)" value={newLoc.label} onChange={e => setNewLoc({...newLoc, label: e.target.value})} />
+                            <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Address" value={newLoc.address} onChange={e => setNewLoc({...newLoc, address: e.target.value})} />
+                        </div>
+                        <div className="flex gap-2">
+                            <input 
+                            className="w-20 p-2 bg-gray-50 border rounded-lg text-xs" 
+                        placeholder="Lat" 
+                        value={newLoc.lat} 
+                        onChange={e => setNewLoc({...newLoc, lat: e.target.value})} 
+                        />
+        <input 
+            className="w-20 p-2 bg-gray-50 border rounded-lg text-xs" 
+            placeholder="Lng" 
+            value={newLoc.lng} 
+            onChange={e => setNewLoc({...newLoc, lng: e.target.value})} 
+        />
+        <button onClick={addLocation} className="px-4 bg-blue-600 text-white rounded-lg font-bold text-xs">Add</button>
+    </div>
                     </div>
-                    <div className="flex gap-2">
-                        <input 
-                          className="p-2 bg-gray-50 border rounded-lg text-xs col-span-1" 
-                     placeholder="Lat" 
-                      value={newLoc.lat} 
-                      onChange={e => setNewLoc({...newLoc, lat: e.target.value})} 
-                     />
-    <input 
-        className="p-2 bg-gray-50 border rounded-lg text-xs col-span-1" 
-        placeholder="Lng" 
-        value={newLoc.lng} 
-        onChange={e => setNewLoc({...newLoc, lng: e.target.value})} 
-    />
-    <button onClick={addLocation} className="px-4 bg-blue-600 text-white rounded-lg font-bold text-xs">Add</button>
-</div>
                 </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
-                 <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Opening Bal" value={form.openingBal} onChange={e => setForm({...form, openingBal: e.target.value})} />
-                 <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
-                     <option value="DR">Debit (To Collect)</option>
-                     <option value="CR">Credit (To Pay)</option>
-                 </select>
-            </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Opening Bal" value={form.openingBal} onChange={e => setForm({...form, openingBal: e.target.value})} />
+                    <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
+                        <option value="DR">Debit (To Collect)</option>
+                        <option value="CR">Credit (To Pay)</option>
+                    </select>
+                </div>
             <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Email (Optional)" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
            {/* Add New Asset Inputs */}
                 <div className="bg-white p-2 rounded-xl border border-indigo-200 space-y-2">
@@ -5211,7 +5245,7 @@ const removeMobile = (idx) => {
                         + Add Asset
                     </button>
                 </div>
-            <button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
+           <button onClick={async () => { await saveRecord('parties', form, 'party'); handleCloseUI(); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
         </div>
     );
   };
@@ -5329,7 +5363,7 @@ const removeMobile = (idx) => {
              ))}
          </div>
 
-         <button onClick={() => saveRecord('items', form, 'item')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200">Save Item</button>
+         <button onClick={async () => { await saveRecord('items', form, 'item'); handleCloseUI(); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200">Save Item</button>
        </div>
     );
   };
@@ -5409,6 +5443,7 @@ const removeMobile = (idx) => {
                     categoryFilter={categoryFilter}
                     pushHistory={pushHistory}
                     setViewDetail={setViewDetail}
+                    setAdjustCashModal={setAdjustCashModal} // <--- Ye Line Add Karni Hai
                 />
             )}
             
@@ -5459,12 +5494,35 @@ const removeMobile = (idx) => {
                         <button onClick={() => { pushHistory(); setMastersView('items'); }} className="p-6 bg-blue-50 border border-blue-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-blue-100"><Package size={32} className="text-blue-600"/><span className="font-bold text-blue-800">Items</span></button>
                         <button onClick={() => { pushHistory(); setMastersView('parties'); }} className="p-6 bg-emerald-50 border border-emerald-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-emerald-100"><Users size={32} className="text-emerald-600"/><span className="font-bold text-emerald-800">Parties</span></button>
                         
-                        {/* Cash & Bank Buttons */}
-                        <button onClick={() => { pushHistory(); setAdjustCashModal({ type: 'Cash' }); }} className="p-6 bg-green-50 border border-green-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-green-100"><Banknote size={32} className="text-green-600"/><span className="font-bold text-green-800">Cash</span></button>
-                        <button onClick={() => { pushHistory(); setAdjustCashModal({ type: 'Bank' }); }} className="p-6 bg-cyan-50 border border-cyan-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-cyan-100"><Briefcase size={32} className="text-cyan-600"/><span className="font-bold text-cyan-800">Bank</span></button>
+   {/* UPDATED: Cash & Bank Buttons with Balance & Redirect */}
+                        <button onClick={() => { 
+                            pushHistory(); 
+                            setActiveTab('accounting'); // Go to Accounting Tab
+                            setListFilter('all');       // Reset filters
+                            setListPaymentMode('Cash'); // Set Mode to Cash
+                        }} className="p-4 bg-green-50 border border-green-100 rounded-2xl flex flex-col items-center justify-between hover:bg-green-100">
+                            <Banknote size={28} className="text-green-600"/>
+                            <div className="text-center mt-2">
+                                <span className="font-bold text-green-800 block">Cash</span>
+                                <span className="text-xs font-black text-green-600">{formatCurrency(stats.cashInHand)}</span>
+                            </div>
+                        </button>
+                        
+                        <button onClick={() => { 
+                            pushHistory(); 
+                            setActiveTab('accounting'); // Go to Accounting Tab
+                            setListFilter('all'); 
+                            setListPaymentMode('Bank'); // Set Mode to Bank
+                        }} className="p-4 bg-cyan-50 border border-cyan-100 rounded-2xl flex flex-col items-center justify-between hover:bg-cyan-100">
+                            <Briefcase size={28} className="text-cyan-600"/>
+                             <div className="text-center mt-2">
+                                <span className="font-bold text-cyan-800 block">Bank</span>
+                                <span className="text-xs font-black text-cyan-600">{formatCurrency(stats.bankBalance)}</span>
+                            </div>
+                        </button>
 
-                        {/* REQ 3: Expense Categories Button */}
-                        <button onClick={() => { pushHistory(); setMastersView('categories'); }} className="p-6 bg-red-50 border border-red-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-red-100"><ReceiptText size={32} className="text-red-600"/><span className="font-bold text-red-800">Exp. Cats</span></button>
+                        {/* UPDATED: Expense Categories Button Name */}
+                        <button onClick={() => { pushHistory(); setMastersView('categories'); }} className="p-6 bg-red-50 border border-red-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-red-100"><ReceiptText size={32} className="text-red-600"/><span className="font-bold text-red-800 text-center text-xs">Manage<br/>Categories</span></button>
 
                         {/* IMPORT BUTTONS */}
                         {user.role === 'admin' && (
