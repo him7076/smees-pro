@@ -245,7 +245,7 @@ const cleanData = (obj) => {
 
 
 // Change: Added setAdjustCashModal to props
-// OPTIMIZED TransactionList Component
+// --- OPTIMIZED TRANSACTION LIST (Lag Free) ---
 const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange, data, listFilter, listPaymentMode, categoryFilter, pushHistory, setViewDetail, setAdjustCashModal }) => {
     const [sort, setSort] = useState('DateDesc');
     const [filter, setFilter] = useState(listFilter);
@@ -253,7 +253,22 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
     
     useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
-    // 1. Optimize Filtering
+    // 1. Create a Fast Lookup Map for Linked Amounts (O(N) instead of O(N^2))
+    // Isse har row ke liye bar-bar calculate nahi karna padega
+    const linksMap = useMemo(() => {
+        const map = {}; // { billId: paidAmount }
+        data.transactions.forEach(tx => {
+            if (tx.linkedTxn) {
+                tx.linkedTxn.forEach(link => {
+                    if (!map[link.id]) map[link.id] = 0;
+                    map[link.id] += parseFloat(link.amount || 0);
+                });
+            }
+        });
+        return map;
+    }, [data.transactions]);
+
+    // 2. Optimized Filtering
     const filtered = useMemo(() => {
         return data.transactions.filter(tx => {
             if (filter !== 'all' && tx.type !== filter) return false;
@@ -270,30 +285,34 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                 const matchName = (party?.name || tx.category || '').toLowerCase().includes(lowerQuery);
                 const matchDesc = (tx.description || '').toLowerCase().includes(lowerQuery);
                 const matchAmount = (tx.amount || tx.finalTotal || 0).toString().includes(lowerQuery);
-                return matchVoucher || matchName || matchDesc || matchAmount;
+                return matchVoucher || matchName || matchDesc || matchAddress || matchAmount;
             }
             return true;
         });
     }, [data.transactions, filter, listPaymentMode, categoryFilter, dateRange, searchQuery, data.parties]);
 
-    // 2. Optimize Totals (Cache calculations)
+    // 3. Optimized Totals (Using linksMap)
     const statsData = useMemo(() => {
         return filtered.reduce((acc, tx) => {
-            acc.total += parseFloat(tx.amount || tx.finalTotal || 0);
-            // Only calculate due for relevant types to save speed
+            const amount = parseFloat(tx.amount || tx.finalTotal || 0);
+            acc.total += amount;
+
+            // Only calculate DUE for bill types
             if(['sales', 'purchase', 'expense'].includes(tx.type)) {
-                const stats = getBillStats(tx, data.transactions);
-                acc.pending += (parseFloat(stats.pending) || 0);
+                const paid = linksMap[tx.id] || 0;
+                const pending = Math.max(0, amount - paid);
+                acc.pending += pending;
             }
             return acc;
         }, { total: 0, pending: 0 });
-    }, [filtered, data.transactions]);
+    }, [filtered, linksMap]);
 
     const sortedData = useMemo(() => sortData(filtered, sort), [filtered, sort]);
     const visibleData = sortedData.slice(0, visibleCount);
 
     return (
       <div className="space-y-4">
+        {/* Header & Filters (Same as before) */}
         <div className="flex flex-col gap-3">
            <div className="flex justify-between items-center">
               <div className="flex items-center gap-2">
@@ -320,6 +339,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             </div>
         </div>
 
+        {/* Stats Card */}
         <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex justify-between items-center shadow-sm">
             <div className="flex gap-4">
                 <div><p className="text-[10px] font-bold text-blue-500 uppercase">Total Amount</p><p className="text-lg font-black text-blue-800">{formatCurrency(statsData.total)}</p></div>
@@ -328,19 +348,32 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             <div className="bg-white px-3 py-1 rounded-lg text-xs font-bold text-blue-600 shadow-sm border border-blue-100">Count: {filtered.length}</div>
         </div>
 
+        {/* Type Filters */}
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
             {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
                 <button key={t} onClick={() => { setFilter(t); setSearchQuery(''); }} className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
             ))}
         </div>
 
+        {/* List Items */}
         <div className="space-y-3">
           {visibleData.map(tx => {
             const party = data.parties.find(p => p.id === tx.partyId);
             const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
-            const totals = getBillStats(tx, data.transactions);
+            
+            // FAST STATUS CALCULATION (No heavy function call)
+            const totalAmt = parseFloat(tx.amount || tx.finalTotal || 0);
+            const usedAmt = linksMap[tx.id] || 0; // O(1) Access
+            const pendingAmt = Math.max(0, totalAmt - usedAmt);
+            
+            let status = 'UNPAID';
+            if (pendingAmt <= 0.1) status = 'PAID'; // Tolerance for small decimals
+            else if (usedAmt > 0) status = 'PARTIAL';
+            
+            // Special check for Payment Type (Unused amount)
+            const paymentUnused = tx.type === 'payment' ? (totalAmt - usedAmt) : 0;
+
             const isCancelled = tx.status === 'Cancelled';
-            const unusedAmount = tx.type === 'payment' ? (totals.amount - (totals.used || 0)) : 0;
             let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
             if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
             if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
@@ -353,18 +386,25 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                   <div>
                     <div className="flex items-center gap-2"><p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p></div>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
-                    {(tx.type === 'payment' || (searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()))) && tx.description && ( <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p> )}
+                    
+                    {/* Description Logic */}
+                    {(tx.type === 'payment' || (searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()))) && tx.description && ( 
+                        <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p> 
+                    )}
+                    
                     <div className="flex gap-1 mt-1">
                         {isCancelled ? <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span> : 
-                           ['sales', 'purchase', 'expense', 'payment'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${(totals.status === 'PAID' || totals.status === 'FULLY USED') ? 'bg-green-100 text-green-700' : (totals.status === 'PARTIAL' || totals.status === 'PARTIALLY USED') ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>
+                           ['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${status === 'PAID' ? 'bg-green-100 text-green-700' : status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{status}</span>
                         }
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className={`font-bold ${isCancelled ? 'text-gray-400 line-through' : isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
-                  {['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
-                  {tx.type === 'payment' && !isCancelled && unusedAmount > 0.1 && <p className="text-[10px] font-bold text-orange-600">Unused: {formatCurrency(unusedAmount)}</p>}
+                  <p className={`font-bold ${isCancelled ? 'text-gray-400 line-through' : isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totalAmt)}</p>
+                  
+                  {['sales', 'purchase', 'expense'].includes(tx.type) && status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(pendingAmt)}</p>}
+                  
+                  {tx.type === 'payment' && !isCancelled && paymentUnused > 0.1 && <p className="text-[10px] font-bold text-orange-600">Unused: {formatCurrency(paymentUnused)}</p>}
                 </div>
               </div>
             );
@@ -4497,7 +4537,42 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     const totals = getTransactionTotals(tx);
     const selectedParty = data.parties.find(p => p.id === tx.partyId);
     const handleLocationSelect = (loc) => { setTx({...tx, address: loc.address, mobile: loc.mobile || selectedParty?.mobile || '', lat: loc.lat || '', lng: loc.lng || '', locationLabel: loc.label }); setShowLocPicker(false); };
-    const unpaidBills = useMemo(() => { if (!tx.partyId) return []; return data.transactions.filter(t => { if (t.partyId !== tx.partyId || t.id === tx.id || t.type === 'estimate' || t.status === 'Cancelled') return false; const isAlreadyLinked = tx.linkedBills?.some(l => l.billId === t.id); if (isAlreadyLinked) return true; const stats = getBillStats(t, data.transactions); if (type === 'payment') { return ['sales', 'purchase', 'expense'].includes(t.type) && stats.status !== 'PAID'; } if (['sales', 'purchase', 'expense'].includes(type)) { if (t.type === 'payment' && stats.status !== 'FULLY USED') { if (type === 'sales' && t.subType === 'in') return true; if ((type === 'purchase' || type === 'expense') && t.subType === 'out') return true; return false; } } return false; }); }, [tx.partyId, data.transactions, tx.linkedBills, type]);
+    // --- FIX: Logical Link Bill (Smart Credit vs Debit Matching) ---
+    const unpaidBills = useMemo(() => {
+        if (!tx.partyId) return [];
+        return data.transactions.filter(t => {
+            // 1. Basic Filters (Party check, Self check, Cancelled check)
+            if (t.partyId !== tx.partyId || t.id === tx.id || t.type === 'estimate' || t.status === 'Cancelled') return false;
+
+            // 2. Always show if already linked (taki edit karte waqt link na gayab ho)
+            const isAlreadyLinked = tx.linkedBills?.some(l => l.billId === t.id);
+            if (isAlreadyLinked) return true;
+
+            // 3. Identify Nature (Credit vs Debit)
+            // Current Form being filled (Source)
+            // Credit = Payment In, Purchase, Expense
+            // Debit = Payment Out, Sales
+            const isSourceCredit = (type === 'payment' && tx.subType === 'in') || type === 'purchase' || type === 'expense';
+            
+            // Item in List (Target)
+            const isTargetCredit = (t.type === 'payment' && t.subType === 'in') || t.type === 'purchase' || t.type === 'expense';
+
+            // 4. MAIN LOGIC: Link only Opposites (Credit to Debit OR Debit to Credit)
+            // Agar same nature hai (Cr-Cr ya Dr-Dr) to mat dikhao
+            if (isSourceCredit === isTargetCredit) return false;
+
+            // 5. Check Status (Don't show fully settled items)
+            const stats = getBillStats(t, data.transactions);
+            
+            if (['sales', 'purchase', 'expense'].includes(t.type)) {
+                return stats.status !== 'PAID'; // Only show Unpaid Bills
+            } else if (t.type === 'payment') {
+                return stats.status !== 'FULLY USED'; // Only show Payments with Balance
+            }
+
+            return false;
+        });
+    }, [tx.partyId, data.transactions, tx.linkedBills, type, tx.subType]);
     const updateLine = (idx, field, val) => { const newItems = [...tx.items]; newItems[idx][field] = val; if (field === 'itemId') { const item = data.items.find(i => i.id === val); if (item) { newItems[idx].price = type === 'purchase' ? item.buyPrice : item.sellPrice; newItems[idx].buyPrice = item.buyPrice; newItems[idx].description = item.description || ''; newItems[idx].brand = ''; } } if (field === 'brand') { const item = data.items.find(i => i.id === newItems[idx].itemId); if (item && item.brands) { const brandData = item.brands.find(b => b.name === val); if (brandData) { newItems[idx].price = type === 'purchase' ? brandData.buyPrice : brandData.sellPrice; newItems[idx].buyPrice = brandData.buyPrice; } else if (!val) { newItems[idx].price = type === 'purchase' ? item.buyPrice : item.sellPrice; newItems[idx].buyPrice = item.buyPrice; } } } setTx({ ...tx, items: newItems }); };
     const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
     const partyOptions = data.parties.map(p => ({ ...p, subText: partyBalances[p.id] ? formatCurrency(Math.abs(partyBalances[p.id])) + (partyBalances[p.id]>0?' DR':' CR') : 'Settled', subColor: partyBalances[p.id]>0?'text-green-600':partyBalances[p.id]<0?'text-red-600':'text-gray-400' }));
