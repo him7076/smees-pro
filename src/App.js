@@ -244,92 +244,95 @@ const cleanData = (obj) => {
 
 
 
-const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange, data, listFilter, listPaymentMode, categoryFilter, pushHistory, setViewDetail }) => {
+// Change: Added setAdjustCashModal to props
+// OPTIMIZED TransactionList Component
+const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange, data, listFilter, listPaymentMode, categoryFilter, pushHistory, setViewDetail, setAdjustCashModal }) => {
     const [sort, setSort] = useState('DateDesc');
     const [filter, setFilter] = useState(listFilter);
     const [visibleCount, setVisibleCount] = useState(50); 
     
     useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
-    let filtered = data.transactions.filter(tx => {
-        if (filter !== 'all' && tx.type !== filter) return false;
-        if (listPaymentMode && (tx.paymentMode || 'Cash') !== listPaymentMode) return false;
-        if (categoryFilter && tx.category !== categoryFilter) return false;
+    // 1. Optimize Filtering
+    const filtered = useMemo(() => {
+        return data.transactions.filter(tx => {
+            if (filter !== 'all' && tx.type !== filter) return false;
+            if (listPaymentMode && (tx.paymentMode || 'Cash') !== listPaymentMode) return false;
+            if (categoryFilter && tx.category !== categoryFilter) return false;
 
-        if (dateRange.start && tx.date < dateRange.start) return false;
-        if (dateRange.end && tx.date > dateRange.end) return false;
+            if (dateRange.start && tx.date < dateRange.start) return false;
+            if (dateRange.end && tx.date > dateRange.end) return false;
 
-        if (searchQuery) {
-            const lowerQuery = searchQuery.toLowerCase();
-            const party = data.parties.find(p => p.id === tx.partyId);
-            
-            const matchVoucher = tx.id.toLowerCase().includes(lowerQuery);
-            const matchName = (party?.name || tx.category || '').toLowerCase().includes(lowerQuery);
-            const matchDesc = (tx.description || '').toLowerCase().includes(lowerQuery);
-            const matchAddress = (party?.address || '').toLowerCase().includes(lowerQuery);
-            const matchAmount = (tx.amount || tx.finalTotal || 0).toString().includes(lowerQuery);
+            if (searchQuery) {
+                const lowerQuery = searchQuery.toLowerCase();
+                const party = data.parties.find(p => p.id === tx.partyId);
+                const matchVoucher = tx.id.toLowerCase().includes(lowerQuery);
+                const matchName = (party?.name || tx.category || '').toLowerCase().includes(lowerQuery);
+                const matchDesc = (tx.description || '').toLowerCase().includes(lowerQuery);
+                const matchAmount = (tx.amount || tx.finalTotal || 0).toString().includes(lowerQuery);
+                return matchVoucher || matchName || matchDesc || matchAmount;
+            }
+            return true;
+        });
+    }, [data.transactions, filter, listPaymentMode, categoryFilter, dateRange, searchQuery, data.parties]);
 
-            return matchVoucher || matchName || matchDesc || matchAddress || matchAmount;
-        }
+    // 2. Optimize Totals (Cache calculations)
+    const statsData = useMemo(() => {
+        return filtered.reduce((acc, tx) => {
+            acc.total += parseFloat(tx.amount || tx.finalTotal || 0);
+            // Only calculate due for relevant types to save speed
+            if(['sales', 'purchase', 'expense'].includes(tx.type)) {
+                const stats = getBillStats(tx, data.transactions);
+                acc.pending += (parseFloat(stats.pending) || 0);
+            }
+            return acc;
+        }, { total: 0, pending: 0 });
+    }, [filtered, data.transactions]);
 
-        return true;
-    });
-
-    const filteredTotal = filtered.reduce((acc, tx) => acc + parseFloat(tx.amount || tx.finalTotal || 0), 0);
-
-    filtered = sortData(filtered, sort);
-    const visibleData = filtered.slice(0, visibleCount);
+    const sortedData = useMemo(() => sortData(filtered, sort), [filtered, sort]);
+    const visibleData = sortedData.slice(0, visibleCount);
 
     return (
       <div className="space-y-4">
         <div className="flex flex-col gap-3">
-            <div className="flex justify-between items-center">
-              <h1 className="text-xl font-bold">Accounting {categoryFilter && `(${categoryFilter})`}</h1>
+           <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-bold">
+                    {listPaymentMode ? `${listPaymentMode} Book` : `Accounting ${categoryFilter ? `(${categoryFilter})` : ''}`}
+                  </h1>
+                  {listPaymentMode && (
+                      <button onClick={() => setAdjustCashModal({ type: listPaymentMode })} className="px-2 py-1 bg-gray-800 text-white text-[10px] rounded-lg font-bold">Adjust {listPaymentMode}</button>
+                  )}
+              </div>
               <div className="flex gap-2 items-center">
                   <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option><option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option></select>
               </div>
             </div>
 
             <div className="flex gap-2">
-                <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-blue-500" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} />
-                <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white focus:ring-2 focus:ring-blue-500" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
+                <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} />
+                <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
             </div>
 
             <div className="relative">
                 <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-                <input 
-                    className="w-full pl-10 pr-4 py-2 bg-white border rounded-xl text-sm focus:ring-2 focus:ring-blue-500" 
-                    placeholder="Search Name, Address, Desc, Amount..." 
-                    value={searchQuery} 
-                    onChange={(e) => setSearchQuery(e.target.value)} 
-                />
+                <input className="w-full pl-10 pr-4 py-2 bg-white border rounded-xl text-sm" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
             </div>
         </div>
 
         <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex justify-between items-center shadow-sm">
-            <div>
-                <p className="text-[10px] font-bold text-blue-500 uppercase">Filtered Total</p>
-                <p className="text-lg font-black text-blue-800">{formatCurrency(filteredTotal)}</p>
+            <div className="flex gap-4">
+                <div><p className="text-[10px] font-bold text-blue-500 uppercase">Total Amount</p><p className="text-lg font-black text-blue-800">{formatCurrency(statsData.total)}</p></div>
+                <div><p className="text-[10px] font-bold text-red-500 uppercase">Total Due</p><p className="text-lg font-black text-red-800">{formatCurrency(statsData.pending)}</p></div>
             </div>
-            <div className="bg-white px-3 py-1 rounded-lg text-xs font-bold text-blue-600 shadow-sm border border-blue-100">
-                Count: {filtered.length}
-            </div>
+            <div className="bg-white px-3 py-1 rounded-lg text-xs font-bold text-blue-600 shadow-sm border border-blue-100">Count: {filtered.length}</div>
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-  {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
-    <button 
-        key={t} 
-        onClick={() => { 
-            setFilter(t); // <--- YE MISSING THA
-            setSearchQuery(''); 
-        }} 
-        className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
-    >
-        {t}
-    </button>
-  ))}
-</div>
+            {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
+                <button key={t} onClick={() => { setFilter(t); setSearchQuery(''); }} className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
+            ))}
+        </div>
 
         <div className="space-y-3">
           {visibleData.map(tx => {
@@ -338,7 +341,6 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             const totals = getBillStats(tx, data.transactions);
             const isCancelled = tx.status === 'Cancelled';
             const unusedAmount = tx.type === 'payment' ? (totals.amount - (totals.used || 0)) : 0;
-
             let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
             if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
             if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
@@ -349,43 +351,25 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                 <div className="flex gap-4 items-center">
                   <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                   <div>
-                    <div className="flex items-center gap-2">
-                        <p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p>
-                    </div>
+                    <div className="flex items-center gap-2"><p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p></div>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
-                    {searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()) && (
-                        <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p>
-                    )}
+                    {(tx.type === 'payment' || (searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()))) && tx.description && ( <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p> )}
                     <div className="flex gap-1 mt-1">
-                        {isCancelled ? (
-                           <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span>
-                        ) : (
+                        {isCancelled ? <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span> : 
                            ['sales', 'purchase', 'expense', 'payment'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${(totals.status === 'PAID' || totals.status === 'FULLY USED') ? 'bg-green-100 text-green-700' : (totals.status === 'PARTIAL' || totals.status === 'PARTIALLY USED') ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>
-                        )}
+                        }
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
                   <p className={`font-bold ${isCancelled ? 'text-gray-400 line-through' : isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
-                  {/* FIX #2: Add 'expense' here */}
-{['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
-
+                  {['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
                   {tx.type === 'payment' && !isCancelled && unusedAmount > 0.1 && <p className="text-[10px] font-bold text-orange-600">Unused: {formatCurrency(unusedAmount)}</p>}
                 </div>
               </div>
             );
           })}
-          
-          <div className="flex flex-col gap-2 mt-4">
-            {visibleCount < filtered.length && (
-                <button 
-                    onClick={() => setVisibleCount(prev => prev + 50)} 
-                    className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-200 transition-colors"
-                >
-                    Load More Transactions ({filtered.length - visibleCount} remaining)
-                </button>
-            )}
-          </div>
+          {visibleCount < filtered.length && ( <button onClick={() => setVisibleCount(prev => prev + 50)} className="w-full py-3 bg-gray-100 text-gray-600 font-bold rounded-xl text-sm hover:bg-gray-200">Load More ({filtered.length - visibleCount})</button> )}
         </div>
       </div>
     );
@@ -1623,7 +1607,14 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
       </div>
     );
 };
-
+// Add this helper function at the top near other helpers
+const formatDurationHrs = (minutes) => {
+    const mins = parseInt(minutes || 0);
+    if (!mins) return '0m';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+};
 export default function App() {
   // REQ 1: Persistent Data State (Fixed for Hydration / SSR)
   // Initialize with default values (null / INITIAL_DATA) to prevent Prop ID Mismatch
@@ -2457,7 +2448,8 @@ const deleteRecord = async (collectionName, id) => {
 
   // --- SUB-COMPONENTS ---
 
- const StaffDetailView = ({ staff, data, setData, user, pushHistory, setManualAttModal, setSelectedTimeLog, showToast, setViewDetail }) => {
+ // Change: Added setModal to props
+const StaffDetailView = ({ staff, data, setData, user, pushHistory, setManualAttModal, setSelectedTimeLog, showToast, setViewDetail, setModal }) => {
       const [sTab, setSTab] = useState('attendance');
       const [attFilter, setAttFilter] = useState('This Month');
       const [attCustom, setAttCustom] = useState({ start: '', end: '' });
@@ -2600,11 +2592,17 @@ const deleteRecord = async (collectionName, id) => {
       }
 
       return (
-          <div className="fixed inset-0 z-50 bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
+<div className="fixed inset-0 z-[100] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
              <div className="p-4 space-y-6">
-               <div className="flex items-center gap-3 mb-4">
-                  <button onClick={() => setViewDetail(null)} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-                  <h2 className="font-bold text-lg">{staff.name}</h2>
+               <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                      <button onClick={() => setViewDetail(null)} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                      <h2 className="font-bold text-lg">{staff.name}</h2>
+                  </div>
+                  {/* CHANGE: Edit Button Added inside Component */}
+                  {user && user.role === 'admin' && (
+                      <button onClick={() => { pushHistory(); setModal({ type: 'staff', data: staff }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
+                  )}
                </div>
 
               <div className="p-4 bg-gray-50 rounded-2xl border">
@@ -2657,7 +2655,7 @@ const deleteRecord = async (collectionName, id) => {
                              </div>
                              <div className="text-center flex-1">
                                  <p className="text-[10px] text-gray-400 uppercase font-bold">Total Hours</p>
-                                 <p className="text-lg font-black text-green-600">{formatDur(attStats.mins)}</p>
+                                 <p className="text-lg font-black text-green-600">{formatDurationHrs(attStats.mins)}</p>
                              </div>
                          </div>
                      </div>
@@ -2708,7 +2706,7 @@ const deleteRecord = async (collectionName, id) => {
                              className="p-3 border rounded-xl bg-white text-xs cursor-pointer hover:bg-blue-50 transition-colors"
                          >
                              <div className="flex justify-between font-bold text-gray-800 mb-1"><span>Task: {item.taskName}</span><span>{new Date(item.start).toLocaleDateString()}</span></div>
-                             <div className="flex justify-between text-gray-500"><span>{formatTime(item.start)} - {item.end ? formatTime(item.end) : 'Active'}</span><span className="font-bold">{item.duration}m</span></div>
+                             <div className="flex justify-between text-gray-500"><span>{formatTime(item.start)} - {item.end ? formatTime(item.end) : 'Active'}</span><span className="font-bold">{formatDurationHrs(item.duration)}</span></div>
                          </div>
                      ))}
                  </div>
@@ -2773,7 +2771,7 @@ const deleteRecord = async (collectionName, id) => {
                  const buy = parseFloat(item.buyPrice || itemMaster?.buyPrice || 0);
                  const sell = parseFloat(item.price || 0);
                  const qty = parseFloat(item.qty || 0);
-                 if(type === 'Service') profit += (sell * qty); else profit += ((sell - buy) * qty);
+                 profit += ((sell - buy) * qty);
              });
           });
           return profit;
@@ -2790,9 +2788,18 @@ const deleteRecord = async (collectionName, id) => {
       // --- 3. EXPENSE CARD CALCULATION (New) ---
       const expenseData = useMemo(() => {
           return data.transactions
-            .filter(t => t.type === 'expense' && t.status !== 'Cancelled')
-            .filter(t => checkDate(t.date, expFilter, expDates))
-            .reduce((acc, tx) => acc + parseFloat(getTransactionTotals(tx).final || 0), 0);
+            .filter(t => t.status !== 'Cancelled' && checkDate(t.date, expFilter, expDates))
+            .reduce((acc, tx) => {
+                // Case A: Normal Expense
+                if (tx.type === 'expense') {
+                    return acc + parseFloat(getTransactionTotals(tx).final || 0);
+                }
+                // Case B: Payment In Discount (Treat as Expense)
+                if (tx.type === 'payment' && tx.subType === 'in' && parseFloat(tx.discountValue || 0) > 0) {
+                    return acc + parseFloat(tx.discountValue);
+                }
+                return acc;
+            }, 0);
       }, [data.transactions, expFilter, expDates]);
 
       return (
@@ -2805,16 +2812,19 @@ const deleteRecord = async (collectionName, id) => {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-              {/* NET PROFIT CARD */}
-              <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-4 rounded-2xl text-white shadow-lg cursor-pointer" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
+              {/* GROSS PROFIT CARD (Renamed & Fixed Dropdown) */}
+              <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-4 rounded-2xl text-white shadow-lg cursor-pointer relative z-0" onClick={() => { pushHistory(); setShowPnlReport(true); }}>
                   <div className="flex justify-between items-start">
                     <div>
-                        <p className="text-xs opacity-80 font-bold mb-1">NET PROFIT</p>
+                        <p className="text-xs opacity-80 font-bold mb-1">GROSS PROFIT</p>
                         <p className="text-2xl font-black">{formatCurrency(pnlData)}</p>
                     </div>
-                    <select onClick={(e)=>e.stopPropagation()} value={pnlFilter} onChange={(e)=>setPnlFilter(e.target.value)} className="bg-blue-900/50 text-xs border-none rounded p-1 outline-none text-white max-w-[80px]">
-                        <option value="Today">Today</option><option value="Weekly">Weekly</option><option value="Monthly">Month</option><option value="Yearly">Year</option><option value="Custom">Custom</option>
-                    </select>
+                    {/* UI Fix: Added relative positioning and z-index to dropdown container */}
+                    <div className="relative z-50">
+                        <select onClick={(e)=>e.stopPropagation()} value={pnlFilter} onChange={(e)=>setPnlFilter(e.target.value)} className="bg-blue-900 text-xs border-none rounded p-1 outline-none text-white">
+                            <option value="Today">Today</option><option value="Weekly">Weekly</option><option value="Monthly">Month</option><option value="Yearly">Year</option><option value="Custom">Custom</option>
+                        </select>
+                    </div>
                   </div>
                   {pnlFilter === 'Custom' && (
                     <div onClick={(e)=>e.stopPropagation()} className="flex gap-1 mt-2">
@@ -2824,11 +2834,10 @@ const deleteRecord = async (collectionName, id) => {
                   )}
               </div>
               
-              {/* CASH / BANK CARD */}
+              {/* CASH / BANK CARD - Adjust button removed */}
               <div className="bg-white p-4 rounded-2xl border shadow-sm relative group">
                   <div className="flex justify-between items-start mb-1">
                       <p className="text-xs font-bold text-gray-400">CASH / BANK</p>
-                      <button onClick={() => { pushHistory(); setAdjustCashModal({ type: 'Cash' }); }} className="p-1 bg-gray-100 rounded text-blue-600 font-bold text-[10px] flex items-center gap-1">Adjust</button>
                   </div>
                   <div className="flex justify-between text-sm mb-1 cursor-pointer" onClick={() => { setListFilter('all'); setListPaymentMode('Cash'); setActiveTab('accounting'); }}><span>Cash:</span><span className="font-bold text-green-600">{formatCurrency(stats.cashInHand)}</span></div>
                   <div className="flex justify-between text-sm cursor-pointer" onClick={() => { setListFilter('all'); setListPaymentMode('Bank'); setActiveTab('accounting'); }}><span>Bank:</span><span className="font-bold text-blue-600">{formatCurrency(stats.bankBalance)}</span></div>
@@ -3094,8 +3103,10 @@ const PnlReportView = () => {
                         const buy = parseFloat(item.buyPrice || m?.buyPrice || 0);
                         const sell = parseFloat(item.price || 0);
                         const qty = parseFloat(item.qty || 0);
-                        if(type === 'Service') serviceP += (sell * qty);
-                        else goodsP += ((sell - buy) * qty);
+                        // Change: Service Logic Updated
+const itemProfit = (sell - buy) * qty;
+if(type === 'Service') serviceP += itemProfit;
+else goodsP += itemProfit;
                     });
                     const totalP = serviceP + goodsP - parseFloat(tx.discountValue || 0);
 
@@ -3105,7 +3116,8 @@ const PnlReportView = () => {
                     // --- 3. ROBUST PAYMENT & BALANCE LOGIC ---
                     
                     // A. Invoice Total (Total Bill Amount)
-                    const invoiceTotal = parseFloat(tx.finalTotal || tx.grossTotal || 0);
+                    // Fix: Calculate Final Total correctly using getTransactionTotals (includes Discount)
+const invoiceTotal = getTransactionTotals(tx).final;
 
                     // B. Direct Received (Jo bill banate time mila)
                     const directReceived = parseFloat(tx.received || 0);
@@ -3260,8 +3272,10 @@ React.useLayoutEffect(() => {
             const qty = parseFloat(item.qty || 0);
             const sell = parseFloat(item.price || 0);
             const buy = parseFloat(item.buyPrice || itemMaster?.buyPrice || 0);
-            if (type === 'Service') pnl.service += (sell * qty);
-            else pnl.goods += ((sell - buy) * qty);
+           // Change: Service Profit uses Buy Price now
+const iProfit = (sell - buy) * qty;
+if (type === 'Service') pnl.service += iProfit;
+else pnl.goods += iProfit;
           });
           
           // 4. Net Profit
@@ -3807,7 +3821,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                     <p className="text-gray-500">{formatTime(log.start)} - {log.end ? formatTime(log.end) : 'Running'}</p>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <span className="font-bold bg-gray-100 px-2 py-1 rounded">{log.duration}m</span>
+                                    <span className="font-bold bg-gray-100 px-2 py-1 rounded">{formatDurationHrs(log.duration)}</span>
                                     <ChevronRight size={14} className="text-gray-400"/>
                                 </div>
                             </div>
@@ -3927,27 +3941,20 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     if (viewDetail.type === 'staff') {
         const staff = data.staff.find(s => s.id === viewDetail.id);
         if (!staff) return null;
+        // CHANGE: Removed wrapper div and passed setModal prop
         return (
-            <div className="fixed inset-0 z-[60] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
-                <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
-                    <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-                    <h2 className="font-bold text-lg">{staff.name}</h2>
-                    {user && user.role === 'admin' && <button onClick={() => { pushHistory(); setModal({ type: 'staff', data: staff }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>}
-                </div>
-                
-                {/* ✅ YE HAI NAYA CODE WITH PROPS */}
-                <StaffDetailView 
-                    staff={staff} 
-                    data={data} 
-                    setData={setData} 
-                    user={user} 
-                    pushHistory={pushHistory} 
-                    setManualAttModal={setManualAttModal} 
-                    setSelectedTimeLog={setSelectedTimeLog} 
-                    showToast={showToast}
-                    setViewDetail={setViewDetail}
-                />
-            </div>
+            <StaffDetailView 
+                staff={staff} 
+                data={data} 
+                setData={setData} 
+                user={user} 
+                pushHistory={pushHistory} 
+                setManualAttModal={setManualAttModal} 
+                setSelectedTimeLog={setSelectedTimeLog} 
+                showToast={showToast}
+                setViewDetail={setViewDetail}
+                setModal={setModal} // <--- Added setModal here
+            />
         );
     }
 
@@ -4700,7 +4707,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         
         {/* --- UPDATED SAVE LOGIC FOR MULTIPLE ASSETS --- */}
         <button 
-            onClick={async () => { 
+            onClick={async () => { handleCloseUI();
                 if(!tx.partyId) return alert("Party is Required");
                 if(type === 'expense' && !tx.category) return alert("Category is Required");
                 
@@ -4709,9 +4716,23 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
 
                 const finalRecord = { ...tx, ...totals, amount: finalAmount };
 
-                // Asset Date Logic... (Jo code pehle tha wahi rahega)
+                // Asset Date Logic.// Fix: Actual Asset Update Logic restored
                 if (type === 'sales' && tx.partyId && tx.linkedAssets?.length > 0) {
-                     // ... (Asset update logic same as before) ...
+                     const partyRef = data.parties.find(p => p.id === tx.partyId);
+                     if(partyRef && partyRef.assets) {
+                         const updatedAssets = partyRef.assets.map(a => {
+                             const match = tx.linkedAssets.find(la => la.name === a.name);
+                             return match ? { ...a, nextServiceDate: match.nextServiceDate } : a;
+                         });
+                         const updatedParty = { ...partyRef, assets: updatedAssets };
+                         
+                         // Update Local & Firebase
+                         setData(prev => ({
+                             ...prev,
+                             parties: prev.parties.map(p => p.id === updatedParty.id ? updatedParty : p)
+                         }));
+                         setDoc(doc(db, "parties", updatedParty.id), updatedParty);
+                     }
                 }
 
                 await saveRecord('transactions', finalRecord, tx.type); 
@@ -4997,7 +5018,7 @@ const toggleMobile = (mob) => {
     {/* Converted option ko hidden rakh sakte hain ya dikha sakte hain, usually manual select nahi karte */}
     <option value="Converted">Converted (System)</option>
 </select></div>
-        <button onClick={() => saveRecord('tasks', form, 'task')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
+        <button onClick={async () => { handleCloseUI(); await saveRecord('tasks', form, 'task'); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
       </div>
     );
   };
@@ -5026,7 +5047,7 @@ const toggleMobile = (mob) => {
             />
             <span>{form.active !== false ? 'Staff Account is ACTIVE' : 'Staff Account is INACTIVE (Blocked)'}</span>
         </label>
-        <button onClick={() => saveRecord('staff', form, 'staff')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Staff</button>
+        <button onClick={async () => { handleCloseUI();await saveRecord('staff', form, 'staff');  }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Staff</button>
       </div>
     );
   };
@@ -5131,37 +5152,37 @@ const removeMobile = (idx) => {
                     </div>
                 ))}
 
-                {/* Add New Location Inputs */}
-                <div className="space-y-2 pt-2 border-t border-blue-200">
-                    <div className="flex gap-2">
-                        <input className="w-1/3 p-2 border rounded-lg text-xs" placeholder="Label (e.g. Office)" value={newLoc.label} onChange={e => setNewLoc({...newLoc, label: e.target.value})} />
-                        <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Address" value={newLoc.address} onChange={e => setNewLoc({...newLoc, address: e.target.value})} />
+                    {/* Add New Location Inputs */}
+                    <div className="space-y-2 pt-2 border-t border-blue-200">
+                        <div className="flex gap-2">
+                            <input className="w-1/3 p-2 border rounded-lg text-xs" placeholder="Label (e.g. Office)" value={newLoc.label} onChange={e => setNewLoc({...newLoc, label: e.target.value})} />
+                            <input className="flex-1 p-2 border rounded-lg text-xs" placeholder="Address" value={newLoc.address} onChange={e => setNewLoc({...newLoc, address: e.target.value})} />
+                        </div>
+                        <div className="flex gap-2">
+                            <input 
+                            className="w-20 p-2 bg-gray-50 border rounded-lg text-xs" 
+                        placeholder="Lat" 
+                        value={newLoc.lat} 
+                        onChange={e => setNewLoc({...newLoc, lat: e.target.value})} 
+                        />
+        <input 
+            className="w-20 p-2 bg-gray-50 border rounded-lg text-xs" 
+            placeholder="Lng" 
+            value={newLoc.lng} 
+            onChange={e => setNewLoc({...newLoc, lng: e.target.value})} 
+        />
+        <button onClick={addLocation} className="px-4 bg-blue-600 text-white rounded-lg font-bold text-xs">Add</button>
+    </div>
                     </div>
-                    <div className="flex gap-2">
-                        <input 
-                          className="p-2 bg-gray-50 border rounded-lg text-xs col-span-1" 
-                     placeholder="Lat" 
-                      value={newLoc.lat} 
-                      onChange={e => setNewLoc({...newLoc, lat: e.target.value})} 
-                     />
-    <input 
-        className="p-2 bg-gray-50 border rounded-lg text-xs col-span-1" 
-        placeholder="Lng" 
-        value={newLoc.lng} 
-        onChange={e => setNewLoc({...newLoc, lng: e.target.value})} 
-    />
-    <button onClick={addLocation} className="px-4 bg-blue-600 text-white rounded-lg font-bold text-xs">Add</button>
-</div>
                 </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
-                 <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Opening Bal" value={form.openingBal} onChange={e => setForm({...form, openingBal: e.target.value})} />
-                 <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
-                     <option value="DR">Debit (To Collect)</option>
-                     <option value="CR">Credit (To Pay)</option>
-                 </select>
-            </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Opening Bal" value={form.openingBal} onChange={e => setForm({...form, openingBal: e.target.value})} />
+                    <select className="w-full p-3 bg-gray-50 border rounded-xl" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
+                        <option value="DR">Debit (To Collect)</option>
+                        <option value="CR">Credit (To Pay)</option>
+                    </select>
+                </div>
             <input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="Email (Optional)" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
            {/* Add New Asset Inputs */}
                 <div className="bg-white p-2 rounded-xl border border-indigo-200 space-y-2">
@@ -5211,7 +5232,7 @@ const removeMobile = (idx) => {
                         + Add Asset
                     </button>
                 </div>
-            <button onClick={() => saveRecord('parties', form, 'party')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
+           <button onClick={async () => { handleCloseUI();await saveRecord('parties', form, 'party');  }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
         </div>
     );
   };
@@ -5329,7 +5350,7 @@ const removeMobile = (idx) => {
              ))}
          </div>
 
-         <button onClick={() => saveRecord('items', form, 'item')} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200">Save Item</button>
+         <button onClick={async () => {  handleCloseUI();await saveRecord('items', form, 'item'); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200">Save Item</button>
        </div>
     );
   };
@@ -5409,6 +5430,7 @@ const removeMobile = (idx) => {
                     categoryFilter={categoryFilter}
                     pushHistory={pushHistory}
                     setViewDetail={setViewDetail}
+                    setAdjustCashModal={setAdjustCashModal} // <--- Ye Line Add Karni Hai
                 />
             )}
             
@@ -5459,12 +5481,35 @@ const removeMobile = (idx) => {
                         <button onClick={() => { pushHistory(); setMastersView('items'); }} className="p-6 bg-blue-50 border border-blue-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-blue-100"><Package size={32} className="text-blue-600"/><span className="font-bold text-blue-800">Items</span></button>
                         <button onClick={() => { pushHistory(); setMastersView('parties'); }} className="p-6 bg-emerald-50 border border-emerald-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-emerald-100"><Users size={32} className="text-emerald-600"/><span className="font-bold text-emerald-800">Parties</span></button>
                         
-                        {/* Cash & Bank Buttons */}
-                        <button onClick={() => { pushHistory(); setAdjustCashModal({ type: 'Cash' }); }} className="p-6 bg-green-50 border border-green-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-green-100"><Banknote size={32} className="text-green-600"/><span className="font-bold text-green-800">Cash</span></button>
-                        <button onClick={() => { pushHistory(); setAdjustCashModal({ type: 'Bank' }); }} className="p-6 bg-cyan-50 border border-cyan-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-cyan-100"><Briefcase size={32} className="text-cyan-600"/><span className="font-bold text-cyan-800">Bank</span></button>
+   {/* UPDATED: Cash & Bank Buttons with Balance & Redirect */}
+                        <button onClick={() => { 
+                            pushHistory(); 
+                            setActiveTab('accounting'); // Go to Accounting Tab
+                            setListFilter('all');       // Reset filters
+                            setListPaymentMode('Cash'); // Set Mode to Cash
+                        }} className="p-4 bg-green-50 border border-green-100 rounded-2xl flex flex-col items-center justify-between hover:bg-green-100">
+                            <Banknote size={28} className="text-green-600"/>
+                            <div className="text-center mt-2">
+                                <span className="font-bold text-green-800 block">Cash</span>
+                                <span className="text-xs font-black text-green-600">{formatCurrency(stats.cashInHand)}</span>
+                            </div>
+                        </button>
+                        
+                        <button onClick={() => { 
+                            pushHistory(); 
+                            setActiveTab('accounting'); // Go to Accounting Tab
+                            setListFilter('all'); 
+                            setListPaymentMode('Bank'); // Set Mode to Bank
+                        }} className="p-4 bg-cyan-50 border border-cyan-100 rounded-2xl flex flex-col items-center justify-between hover:bg-cyan-100">
+                            <Briefcase size={28} className="text-cyan-600"/>
+                             <div className="text-center mt-2">
+                                <span className="font-bold text-cyan-800 block">Bank</span>
+                                <span className="text-xs font-black text-cyan-600">{formatCurrency(stats.bankBalance)}</span>
+                            </div>
+                        </button>
 
-                        {/* REQ 3: Expense Categories Button */}
-                        <button onClick={() => { pushHistory(); setMastersView('categories'); }} className="p-6 bg-red-50 border border-red-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-red-100"><ReceiptText size={32} className="text-red-600"/><span className="font-bold text-red-800">Exp. Cats</span></button>
+                        {/* UPDATED: Expense Categories Button Name */}
+                        <button onClick={() => { pushHistory(); setMastersView('categories'); }} className="p-6 bg-red-50 border border-red-100 rounded-2xl flex flex-col items-center gap-2 hover:bg-red-100"><ReceiptText size={32} className="text-red-600"/><span className="font-bold text-red-800 text-center text-xs">Manage<br/>Categories</span></button>
 
                         {/* IMPORT BUTTONS */}
                         {user.role === 'admin' && (
