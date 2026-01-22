@@ -284,6 +284,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                 const matchVoucher = tx.id.toLowerCase().includes(lowerQuery);
                 const matchName = (party?.name || tx.category || '').toLowerCase().includes(lowerQuery);
                 const matchDesc = (tx.description || '').toLowerCase().includes(lowerQuery);
+                const matchAddress = (party?.address || '').toLowerCase().includes(lowerQuery);
                 const matchAmount = (tx.amount || tx.finalTotal || 0).toString().includes(lowerQuery);
                 return matchVoucher || matchName || matchDesc || matchAddress || matchAmount;
             }
