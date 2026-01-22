@@ -244,8 +244,7 @@ const cleanData = (obj) => {
 
 
 
-// Change: Added setAdjustCashModal to props
-// --- OPTIMIZED TRANSACTION LIST (Lag Free) ---
+// Change: Added setAdjustCashModal to props// --- OPTIMIZED TRANSACTION LIST (Fix: Paid Status & Build Error) ---
 const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange, data, listFilter, listPaymentMode, categoryFilter, pushHistory, setViewDetail, setAdjustCashModal }) => {
     const [sort, setSort] = useState('DateDesc');
     const [filter, setFilter] = useState(listFilter);
@@ -253,15 +252,17 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
     
     useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
-    // 1. Create a Fast Lookup Map for Linked Amounts (O(N) instead of O(N^2))
-    // Isse har row ke liye bar-bar calculate nahi karna padega
+    // 1. Create a Fast Lookup Map for Linked Amounts (FIXED LOGIC)
     const linksMap = useMemo(() => {
         const map = {}; // { billId: paidAmount }
         data.transactions.forEach(tx => {
-            if (tx.linkedTxn) {
-                tx.linkedTxn.forEach(link => {
-                    if (!map[link.id]) map[link.id] = 0;
-                    map[link.id] += parseFloat(link.amount || 0);
+            // FIX: Changed 'linkedTxn' to 'linkedBills' and added Cancelled check
+            if (tx.linkedBills && tx.status !== 'Cancelled') {
+                tx.linkedBills.forEach(link => {
+                    // FIX: Changed 'link.id' to 'link.billId'
+                    const targetId = link.billId; 
+                    if (!map[targetId]) map[targetId] = 0;
+                    map[targetId] += parseFloat(link.amount || 0);
                 });
             }
         });
@@ -281,11 +282,16 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             if (searchQuery) {
                 const lowerQuery = searchQuery.toLowerCase();
                 const party = data.parties.find(p => p.id === tx.partyId);
+                
                 const matchVoucher = tx.id.toLowerCase().includes(lowerQuery);
                 const matchName = (party?.name || tx.category || '').toLowerCase().includes(lowerQuery);
                 const matchDesc = (tx.description || '').toLowerCase().includes(lowerQuery);
+                
+                // FIX: 'matchAddress' variable define kiya
                 const matchAddress = (party?.address || '').toLowerCase().includes(lowerQuery);
+                
                 const matchAmount = (tx.amount || tx.finalTotal || 0).toString().includes(lowerQuery);
+
                 return matchVoucher || matchName || matchDesc || matchAddress || matchAmount;
             }
             return true;
@@ -313,7 +319,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
 
     return (
       <div className="space-y-4">
-        {/* Header & Filters (Same as before) */}
+        {/* Header & Filters */}
         <div className="flex flex-col gap-3">
            <div className="flex justify-between items-center">
               <div className="flex items-center gap-2">
@@ -364,14 +370,17 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             
             // FAST STATUS CALCULATION (No heavy function call)
             const totalAmt = parseFloat(tx.amount || tx.finalTotal || 0);
-            const usedAmt = linksMap[tx.id] || 0; // O(1) Access
+            
+            // FIX: Correctly fetching from map
+            const usedAmt = linksMap[tx.id] || 0; 
             const pendingAmt = Math.max(0, totalAmt - usedAmt);
             
             let status = 'UNPAID';
-            if (pendingAmt <= 0.1) status = 'PAID'; // Tolerance for small decimals
+            // Tolerance increased to 0.5 for rounding diffs
+            if (pendingAmt <= 0.5) status = 'PAID'; 
             else if (usedAmt > 0) status = 'PARTIAL';
             
-            // Special check for Payment Type (Unused amount)
+            // Special check for Payment Type
             const paymentUnused = tx.type === 'payment' ? (totalAmt - usedAmt) : 0;
 
             const isCancelled = tx.status === 'Cancelled';
@@ -388,7 +397,6 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                     <div className="flex items-center gap-2"><p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p></div>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
                     
-                    {/* Description Logic */}
                     {(tx.type === 'payment' || (searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()))) && tx.description && ( 
                         <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p> 
                     )}
