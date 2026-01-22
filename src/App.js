@@ -245,6 +245,7 @@ const cleanData = (obj) => {
 
 
 // Change: Added setAdjustCashModal to props// --- OPTIMIZED TRANSACTION LIST (Fix: Paid Status & Build Error) ---
+// --- OPTIMIZED TRANSACTION LIST (Final Fix: Includes Direct Received/Paid) ---
 const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange, data, listFilter, listPaymentMode, categoryFilter, pushHistory, setViewDetail, setAdjustCashModal }) => {
     const [sort, setSort] = useState('DateDesc');
     const [filter, setFilter] = useState(listFilter);
@@ -252,14 +253,12 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
     
     useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
-    // 1. Create a Fast Lookup Map for Linked Amounts (FIXED LOGIC)
+    // 1. Create a Fast Lookup Map for Linked Amounts
     const linksMap = useMemo(() => {
         const map = {}; // { billId: paidAmount }
         data.transactions.forEach(tx => {
-            // FIX: Changed 'linkedTxn' to 'linkedBills' and added Cancelled check
             if (tx.linkedBills && tx.status !== 'Cancelled') {
                 tx.linkedBills.forEach(link => {
-                    // FIX: Changed 'link.id' to 'link.billId'
                     const targetId = link.billId; 
                     if (!map[targetId]) map[targetId] = 0;
                     map[targetId] += parseFloat(link.amount || 0);
@@ -286,10 +285,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                 const matchVoucher = tx.id.toLowerCase().includes(lowerQuery);
                 const matchName = (party?.name || tx.category || '').toLowerCase().includes(lowerQuery);
                 const matchDesc = (tx.description || '').toLowerCase().includes(lowerQuery);
-                
-                // FIX: 'matchAddress' variable define kiya
                 const matchAddress = (party?.address || '').toLowerCase().includes(lowerQuery);
-                
                 const matchAmount = (tx.amount || tx.finalTotal || 0).toString().includes(lowerQuery);
 
                 return matchVoucher || matchName || matchDesc || matchAddress || matchAmount;
@@ -298,7 +294,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
         });
     }, [data.transactions, filter, listPaymentMode, categoryFilter, dateRange, searchQuery, data.parties]);
 
-    // 3. Optimized Totals (Using linksMap)
+    // 3. Optimized Totals (Fix: Added Direct Payment Logic)
     const statsData = useMemo(() => {
         return filtered.reduce((acc, tx) => {
             const amount = parseFloat(tx.amount || tx.finalTotal || 0);
@@ -306,8 +302,15 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
 
             // Only calculate DUE for bill types
             if(['sales', 'purchase', 'expense'].includes(tx.type)) {
-                const paid = linksMap[tx.id] || 0;
-                const pending = Math.max(0, amount - paid);
+                // A. Linked Payment (Baad me jo pay hua)
+                const linkedPaid = linksMap[tx.id] || 0;
+                
+                // B. Direct Payment (Jo bill banate waqt pay hua)
+                const directPaid = parseFloat(tx.received || tx.paid || 0);
+                
+                const totalPaid = linkedPaid + directPaid;
+                const pending = Math.max(0, amount - totalPaid);
+                
                 acc.pending += pending;
             }
             return acc;
@@ -368,20 +371,24 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             const party = data.parties.find(p => p.id === tx.partyId);
             const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
             
-            // FAST STATUS CALCULATION (No heavy function call)
+            // --- FIXED LOGIC START ---
             const totalAmt = parseFloat(tx.amount || tx.finalTotal || 0);
             
-            // FIX: Correctly fetching from map
-            const usedAmt = linksMap[tx.id] || 0; 
-            const pendingAmt = Math.max(0, totalAmt - usedAmt);
+            // 1. Linked Payment
+            const linkedPaid = linksMap[tx.id] || 0;
+            // 2. Direct Payment (Received/Paid)
+            const directPaid = parseFloat(tx.received || tx.paid || 0);
+            
+            const totalPaid = linkedPaid + directPaid;
+            const pendingAmt = Math.max(0, totalAmt - totalPaid);
             
             let status = 'UNPAID';
-            // Tolerance increased to 0.5 for rounding diffs
             if (pendingAmt <= 0.5) status = 'PAID'; 
-            else if (usedAmt > 0) status = 'PARTIAL';
+            else if (totalPaid > 0) status = 'PARTIAL';
             
             // Special check for Payment Type
-            const paymentUnused = tx.type === 'payment' ? (totalAmt - usedAmt) : 0;
+            const paymentUnused = tx.type === 'payment' ? (totalAmt - linkedPaid) : 0;
+            // --- FIXED LOGIC END ---
 
             const isCancelled = tx.status === 'Cancelled';
             let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
@@ -411,6 +418,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                 <div className="text-right">
                   <p className={`font-bold ${isCancelled ? 'text-gray-400 line-through' : isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totalAmt)}</p>
                   
+                  {/* Balance ab sahi pending amount dikhayega */}
                   {['sales', 'purchase', 'expense'].includes(tx.type) && status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(pendingAmt)}</p>}
                   
                   {tx.type === 'payment' && !isCancelled && paymentUnused > 0.1 && <p className="text-[10px] font-bold text-orange-600">Unused: {formatCurrency(paymentUnused)}</p>}
