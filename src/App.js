@@ -387,7 +387,9 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             else if (totalPaid > 0) status = 'PARTIAL';
             
             // Special check for Payment Type
-            const paymentUnused = tx.type === 'payment' ? (totalAmt - linkedPaid) : 0;
+         // Special check for Payment Type (Fix: Include Discount in Total Available)
+            const paymentAvailable = parseFloat(tx.amount || 0) + parseFloat(tx.discountValue || 0);
+            const paymentUnused = tx.type === 'payment' ? (paymentAvailable - linkedPaid) : 0;
             // --- FIXED LOGIC END ---
 
             const isCancelled = tx.status === 'Cancelled';
@@ -401,7 +403,13 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                 <div className="flex gap-4 items-center">
                   <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                   <div>
-                    <div className="flex items-center gap-2"><p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p></div>
+                    <div className="flex items-center gap-2">
+                        <p className="font-bold text-gray-800">
+                            {tx.type === 'payment' 
+                                ? `Payment ${tx.subType === 'in' ? 'In' : 'Out'} - ${party?.name || 'Unknown'}`
+                                : (party?.name || tx.category || 'N/A')}
+                        </p>
+                    </div>
                     <p className="text-[10px] text-gray-400 uppercase font-bold">{tx.id} • {formatDate(tx.date)}</p>
                     
                     {(tx.type === 'payment' || (searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()))) && tx.description && ( 
@@ -461,6 +469,12 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
     });
     
     const sortedTasks = [...filteredTasks].sort((a, b) => {
+        if (statusFilter === 'Converted') {
+            // Sort by convertedDate (descending) if available, else fallback
+            const dateA = new Date(a.convertedDate || 0).getTime();
+            const dateB = new Date(b.convertedDate || 0).getTime();
+            return dateB - dateA; // Newest converted first
+        }
         const dateA = a.dueDate ? new Date(a.dueDate).getTime() : (sort === 'DateAsc' ? 9999999999999 : 0);
         const dateB = b.dueDate ? new Date(b.dueDate).getTime() : (sort === 'DateAsc' ? 9999999999999 : 0);
         if (sort === 'DateAsc') return dateA - dateB;
@@ -497,43 +511,59 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
         if(b === 'No Due Date') return -1;
         return a.localeCompare(b);
     });
-
-    // NEW AMC LOGIC
+// UPDATED AMC LOGIC (For Upcoming & All Assets)
     const amcData = useMemo(() => {
-        if (viewMode !== 'amc') return { grouped: {}, keys: [] };
+        // Change 1: Check if mode starts with 'amc' to cover both tabs
+        if (!viewMode.startsWith('amc')) return { grouped: {}, keys: [] };
         
         const list = [];
         const today = new Date();
-        
+        const showAll = viewMode === 'amc_all'; // Flag for All Assets tab
+
         data.parties.forEach(p => {
             (p.assets || []).forEach(a => {
-                if (a.nextServiceDate) {
-                    const d = new Date(a.nextServiceDate);
+                // Change 2: If showAll is true, include assets even without date
+                if (showAll || a.nextServiceDate) {
                     const matchesSearch = !amcSearch || 
                         a.name.toLowerCase().includes(amcSearch.toLowerCase()) || 
-                        p.name.toLowerCase().includes(amcSearch.toLowerCase());
+                        p.name.toLowerCase().includes(amcSearch.toLowerCase()) ||
+                        (a.brand || '').toLowerCase().includes(amcSearch.toLowerCase());
 
                     if (matchesSearch) {
-                        list.push({ party: p, asset: a, date: a.nextServiceDate, dateObj: d, isOverdue: d < today });
+                        const dateStr = a.nextServiceDate;
+                        // Sort logic: If no date, put it far in future (end of list)
+                        const d = dateStr ? new Date(dateStr) : new Date('2999-12-31');
+                        
+                        list.push({ 
+                            party: p, 
+                            asset: a, 
+                            date: dateStr, 
+                            dateObj: d, 
+                            isOverdue: dateStr && d < today 
+                        });
                     }
                 }
             });
         });
 
+        // Sort by Date
         list.sort((a,b) => a.dateObj - b.dateObj);
 
         const grouped = {};
         list.forEach(item => {
             let key = 'Others';
-            if(amcGroup === 'Date') key = formatDate(item.date);
-            else if(amcGroup === 'Week') {
+            
+            if (!item.date) {
+                key = 'No Service Date'; // New Group for assets without date
+            } else if(amcGroup === 'Date') {
+                key = formatDate(item.date);
+            } else if(amcGroup === 'Week') {
                 const d = new Date(item.date);
                 const firstDay = new Date(d.getFullYear(), 0, 1);
                 const pastDays = (d - firstDay) / 86400000;
                 const weekNum = Math.ceil((pastDays + firstDay.getDay() + 1) / 7);
                 key = `Week ${weekNum}, ${d.getFullYear()}`;
-            }
-            else if(amcGroup === 'Month') {
+            } else if(amcGroup === 'Month') {
                 key = new Date(item.date).toLocaleString('default', { month: 'long', year: 'numeric' });
             }
             
@@ -541,7 +571,14 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
             grouped[key].push(item);
         });
 
-        return { grouped, keys: Object.keys(grouped) };
+        // Ensure "No Service Date" group is at the very end
+        let keys = Object.keys(grouped);
+        if (keys.includes('No Service Date')) {
+            keys = keys.filter(k => k !== 'No Service Date');
+            keys.push('No Service Date');
+        }
+
+        return { grouped, keys };
     }, [data.parties, viewMode, amcSearch, amcGroup]);
 
     const TaskItem = ({ task }) => { 
@@ -585,7 +622,7 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
 
         <div className="flex bg-gray-100 p-1 rounded-xl">
             <button onClick={()=>setViewMode('tasks')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${viewMode==='tasks' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>My Tasks</button>
-            <button onClick={()=>setViewMode('amc')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${viewMode==='amc' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>Upcoming AMC</button>
+            <button onClick={()=>setViewMode('amc')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${viewMode.startsWith('amc') ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>AMC / Assets</button>
         </div>
 
         {viewMode === 'tasks' ? (
@@ -615,6 +652,10 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
             </>
         ) : (
             <div className="space-y-3 pb-20">
+            <div className="flex bg-white border rounded-xl p-1 mb-2">
+                     <button onClick={()=>setViewMode('amc')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold ${viewMode==='amc' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500'}`}>Upcoming AMC</button>
+                     <button onClick={()=>setViewMode('amc_all')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold ${viewMode==='amc_all' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500'}`}>All AMC / Assets</button>
+                </div>
                 <div className="flex gap-2">
                     <div className="relative flex-1">
                         <Search className="absolute left-2 top-2 text-gray-400" size={14}/>
@@ -786,7 +827,12 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
       const saleId = await saveRecord('transactions', newSale, 'sales');
       
       // 3. Update Task Status
-      const updatedTask = { ...record, status: 'Converted', generatedSaleId: saleId };
+     const updatedTask = { 
+    ...record, 
+    status: 'Converted', 
+    generatedSaleId: saleId,
+    convertedDate: form.date // Save the conversion date specifically
+};
       await saveRecord('tasks', updatedTask, 'task');
       
       if(onClose) onClose();
@@ -1397,11 +1443,128 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
     </div>
   );
 };
+// --- NEW COMPONENT: ITEM P&L REPORT ---
+const ItemPnLReport = ({ data, onBack }) => {
+    const [pnlSearch, setPnLSearch] = useState('');
+    const [pnlSort, setPnLSort] = useState('ProfitDesc');
+    const [pnlDuration, setPnLDuration] = useState('All');
+
+    // Logic to Calculate Profit
+    const reportData = useMemo(() => {
+        return data.items.map(item => {
+            let totalProfit = 0;
+            let totalQty = 0;
+            
+            // Filter Transactions based on Duration
+            const relevantTxs = data.transactions.filter(tx => {
+                if(tx.status === 'Cancelled' || !tx.items) return false;
+                
+                const d = new Date(tx.date);
+                const now = new Date();
+                
+                if (pnlDuration === 'This Month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+                if (pnlDuration === 'Last Month') {
+                    const last = new Date(); last.setMonth(last.getMonth() - 1);
+                    return d.getMonth() === last.getMonth() && d.getFullYear() === last.getFullYear();
+                }
+                return true; 
+            });
+
+            relevantTxs.forEach(tx => {
+                const lines = tx.items.filter(l => l.itemId === item.id);
+                lines.forEach(line => {
+                    const qty = parseFloat(line.qty || 0);
+                    const sell = parseFloat(line.price || 0);
+                    const buy = parseFloat(line.buyPrice || item.buyPrice || 0); // Buy Price from Line or Master
+                    
+                    if(tx.type === 'sales') {
+                        totalProfit += (sell - buy) * qty;
+                        totalQty += qty;
+                    }
+                });
+            });
+            
+            return { ...item, totalProfit, totalQty };
+        }).filter(i => i.name.toLowerCase().includes(pnlSearch.toLowerCase()))
+          .sort((a,b) => {
+                if(pnlSort === 'ProfitDesc') return b.totalProfit - a.totalProfit;
+                if(pnlSort === 'ProfitAsc') return a.totalProfit - b.totalProfit;
+                if(pnlSort === 'QtyDesc') return b.totalQty - a.totalQty;
+                return 0;
+          });
+    }, [data.items, data.transactions, pnlSearch, pnlSort, pnlDuration]);
+
+    const formatCurrency = (amount) => {
+        return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount);
+    };
+
+    return (
+        <div className="space-y-4 animate-in slide-in-from-right duration-300">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <button onClick={onBack} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><ArrowLeft size={20}/></button>
+                    <h1 className="text-xl font-bold">Item Profit Report</h1>
+                </div>
+                <div className="bg-blue-50 text-blue-800 px-3 py-1 rounded-lg text-xs font-bold">
+                    Items: {reportData.length}
+                </div>
+            </div>
+
+            {/* Filters */}
+            <div className="flex gap-2 bg-white p-2 rounded-xl border">
+                <div className="relative flex-1">
+                    <Search size={14} className="absolute left-3 top-3 text-gray-400"/>
+                    <input className="w-full pl-8 p-2 border rounded-lg text-xs bg-gray-50" placeholder="Search Item..." value={pnlSearch} onChange={e=>setPnLSearch(e.target.value)} />
+                </div>
+                <select className="p-2 border rounded-lg text-xs bg-gray-50 font-bold" value={pnlDuration} onChange={e=>setPnLDuration(e.target.value)}>
+                    <option value="All">All Time</option>
+                    <option value="This Month">This Month</option>
+                    <option value="Last Month">Last Month</option>
+                </select>
+                <select className="p-2 border rounded-lg text-xs bg-gray-50 font-bold" value={pnlSort} onChange={e=>setPnLSort(e.target.value)}>
+                    <option value="ProfitDesc">High Profit</option>
+                    <option value="ProfitAsc">Low Profit</option>
+                    <option value="QtyDesc">Most Sold</option>
+                </select>
+            </div>
+
+            {/* Report List */}
+            <div className="space-y-2 pb-20 overflow-y-auto" style={{maxHeight: '75vh'}}>
+                <div className="flex justify-between text-[10px] font-bold text-gray-400 px-2 uppercase">
+                    <span>Item Details</span>
+                    <span>Net Profit</span>
+                </div>
+                {reportData.map(item => (
+                    <div key={item.id} className="p-3 bg-white border rounded-xl flex justify-between items-center hover:shadow-sm">
+                        <div>
+                            <p className="font-bold text-gray-800 text-sm">{item.name}</p>
+                            <p className="text-[10px] text-gray-400">Avg Buy: {item.buyPrice || 0} | Sold: {item.totalQty} {item.unit}</p>
+                        </div>
+                        <div className="text-right">
+                            <p className={`font-black text-lg ${item.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {formatCurrency(item.totalProfit)}
+                            </p>
+                            {item.totalProfit > 0 && <p className="text-[10px] font-bold text-green-500">PROFIT</p>}
+                        </div>
+                    </div>
+                ))}
+                {reportData.length === 0 && <p className="text-center text-gray-400 py-10 italic">No sales found for this criteria.</p>}
+            </div>
+        </div>
+    );
+};
 const MasterList = ({ title, collection, type, onRowClick, search, setSearch, data, setData, user, partyBalances, itemStock, partyFilter, pushHistory, setViewDetail, setModal }) => {
     const [sort, setSort] = useState('A-Z');
     const [selectedIds, setSelectedIds] = useState([]);
     const [viewMode, setViewMode] = useState('list');
-    const [selectedCat, setSelectedCat] = useState(null);
+    const [selectedCat, setSelectedCat] = useState(null)
+    // --- NEW STATES FOR ITEM P&L & MENU ---
+    const [showMenu, setShowMenu] = useState(false);
+    const [showItemPnL, setShowItemPnL] = useState(false);
+    const [pnlSearch, setPnLSearch] = useState('');
+    const [pnlSort, setPnLSort] = useState('ProfitDesc'); // ProfitDesc, ProfitAsc, QtyDesc
+    const [pnlDuration, setPnLDuration] = useState('All'); // All, This Month, Last Month
 
     // --- REQ 2: CATEGORY MANAGEMENT LOGIC ---
     const handleRenameCat = async (e, oldName) => {
@@ -1464,6 +1627,13 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
     // ----------------------------------------
 
     let listData = data[collection] || [];
+    if (type === 'staff') {
+        listData = listData.map(s => ({
+            ...s,
+            subText: s.active ? 'Active' : 'Inactive',
+            subColor: s.active ? 'text-green-600' : 'text-red-600'
+        }));
+    }
 
     if (type === 'item') {
         listData = listData.map(i => {
@@ -1560,7 +1730,9 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
            console.error(e); 
        }
     };
-
+     if (showItemPnL && type === 'item') {
+        return <ItemPnLReport data={data} onBack={() => setShowItemPnL(false)} />;
+    }
     return (
       <div className="space-y-4">
         {/* 1. HEADER SECTION (Same as before) */}
@@ -1581,13 +1753,54 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
                     <Package size={18}/> {viewMode === 'category' ? 'Show All' : 'Categories'}
                   </button>
               )}
-              {(type === 'party' || type === 'item') && checkPermission(user, 'canViewMasters') && (
-                  <label className="p-2 bg-gray-100 rounded-xl cursor-pointer"><Upload size={18} className="text-gray-600"/><input type="file" hidden accept=".xlsx, .xls" onChange={handleImport} /></label>
-              )}
+             {/* --- NEW HEADER BUTTONS WITH MENU --- */}
               {selectedIds.length > 0 ? (
-                  <button onClick={handleBulkDelete} className="p-2 bg-red-100 text-red-600 rounded-xl flex items-center gap-1 text-sm px-4 font-bold"><Trash2 size={16}/> ({selectedIds.length})</button>
+                  <button onClick={handleBulkDelete} className="p-2 bg-red-100 text-red-600 rounded-xl flex items-center gap-1 text-sm px-4 font-bold"><Trash2 size={16}/> Delete ({selectedIds.length})</button>
               ) : (
-                  checkPermission(user, 'canViewMasters') && <button onClick={() => { pushHistory(); setModal({ type }); }} className="p-2 bg-blue-600 text-white rounded-xl flex items-center gap-1 text-sm px-4"><Plus size={18} /> Add</button>
+                  <div className="flex gap-2">
+                      {/* ADD BUTTON */}
+                      {checkPermission(user, 'canViewMasters') && (
+                          <button onClick={() => { pushHistory(); setModal({ type }); }} className="p-2 bg-blue-600 text-white rounded-xl flex items-center gap-1 text-sm px-4 font-bold shadow-sm">
+                              <Plus size={18} /> Add
+                          </button>
+                      )}
+
+                      {/* 3-DOT MENU FOR ITEMS */}
+                      {type === 'item' && checkPermission(user, 'canViewMasters') && (
+                          <div className="relative">
+                              <button onClick={() => setShowMenu(!showMenu)} className="p-2 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200 transition-colors">
+                                  <MoreHorizontal size={20}/>
+                              </button>
+                              
+                              {showMenu && (
+                                  <>
+                                  <div className="fixed inset-0 z-[40]" onClick={() => setShowMenu(false)}></div>
+                                  <div className="absolute right-0 top-12 w-52 bg-white shadow-xl border border-gray-100 rounded-2xl z-50 overflow-hidden animate-in zoom-in-95 origin-top-right">
+                                      <div className="p-1">
+                                          <button onClick={() => { setShowItemPnL(true); setShowMenu(false); }} className="w-full text-left px-3 py-3 hover:bg-blue-50 rounded-xl text-xs font-bold text-gray-700 flex items-center gap-2 mb-1">
+                                              <BarChart3 size={16} className="text-blue-600"/> Item Wise P&L
+                                          </button>
+                                          
+                                          {/* MOVED IMPORT BUTTON HERE */}
+                                          <label className="w-full text-left px-3 py-3 hover:bg-orange-50 rounded-xl text-xs font-bold text-gray-700 flex items-center gap-2 cursor-pointer">
+                                              <Upload size={16} className="text-orange-600"/> Import Excel
+                                              <input type="file" hidden accept=".xlsx, .xls" onChange={(e) => { handleImport(e); setShowMenu(false); }} />
+                                          </label>
+                                      </div>
+                                  </div>
+                                  </>
+                              )}
+                          </div>
+                      )}
+
+                      {/* OLD IMPORT FOR PARTY (Items ka menu me chala gaya, Party ka yahan rahega) */}
+                      {type === 'party' && checkPermission(user, 'canViewMasters') && (
+                          <label className="p-2 bg-gray-100 rounded-xl cursor-pointer hover:bg-gray-200">
+                              <Upload size={18} className="text-gray-600"/>
+                              <input type="file" hidden accept=".xlsx, .xls" onChange={handleImport} />
+                          </label>
+                      )}
+                  </div>
               )}
           </div>
         </div>
@@ -3280,6 +3493,8 @@ React.useLayoutEffect(() => {
       const party = data.parties.find(p => p.id === tx.partyId);
       const totals = getBillStats(tx, data.transactions);
       const isPayment = tx.type === 'payment';
+      const [showAllLogs, setShowAllLogs] = useState(false);
+      const sourceTask = tx.convertedFromTask ? data.tasks.find(t => t.id === tx.convertedFromTask) : null;
       const paymentMode = tx.paymentMode || 'Cash';
 
       // --- UPDATED LINKED DATA LOGIC (Bi-Directional) ---
@@ -3579,6 +3794,34 @@ else pnl.goods += iProfit;
                 </div>
               </div>
             )}
+            {/* --- NEW SECTION: Related Time Logs --- */}
+            {sourceTask && sourceTask.timeLogs && sourceTask.timeLogs.length > 0 && (
+                <div className="bg-purple-50 p-4 rounded-2xl border border-purple-100 mb-4">
+                    <h3 className="font-bold text-purple-800 flex items-center gap-2 mb-2 text-xs uppercase">
+                        <Clock size={14}/> Related Time Logs (Task #{sourceTask.id})
+                    </h3>
+                    <div className="space-y-2">
+                        {(showAllLogs ? sourceTask.timeLogs : sourceTask.timeLogs.slice(0, 5)).map((log, idx) => (
+                            <div key={idx} className="bg-white p-2 rounded-lg border flex justify-between items-center text-xs">
+                                <div>
+                                    <span className="font-bold text-gray-700">{log.staffName}</span>
+                                    <span className="text-gray-400 mx-1">|</span>
+                                    <span className="text-gray-500">{new Date(log.start).toLocaleDateString()}</span>
+                                </div>
+                                <span className="font-bold bg-gray-100 px-1.5 py-0.5 rounded">{formatDurationHrs(log.duration)}</span>
+                            </div>
+                        ))}
+                    </div>
+                    {sourceTask.timeLogs.length > 5 && (
+                        <button 
+                            onClick={() => setShowAllLogs(!showAllLogs)}
+                            className="w-full mt-2 text-xs font-bold text-purple-600 bg-white border border-purple-200 py-1.5 rounded-lg hover:bg-purple-100"
+                        >
+                            {showAllLogs ? 'Show Less' : `Show All (${sourceTask.timeLogs.length})`}
+                        </button>
+                    )}
+                </div>
+            )}
 
              {!isPayment && (
                 <div className="space-y-2">
@@ -3620,6 +3863,16 @@ else pnl.goods += iProfit;
     // --- TASK DETAIL ---
     if (viewDetail.type === 'task') {
         const task = data.tasks.find(t => t.id === viewDetail.id);
+        const [showLogs, setShowLogs] = useState(false);
+        // Calculate Staff Wise Totals
+        const staffTotals = useMemo(() => {
+            if(!task?.timeLogs) return {};
+            return task.timeLogs.reduce((acc, log) => {
+                const dur = parseInt(log.duration || 0);
+                acc[log.staffName] = (acc[log.staffName] || 0) + dur;
+                return acc;
+            }, {});
+        }, [task]);
         if (!task) return null;
         const party = data.parties.find(p => p.id === task.partyId);
         
@@ -3866,23 +4119,50 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
             })()}
                     
                     {/* Time Logs List */}
-                    <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
-                        {(task.timeLogs || []).map((log, idx) => (
-                            <div 
-                                key={idx} 
-                                onClick={() => { pushHistory(); setSelectedTimeLog({ task, index: idx }); }}
-                                className="bg-white p-3 rounded-lg border flex justify-between items-center text-xs cursor-pointer hover:bg-gray-50 active:scale-95 transition-all"
-                            >
-                                <div>
-                                    <p className="font-bold">{log.staffName}</p>
-                                    <p className="text-gray-500">{formatTime(log.start)} - {log.end ? formatTime(log.end) : 'Running'}</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="font-bold bg-gray-100 px-2 py-1 rounded">{formatDurationHrs(log.duration)}</span>
-                                    <ChevronRight size={14} className="text-gray-400"/>
+                    {/* --- REPLACED TIME LOGS SECTION --- */}
+                    <div className="mb-4">
+                        <div className="flex justify-between items-center mb-2">
+                            <h3 className="font-bold text-gray-400 text-xs uppercase">Time Logs ({task.timeLogs?.length || 0})</h3>
+                            <button onClick={() => setShowLogs(!showLogs)} className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                                {showLogs ? 'Hide' : 'Show'}
+                            </button>
+                        </div>
+
+                        {/* Staff Totals Header */}
+                        {showLogs && Object.keys(staffTotals).length > 0 && (
+                            <div className="bg-blue-50 p-2 rounded-lg mb-2 text-xs border border-blue-100">
+                                <p className="font-bold text-blue-800 mb-1">Total Duration by Staff:</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {Object.entries(staffTotals).map(([name, mins]) => (
+                                        <span key={name} className="bg-white px-2 py-0.5 rounded border border-blue-200 text-gray-700">
+                                            {name}: <strong>{formatDurationHrs(mins)}</strong>
+                                        </span>
+                                    ))}
                                 </div>
                             </div>
-                        ))}
+                        )}
+
+                        {/* Logs List */}
+                        {showLogs && (
+                            <div className="space-y-2 max-h-60 overflow-y-auto">
+                                {(task.timeLogs || []).map((log, idx) => (
+                                    <div 
+                                        key={idx} 
+                                        onClick={() => { pushHistory(); setSelectedTimeLog({ task, index: idx }); }}
+                                        className="bg-white p-3 rounded-lg border flex justify-between items-center text-xs cursor-pointer hover:bg-gray-50 active:scale-95 transition-all"
+                                    >
+                                        <div>
+                                            <p className="font-bold">{log.staffName}</p>
+                                            <p className="text-gray-500">{formatTime(log.start)} - {log.end ? formatTime(log.end) : 'Running'}</p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-bold bg-gray-100 px-2 py-1 rounded">{formatDurationHrs(log.duration)}</span>
+                                            <ChevronRight size={14} className="text-gray-400"/>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Staff Timer Controls */}
@@ -4239,7 +4519,12 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
 
                              <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-2">
                                 <div className="flex justify-between"><span className="text-xs font-bold text-gray-500 uppercase">Next Service</span><span className={`font-bold ${new Date(selectedAsset.nextServiceDate) <= new Date() ? 'text-red-600 animate-pulse' : 'text-green-600'}`}>{selectedAsset.nextServiceDate || 'Not Set'}</span></div>
-                                <button onClick={() => window.open(`https://wa.me/${record.mobile}?text=${encodeURIComponent(`Hello ${record.name}, Reminder for your ${selectedAsset.name} (${selectedAsset.brand}) service. Due: ${selectedAsset.nextServiceDate}.`)}`, '_blank')} className="w-full mt-2 py-2 bg-green-100 text-green-700 rounded-lg font-bold flex items-center justify-center gap-2"><MessageCircle size={16}/> WhatsApp Reminder</button>
+                                <button onClick={() => {
+    const msg = `*AMC Service Reminder*\n\nDear ${record.name},\n\nThis is a gentle reminder regarding the AMC service for your asset:\n\n*${selectedAsset.name}*\nBrand: ${selectedAsset.brand}\nModel: ${selectedAsset.model}\n\n*Due Date: ${selectedAsset.nextServiceDate}*\n\nPlease confirm a suitable time for the service visit.\n\nBest Regards,\n${data.company.name}`;
+    window.open(`https://wa.me/${record.mobile}?text=${encodeURIComponent(msg)}`, '_blank');
+}} className="w-full mt-2 py-2 bg-green-100 text-green-700 rounded-lg font-bold flex items-center justify-center gap-2">
+    <MessageCircle size={16}/> WhatsApp Reminder
+</button>
                             </div>
 
                              <h3 className="font-bold text-gray-700">Service History</h3>
