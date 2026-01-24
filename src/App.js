@@ -453,7 +453,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
     );
 };
 
-const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPermission }) => {
+const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPermission,deleteRecord }) => {
     // 1. States
     const [sort, setSort] = useState(localStorage.getItem('smees_task_sort') || 'DateAsc');
     const [search, setSearch] = useState('');
@@ -6024,6 +6024,7 @@ const removeMobile = (idx) => {
                     setViewDetail={setViewDetail}
                     setModal={setModal}
                     checkPermission={checkPermission}
+                    deleteRecord={deleteRecord}
                 />
             )}
             
