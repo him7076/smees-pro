@@ -695,22 +695,37 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                                         <p className="text-[10px] text-gray-500 mt-1">Due: {formatDate(item.date)} ({item.asset.brand})</p>
                                     </div>
                                     
-                                    {/* REQ 3: Created Status vs Create Button */}
+                                    {/* REQ 3 & 1: Created Status with Undo Option */}
                                     {existingTask ? (
-                                        <button 
-                                            onClick={(e) => {
-                                                e.stopPropagation(); // Prevent row click
-                                                pushHistory();
-                                                setViewDetail({ type: 'task', id: existingTask.id });
-                                            }}
-                                            className="px-3 py-2 bg-green-100 text-green-700 rounded-xl font-bold text-xs whitespace-nowrap flex items-center gap-1"
-                                        >
-                                            <CheckCircle2 size={12}/> Created
-                                        </button>
+                                        <div className="flex items-center gap-1">
+                                            <button 
+                                                onClick={(e) => {
+                                                    e.stopPropagation(); 
+                                                    pushHistory();
+                                                    setViewDetail({ type: 'task', id: existingTask.id });
+                                                }}
+                                                className="px-3 py-2 bg-green-100 text-green-700 rounded-xl font-bold text-xs whitespace-nowrap flex items-center gap-1"
+                                            >
+                                                <CheckCircle2 size={12}/> Created
+                                            </button>
+                                            {/* Undo Button */}
+                                            <button 
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if(window.confirm('Undo auto-created task?')) {
+                                                        deleteRecord('tasks', existingTask.id);
+                                                    }
+                                                }}
+                                                className="p-2 bg-red-100 text-red-600 rounded-xl hover:bg-red-200 transition-colors"
+                                                title="Undo / Delete Task"
+                                            >
+                                                <Trash2 size={14}/>
+                                            </button>
+                                        </div>
                                     ) : (
                                         <button 
                                             onClick={(e) => {
-                                                e.stopPropagation(); // Prevent row click
+                                                e.stopPropagation(); 
                                                 pushHistory();
                                                 setModal({
                                                     type: 'task',
@@ -3456,6 +3471,9 @@ const invoiceTotal = getTransactionTotals(tx).final;
   };
 
   const DetailView = () => {
+    // --- NEW STATES FOR MENU & ITEMS ---
+    const [showTaskMenu, setShowTaskMenu] = useState(false);
+    const [showItems, setShowItems] = useState(false);
     // --- SCROLL RESTORATION LOGIC ---
 // Jab bhi viewDetail change ho, agar purana scroll saved hai to wahan jump karo
 React.useLayoutEffect(() => {
@@ -3670,35 +3688,48 @@ else pnl.goods += iProfit;
                {tx.status !== 'Cancelled' && <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1"><Share2 size={16}/> PDF</button>}
                
                {/* --- FIX: Updated Buttons for Restore --- */}
-               {checkPermission(user, 'canEditTasks') && (
-                   <>
-                       {tx.status !== 'Cancelled' ? (
-                          <button onClick={() => cancelTransaction(tx.id)} className="p-2 bg-gray-100 text-gray-600 rounded-lg border hover:bg-red-50 hover:text-red-600 font-bold text-xs">Cancel</button>
-                       ) : (
-                          <div className="flex items-center gap-2">
-                              <span className="px-2 py-2 bg-red-50 text-red-600 rounded-lg font-black text-xs border border-red-200">CANCELLED</span>
-                              {/* NEW RESTORE BUTTON */}
-                              <button onClick={() => restoreTransaction(tx.id)} className="px-3 py-2 bg-green-100 text-green-700 rounded-lg font-bold text-xs border border-green-200 hover:bg-green-200">
-                                  Restore
-                              </button>
-                          </div>
-                       )}
-                       
-                       {/* Edit Button (Only show if NOT Cancelled) */}
-                       {tx.status !== 'Cancelled' && (
-                           <button 
-                                onClick={() => { 
-                                    pushHistory(); 
-                                    setModal({ type: tx.type, data: tx }); 
-                                    // setViewDetail(null);  <--- IS LINE KO HATA DIYA
-                                }} 
-                                className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full"
-                           >
-                                Edit
-                           </button>
-                       )}
-                   </>
-               )}
+               {/* REQ 2: 3-Dot Menu for Task Actions */}
+                    {checkPermission(user, 'canEditTasks') && (
+                        <div className="relative">
+                            <button 
+                                onClick={() => setShowTaskMenu(!showTaskMenu)} 
+                                className="p-2 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
+                            >
+                                <MoreHorizontal size={20} className="text-gray-600"/>
+                            </button>
+                            
+                            {showTaskMenu && (
+                                <div className="absolute right-0 top-12 bg-white border shadow-2xl rounded-xl w-48 z-50 p-2 space-y-1 animate-in zoom-in-95 origin-top-right">
+                                    <button 
+                                        onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); setViewDetail(null); }} 
+                                        className="w-full text-left p-2 hover:bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-2"
+                                    >
+                                        <Edit2 size={16}/> Edit Task
+                                    </button>
+                                    
+                                    {/* WhatsApp Option with Logo */}
+                                    <button 
+                                        onClick={() => {
+                                            const msg = `Update on Task: ${task.name}\nStatus: ${task.status}`;
+                                            window.open(`https://wa.me/${party?.mobile}?text=${encodeURIComponent(msg)}`, '_blank');
+                                        }} 
+                                        className="w-full text-left p-2 hover:bg-green-50 text-green-600 rounded-lg text-xs font-bold flex items-center gap-2"
+                                    >
+                                        <MessageCircle size={16} fill="currentColor" className="text-green-500"/> WhatsApp Update
+                                    </button>
+
+                                    <div className="h-px bg-gray-100 my-1"></div>
+                                    
+                                    <button 
+                                        onClick={() => deleteRecord('tasks', task.id)} 
+                                        className="w-full text-left p-2 hover:bg-red-50 text-red-600 rounded-lg text-xs font-bold flex items-center gap-2"
+                                    >
+                                        <Trash2 size={16}/> Delete Task
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
             </div>
           </div>
           <div className={`p-4 space-y-6 ${tx.status === 'Cancelled' ? 'opacity-60 grayscale' : ''}`}>
@@ -4041,10 +4072,54 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     
                     <button onClick={shareTask} className="p-2 bg-green-100 text-green-700 rounded-lg"><MessageCircle size={20}/></button>
                     
+                    {/* REQ 2: 3-Dot Menu for Task Actions (Edit, Delete, WhatsApp) */}
                     {checkPermission(user, 'canEditTasks') && (
-                        <div className="flex gap-2">
-                             <button onClick={() => deleteRecord('tasks', task.id)} className="text-red-600 text-sm font-bold bg-red-50 px-3 py-1 rounded-lg">Delete</button>
-                             <button onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
+                        <div className="relative">
+                            <button 
+                                onClick={() => setShowTaskMenu(!showTaskMenu)} 
+                                className="p-2 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
+                            >
+                                <MoreHorizontal size={20} className="text-gray-600"/>
+                            </button>
+                            
+                            {showTaskMenu && (
+                                <div className="absolute right-0 top-12 bg-white border shadow-2xl rounded-xl w-48 z-50 p-2 space-y-1 animate-in zoom-in-95 origin-top-right">
+                                    {/* Edit Option */}
+                                    <button 
+                                        onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); setViewDetail(null); }} 
+                                        className="w-full text-left p-2 hover:bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-2"
+                                    >
+                                        <Edit2 size={16}/> Edit Task
+                                    </button>
+                                    
+                                    {/* WhatsApp Option with Logo */}
+                                    <button 
+                                        onClick={() => {
+                                            const msg = `Update on Task: ${task.name}\nStatus: ${task.status}`;
+                                            window.open(`https://wa.me/${party?.mobile}?text=${encodeURIComponent(msg)}`, '_blank');
+                                        }} 
+                                        className="w-full text-left p-2 hover:bg-green-50 text-green-600 rounded-lg text-xs font-bold flex items-center gap-2"
+                                    >
+                                        {/* Logo Logic: Using MessageCircle with Green Fill */}
+                                        <MessageCircle size={16} fill="currentColor" className="text-green-500"/> 
+                                        WhatsApp Update
+                                    </button>
+
+                                    <div className="h-px bg-gray-100 my-1"></div>
+                                    
+                                    {/* Delete Option */}
+                                    <button 
+                                        onClick={() => {
+                                            if(window.confirm('Are you sure you want to delete this task?')) {
+                                                deleteRecord('tasks', task.id);
+                                            }
+                                        }} 
+                                        className="w-full text-left p-2 hover:bg-red-50 text-red-600 rounded-lg text-xs font-bold flex items-center gap-2"
+                                    >
+                                        <Trash2 size={16}/> Delete Task
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
               </div>
@@ -4082,47 +4157,62 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     )}
 
      {/* CHANGE: Client Card Clickable for Admin Only */}
-            {party && (() => {
-                const displayAddress = task.address || party.address;
-                const locationLabel = task.locationLabel || '';
-                const contactsToShow = (task.selectedContacts && task.selectedContacts.length > 0) 
-                    ? task.selectedContacts 
-                    : [{ label: 'Primary', number: party.mobile }];
+           {/* FIXED: Single Clean Client Card */}
+                    <div className="bg-white p-4 rounded-2xl border mb-2 shadow-sm relative overflow-hidden">
+                        {/* Background Decoration */}
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -z-0"></div>
 
-                return (
-                    <div 
-                        onClick={() => {
-                            if(user.role === 'admin') {
-                                setViewDetail({ type: 'party', id: party.id });
-                            }
-                        }}
-                        className={`bg-white p-3 rounded-xl border mb-4 space-y-2 ${user.role === 'admin' ? 'cursor-pointer hover:bg-gray-50 active:scale-95 transition-all' : ''}`}
-                    >
-                        <div className="flex justify-between items-start">
+                        <div className="flex justify-between items-start relative z-10">
                             <div>
-                                <p className="text-xs font-bold text-gray-400 uppercase">
-                                    Client {locationLabel && <span className="text-blue-600">({locationLabel})</span>}
-                                    {user.role === 'admin' && <span className="text-[9px] text-blue-600 ml-1">(View Profile)</span>}
-                                </p>
-                                <p className="font-bold text-gray-800">{party.name}</p>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-xs font-bold text-gray-400 uppercase">Client</span>
+                                    {task.locationLabel && <span className="text-[10px] font-bold bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">{task.locationLabel}</span>}
+                                    {user.role === 'admin' && (
+                                        <button 
+                                            onClick={() => setViewDetail({ type: 'party', id: party.id })}
+                                            className="text-[9px] font-bold text-blue-500 hover:underline"
+                                        >
+                                            (View Profile)
+                                        </button>
+                                    )}
+                                </div>
+                                <p className="font-bold text-gray-800 text-lg leading-tight">{party.name}</p>
                             </div>
-                            {/* Map Pin Code yahan same rahega jo aapne pehle fix kiya tha */}
+                            
+                            {/* Get Direction Button (Right Side) */}
+                            {(task.address || party.address) && (
+                                <a 
+                                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(task.address || party.address)}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-2 rounded-xl shadow-lg shadow-blue-200 active:scale-95 transition-transform hover:bg-blue-700"
+                                >
+                                    <span className="text-[10px] font-bold uppercase tracking-wide">Get Direction</span>
+                                    <MapPin size={16} fill="currentColor" className="text-white"/>
+                                </a>
+                            )}
                         </div>
-                        {/* Mobile numbers wahi rahenge */}
-                        <div className="space-y-1">
-                            {contactsToShow.map((c, idx) => (
+
+                        {/* Contact Numbers */}
+                        <div className="mt-3 space-y-1 relative z-10">
+                            {((task.selectedContacts && task.selectedContacts.length > 0) ? task.selectedContacts : [{ label: 'Primary', number: party.mobile }]).map((c, idx) => (
                                   <div key={idx} className="flex items-center gap-2">
-                                    <span className="text-[10px] bg-gray-100 px-1 rounded text-gray-500 font-bold">{c.label}</span>
-                                    <a href={`tel:${c.number}`} onClick={e=>e.stopPropagation()} className="text-sm font-bold text-blue-600 flex items-center gap-1">
-                                        <Phone size={14}/> {c.number}
+                                    <span className="text-[10px] bg-gray-100 px-1.5 rounded text-gray-500 font-bold min-w-[50px] text-center">{c.label}</span>
+                                    <a href={`tel:${c.number}`} onClick={e=>e.stopPropagation()} className="text-sm font-bold text-gray-700 flex items-center gap-1 hover:text-blue-600">
+                                        <Phone size={14} className="text-gray-400"/> {c.number}
                                     </a>
                                   </div>
                             ))}
                         </div>
-                        {displayAddress && <p className="text-xs text-gray-500 border-t pt-2 mt-1">{displayAddress}</p>}
+
+                        {/* Address Text */}
+                        {(task.address || party.address) && (
+                            <div className="mt-3 pt-2 border-t border-gray-100 flex gap-2">
+                                <MapPin size={14} className="text-gray-400 shrink-0 mt-0.5"/>
+                                <p className="text-xs text-gray-500">{task.address || party.address}</p>
+                            </div>
+                        )}
                     </div>
-                );
-            })()}
                     
                     {/* Time Logs List with Summary & Toggle */}
                     <div className="bg-gray-50 rounded-xl border p-3 mb-4">
@@ -4198,51 +4288,78 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 </div>
 
                 {/* REQ 1: Items Used Section */}
-                <div className="bg-gray-50 p-4 rounded-2xl border">
-                    <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><Package size={18}/> Items / Parts Used</h3>
-                    <div className="space-y-2 mb-4">
-                        {(task.itemsUsed || []).map((line, idx) => (
-                             <div key={idx} className="p-2 border rounded-xl bg-white relative space-y-2">
-                                <button onClick={() => { const n = [...task.itemsUsed]; n.splice(idx, 1); updateTaskItems(n); }} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
-                                <div className="flex justify-between text-xs font-bold">
-                                    {/* FIX #7: Show Item Name + Brand in Task Detail */}
-                                    <div className="flex flex-col">
-                                        <span>{data.items.find(i=>i.id===line.itemId)?.name || 'Unknown Item'}</span>
-                                        {line.brand && <span className="text-[10px] text-purple-600 font-bold">({line.brand})</span>}
-                                    </div>
-                                    <span>{formatCurrency(line.qty * line.price)}</span>
-                                </div>
-                                <div className="flex gap-2">
-                                    <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateLineItem(idx, 'qty', e.target.value)} />
-                                    <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Price" value={line.price} onChange={e => updateLineItem(idx, 'price', e.target.value)} />
-                                    <input className="flex-1 p-1 border rounded text-xs" placeholder="Desc" value={line.description || ''} onChange={e => updateLineItem(idx, 'description', e.target.value)} />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                    {/* --- NEW CODE START: Detail View Total --- */}
-                {task.itemsUsed && task.itemsUsed.length > 0 && (
-                    <div className="flex justify-end pt-3 border-t border-gray-200 mb-2">
-                        <div className="text-right">
-                            <span className="text-xs font-bold text-gray-400 uppercase mr-2">Total Value</span>
-                            <span className="text-lg font-black text-gray-800">
-                                {formatCurrency(
-                                    task.itemsUsed.reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.price || 0)), 0)
-                                )}
-                            </span>
+                {/* REQ 4: Items Section (Admin Only, Toggle, P&L) */}
+                {user.role === 'admin' && (
+                    <div className="bg-gray-50 p-4 rounded-2xl border mb-4">
+                        <div className="flex justify-between items-center mb-2">
+                             <h3 className="font-bold text-gray-800 flex items-center gap-2"><Package size={18}/> Items / Parts</h3>
+                             <button 
+                                onClick={() => setShowItems(!showItems)}
+                                className="text-[10px] font-bold text-blue-600 bg-white border border-blue-200 px-3 py-1 rounded-full shadow-sm"
+                             >
+                                {showItems ? 'Hide Items' : 'Show Items'}
+                             </button>
                         </div>
+
+                        {showItems && (
+                            <div className="space-y-2 animate-in slide-in-from-top-2 fade-in duration-300">
+                                {(task.itemsUsed || []).map((line, idx) => {
+                                    const profit = (parseFloat(line.price||0) - parseFloat(line.buyPrice||0)) * parseFloat(line.qty||0);
+                                    return (
+                                        <div key={idx} className="p-2 border rounded-xl bg-white relative space-y-1">
+                                            <button onClick={() => { const n = [...task.itemsUsed]; n.splice(idx, 1); updateTaskItems(n); }} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
+                                            
+                                            <div className="flex justify-between text-xs font-bold">
+                                                <span>{data.items.find(i=>i.id===line.itemId)?.name || 'Unknown Item'}</span>
+                                                <span>{formatCurrency(line.qty * line.price)}</span>
+                                            </div>
+                                            
+                                            {/* Item P&L */}
+                                            <div className="flex justify-end text-[10px] font-bold">
+                                                <span className={profit >= 0 ? "text-green-600" : "text-red-600"}>
+                                                    P&L: {formatCurrency(profit)}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex gap-2 mt-1">
+                                                <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateLineItem(idx, 'qty', e.target.value)} />
+                                                <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Price" value={line.price} onChange={e => updateLineItem(idx, 'price', e.target.value)} />
+                                                <input className="flex-1 p-1 border rounded text-xs" placeholder="Desc" value={line.description || ''} onChange={e => updateLineItem(idx, 'description', e.target.value)} />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+
+                                {/* Total Value & Total P&L */}
+                                {task.itemsUsed && task.itemsUsed.length > 0 && (
+                                    <div className="pt-3 border-t border-gray-200">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-xs font-bold text-gray-400 uppercase">Total Value</span>
+                                            <span className="text-lg font-black text-gray-800">
+                                                {formatCurrency(task.itemsUsed.reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.price || 0)), 0))}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-xs font-bold text-gray-400 uppercase">Total P&L</span>
+                                            <span className={`text-sm font-black ${(task.itemsUsed.reduce((sum, item) => sum + ((parseFloat(item.price||0) - parseFloat(item.buyPrice||0)) * parseFloat(item.qty||0)), 0)) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                {formatCurrency(task.itemsUsed.reduce((sum, item) => sum + ((parseFloat(item.price||0) - parseFloat(item.buyPrice||0)) * parseFloat(item.qty||0)), 0))}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {task.status !== 'Converted' && (
+                                    <SearchableSelect 
+                                        placeholder="+ Add Item to Task" 
+                                        options={itemOptions} 
+                                        value="" 
+                                        onChange={v => addItem(v)} 
+                                    />
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
-                {/* --- NEW CODE END --- */}
-                    {task.status !== 'Converted' && (
-                        <SearchableSelect 
-                            placeholder="+ Add Item to Task" 
-                            options={itemOptions} 
-                            value="" 
-                            onChange={v => addItem(v)} 
-                        />
-                    )}
-                </div>
 
                 {/* CHANGE: Check if linkedTxId exists. Agar sale ban chuki hai to button mat dikhao */}
                     {/* CHANGE: Prevent Double Conversion Logic */}
@@ -5157,6 +5274,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
 };
 
   const TaskForm = ({ record }) => {
+    const [showItems, setShowItems] = useState(false);
     // TaskForm ke andar
 const [form, setForm] = useState(record ? { 
     ...record, 
@@ -5338,70 +5456,91 @@ const toggleMobile = (mob) => {
             value={form.photosLink || ''} 
             onChange={e => setForm({...form, photosLink: e.target.value})} 
         />
-        {/* MODIFIED TASK FORM ITEMS SECTION */}
-        <div className="space-y-2">
-            <h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4>
+        {/* REQ 4: Task Form Items Toggle */}
+        <div className="space-y-2 bg-gray-50 p-3 rounded-xl border">
+            <div className="flex justify-between items-center">
+                <h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4>
+                <button 
+                    type="button"
+                    onClick={() => setShowItems(!showItems)}
+                    className="text-[10px] font-bold text-blue-600 bg-white border border-blue-200 px-3 py-1 rounded-full"
+                >
+                    {showItems ? 'Hide Items' : 'Show Items'}
+                </button>
+            </div>
             
-            {/* List Items */}
-            {form.itemsUsed.map((line, idx) => (
-                <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
-                    <button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
-                    <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} />
-                    {/* FIX #6 & #8: Brand Select with Add New & Price Update */}
-                    {data.items.find(i => i.id === line.itemId)?.brands && (
-                        <div className="mb-2">
-                             <select 
-                                className="w-full p-2 border rounded-lg text-xs bg-blue-50 text-blue-800 font-bold outline-none"
-                                value={line.brand || ''} 
-                                onChange={(e) => {
-                                    if (e.target.value === 'ADD_NEW_BRAND') {
-                                        // Create New Brand Logic
-                                        const bName = prompt("Enter New Brand Name:");
-                                        if(!bName) return;
-                                        const sPrice = prompt("Selling Price?", line.price);
-                                        const bPrice = prompt("Buying Price?", line.buyPrice);
-                                        
-                                        // Update Master Item
-                                        const item = data.items.find(i => i.id === line.itemId);
-                                        const newBrandObj = { name: bName, sellPrice: sPrice, buyPrice: bPrice };
-                                        const updatedItem = { ...item, brands: [...(item.brands || []), newBrandObj] };
-                                        
-                                        // Save to DB
-                                        setDoc(doc(db, "items", item.id), updatedItem);
-                                        setData(prev => ({ ...prev, items: prev.items.map(i => i.id === item.id ? updatedItem : i) }));
-                                        
-                                        // Select it
-                                        updateItem(idx, 'brand', bName);
-                                    } else {
-                                        updateItem(idx, 'brand', e.target.value);
-                                    }
-                                }}
-                            >
-                                <option value="">Select Brand/Variant</option>
-                                {data.items.find(i => i.id === line.itemId).brands.map((b, bi) => (
-                                    <option key={bi} value={b.name}>{b.name} (₹{b.sellPrice})</option>
-                                ))}
-                                <option value="ADD_NEW_BRAND" className="font-bold text-blue-600">+ Add New Brand</option>
-                            </select>
+            {showItems && (
+                <div className="animate-in slide-in-from-top-2 fade-in duration-300 space-y-2 pt-2">
+                    {/* List Items */}
+                    {form.itemsUsed.map((line, idx) => (
+                        <div key={idx} className="p-2 border rounded-xl bg-white relative space-y-2">
+                            <button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
+                            <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} />
+                            
+                            {data.items.find(i => i.id === line.itemId)?.brands && (
+                                <div className="mb-2">
+                                     <select 
+                                        className="w-full p-2 border rounded-lg text-xs bg-blue-50 text-blue-800 font-bold outline-none"
+                                        value={line.brand || ''} 
+                                        onChange={(e) => {
+                                            if (e.target.value === 'ADD_NEW_BRAND') {
+                                                const bName = prompt("Enter New Brand Name:");
+                                                if(!bName) return;
+                                                const sPrice = prompt("Selling Price?", line.price);
+                                                const bPrice = prompt("Buying Price?", line.buyPrice);
+                                                
+                                                const item = data.items.find(i => i.id === line.itemId);
+                                                const newBrandObj = { name: bName, sellPrice: sPrice, buyPrice: bPrice };
+                                                const updatedItem = { ...item, brands: [...(item.brands || []), newBrandObj] };
+                                                
+                                                setDoc(doc(db, "items", item.id), updatedItem);
+                                                setData(prev => ({ ...prev, items: prev.items.map(i => i.id === item.id ? updatedItem : i) }));
+                                                
+                                                updateItem(idx, 'brand', bName);
+                                            } else {
+                                                updateItem(idx, 'brand', e.target.value);
+                                            }
+                                        }}
+                                    >
+                                        <option value="">Select Brand/Variant</option>
+                                        {data.items.find(i => i.id === line.itemId).brands.map((b, bi) => (
+                                            <option key={bi} value={b.name}>{b.name} (₹{b.sellPrice})</option>
+                                        ))}
+                                        <option value="ADD_NEW_BRAND" className="font-bold text-blue-600">+ Add New Brand</option>
+                                    </select>
+                                </div>
+                            )}
+                            <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} />
+                            <div className="flex gap-2">
+                                <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
+                                <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
+                                <input type="number" className="w-20 p-1 border rounded text-xs bg-gray-100" placeholder="Buy" value={line.buyPrice} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} />
+                            </div>
                         </div>
-                    )}
-                    <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} />
-                    <div className="flex gap-2">
-                        <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
-                        <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
-                        <input type="number" className="w-20 p-1 border rounded text-xs bg-gray-100" placeholder="Buy" value={line.buyPrice} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} />
+                    ))}
+                    
+
+                    {/* Add Button */}
+                    <button 
+                        onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} 
+                        className="w-full py-3 border-2 border-dashed border-blue-200 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-50 flex items-center justify-center gap-2"
+                    >
+                        <Plus size={16}/> Add Item
+                    </button>
+
+                    {/* Total Calculation */}
+                    <div className="flex justify-end pt-2 mt-2 border-t border-gray-200">
+                        <div className="text-right">
+                            <span className="text-xs font-bold text-gray-500 uppercase mr-2">Estimated Total</span>
+                            <span className="text-xl font-black text-blue-600">
+                                {formatCurrency(
+                                    form.itemsUsed.reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.price || 0)), 0)
+                                )}
+                            </span>
+                        </div>
                     </div>
                 </div>
-            ))}
-            
-
-            {/* Add Button at Bottom */}
-            <button 
-                onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} 
-                className="w-full py-3 border-2 border-dashed border-blue-200 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-50 flex items-center justify-center gap-2"
-            >
-                <Plus size={16}/> Add Item
-            </button>
+            )}
         </div>
 {/* --- NEW CODE START: Task Total Calculation --- */}
             <div className="flex justify-end pt-2 mt-2 border-t border-gray-200">
