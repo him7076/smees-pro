@@ -3687,49 +3687,7 @@ else pnl.goods += iProfit;
             <div className="flex gap-2">
                {tx.status !== 'Cancelled' && <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1"><Share2 size={16}/> PDF</button>}
                
-               {/* --- FIX: Updated Buttons for Restore --- */}
-               {/* REQ 2: 3-Dot Menu for Task Actions */}
-                    {checkPermission(user, 'canEditTasks') && (
-                        <div className="relative">
-                            <button 
-                                onClick={() => setShowTaskMenu(!showTaskMenu)} 
-                                className="p-2 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
-                            >
-                                <MoreHorizontal size={20} className="text-gray-600"/>
-                            </button>
-                            
-                            {showTaskMenu && (
-                                <div className="absolute right-0 top-12 bg-white border shadow-2xl rounded-xl w-48 z-50 p-2 space-y-1 animate-in zoom-in-95 origin-top-right">
-                                    <button 
-                                        onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); setViewDetail(null); }} 
-                                        className="w-full text-left p-2 hover:bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-2"
-                                    >
-                                        <Edit2 size={16}/> Edit Task
-                                    </button>
-                                    
-                                    {/* WhatsApp Option with Logo */}
-                                    <button 
-                                        onClick={() => {
-                                            const msg = `Update on Task: ${task.name}\nStatus: ${task.status}`;
-                                            window.open(`https://wa.me/${party?.mobile}?text=${encodeURIComponent(msg)}`, '_blank');
-                                        }} 
-                                        className="w-full text-left p-2 hover:bg-green-50 text-green-600 rounded-lg text-xs font-bold flex items-center gap-2"
-                                    >
-                                        <MessageCircle size={16} fill="currentColor" className="text-green-500"/> WhatsApp Update
-                                    </button>
-
-                                    <div className="h-px bg-gray-100 my-1"></div>
-                                    
-                                    <button 
-                                        onClick={() => deleteRecord('tasks', task.id)} 
-                                        className="w-full text-left p-2 hover:bg-red-50 text-red-600 rounded-lg text-xs font-bold flex items-center gap-2"
-                                    >
-                                        <Trash2 size={16}/> Delete Task
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    )}
+              
             </div>
           </div>
           <div className={`p-4 space-y-6 ${tx.status === 'Cancelled' ? 'opacity-60 grayscale' : ''}`}>
