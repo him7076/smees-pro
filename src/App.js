@@ -414,8 +414,15 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                   <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                   <div>
                     <div className="flex items-center gap-2"><p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p></div>
+                    {/* REQ 7: Fix Double Type Display */}
                     <p className="text-[10px] text-gray-400 uppercase font-bold">
-                        {tx.type === 'payment' ? <span className={tx.subType==='in'?'text-green-600':'text-red-500'}>{typeLabel}</span> : tx.type} • {tx.id} • {formatDate(tx.date)}
+                        {tx.type === 'payment' ? (
+                            <span className={tx.subType==='in'?'text-green-600':'text-red-500'}>{typeLabel} #{tx.id.split(':')[1] || tx.id}</span>
+                        ) : (
+                            // For Sales/Purchase, ID usually contains type (e.g. Sales:101). Just show ID.
+                            <span>{tx.id}</span>
+                        )} 
+                        <span className="text-gray-300 mx-1">•</span> {formatDate(tx.date)}
                     </p>
                     
                     {(tx.type === 'payment' || (searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()))) && tx.description && ( 
@@ -668,37 +675,63 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                 {amcData.keys.map(groupKey => (
                     <div key={groupKey}>
                         <h3 className="text-xs font-black text-indigo-500 uppercase tracking-wider mb-2 mt-4 ml-1 sticky top-0 bg-gray-50 py-1 z-10">{groupKey}</h3>
-                        {amcData.grouped[groupKey].map((item, idx) => (
-                            <div key={idx} className={`p-4 bg-white border rounded-2xl flex justify-between items-center mb-2 ${item.isOverdue ? 'border-red-200 bg-red-50' : ''}`}>
-                                <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className="font-bold text-gray-800">{item.asset.name}</span>
-                                        {item.isOverdue && <span className="text-[9px] bg-red-600 text-white px-1.5 rounded font-bold">OVERDUE</span>}
-                                    </div>
-                                    <p className="text-xs text-gray-600 font-bold">{item.party.name}</p>
-                                    <p className="text-[10px] text-gray-500 mt-1">Due: {formatDate(item.date)} ({item.asset.brand})</p>
-                                </div>
-                                <button 
-                                    onClick={() => {
-                                        pushHistory();
-                                        setModal({
-                                            type: 'task',
-                                            data: {
-                                                name: `Service: ${item.asset.name}`,
-                                                partyId: item.party.id,
-                                                description: `AMC Service for ${item.asset.brand} ${item.asset.model}. Due on ${item.date}`,
-                                                dueDate: item.date,
-                                                status: 'To Do',
-                                                linkedAssetStr: item.asset.name 
-                                            }
-                                        });
-                                    }}
-                                    className="px-3 py-2 bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs whitespace-nowrap"
+                        {amcData.grouped[groupKey].map((item, idx) => {
+                            // Check if task already exists
+                            const existingTask = data.tasks.find(t => t.partyId === item.party.id && t.linkedAssetStr === item.asset.name && t.dueDate === item.date);
+                            
+                            return (
+                                <div 
+                                    key={idx} 
+                                    // REQ 4: Clickable Row (Deep Link to Asset Detail)
+                                    onClick={() => setViewDetail({ type: 'party', id: item.party.id, openAsset: item.asset.name })}
+                                    className={`p-4 bg-white border rounded-2xl flex justify-between items-center mb-2 cursor-pointer active:scale-95 transition-all ${item.isOverdue ? 'border-red-200 bg-red-50' : ''}`}
                                 >
-                                    Create Task
-                                </button>
-                            </div>
-                        ))}
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="font-bold text-gray-800">{item.asset.name}</span>
+                                            {item.isOverdue && <span className="text-[9px] bg-red-600 text-white px-1.5 rounded font-bold">OVERDUE</span>}
+                                        </div>
+                                        <p className="text-xs text-gray-600 font-bold">{item.party.name}</p>
+                                        <p className="text-[10px] text-gray-500 mt-1">Due: {formatDate(item.date)} ({item.asset.brand})</p>
+                                    </div>
+                                    
+                                    {/* REQ 3: Created Status vs Create Button */}
+                                    {existingTask ? (
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation(); // Prevent row click
+                                                pushHistory();
+                                                setViewDetail({ type: 'task', id: existingTask.id });
+                                            }}
+                                            className="px-3 py-2 bg-green-100 text-green-700 rounded-xl font-bold text-xs whitespace-nowrap flex items-center gap-1"
+                                        >
+                                            <CheckCircle2 size={12}/> Created
+                                        </button>
+                                    ) : (
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation(); // Prevent row click
+                                                pushHistory();
+                                                setModal({
+                                                    type: 'task',
+                                                    data: {
+                                                        name: `Service: ${item.asset.name}`,
+                                                        partyId: item.party.id,
+                                                        description: `AMC Service for ${item.asset.brand} ${item.asset.model}. Due on ${item.date}`,
+                                                        dueDate: item.date,
+                                                        status: 'To Do',
+                                                        linkedAssetStr: item.asset.name 
+                                                    }
+                                                });
+                                            }}
+                                            className="px-3 py-2 bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs whitespace-nowrap"
+                                        >
+                                            Create Task
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 ))}
             </div>
@@ -1432,26 +1465,20 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
       )}
     </div>
   );
-};
-// --- NEW COMPONENT: ITEM P&L MODAL ---
-const ItemPnLModal = ({ isOpen, onClose, data }) => {
+};const ItemPnLModal = ({ isOpen, onClose, data, setViewDetail }) => {
     const [search, setSearch] = useState('');
     const [sort, setSort] = useState('ProfitDesc');
     const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
     if(!isOpen) return null;
 
-    // Calculate P&L Logic
     const report = data.items.map(item => {
         let revenue = 0;
         let cost = 0;
         let qtySold = 0;
 
         data.transactions.forEach(tx => {
-            // Only Sales, Exclude Cancelled
             if(tx.status === 'Cancelled' || tx.type !== 'sales') return;
-            
-            // Date Filter
             if(dateRange.start && tx.date < dateRange.start) return;
             if(dateRange.end && tx.date > dateRange.end) return;
 
@@ -1468,14 +1495,8 @@ const ItemPnLModal = ({ isOpen, onClose, data }) => {
         });
 
         return { ...item, revenue, cost, profit: revenue - cost, qtySold };
-    }).filter(i => 
-        // Search Filter
-        i.name.toLowerCase().includes(search.toLowerCase()) && 
-        // Only show items with activity
-        (i.revenue > 0 || i.cost > 0)
-    );
+    }).filter(i => i.name.toLowerCase().includes(search.toLowerCase()) && (i.revenue > 0 || i.cost > 0));
 
-    // Sorting Logic
     report.sort((a,b) => {
         if(sort === 'ProfitDesc') return b.profit - a.profit;
         if(sort === 'ProfitAsc') return a.profit - b.profit;
@@ -1483,65 +1504,49 @@ const ItemPnLModal = ({ isOpen, onClose, data }) => {
         return 0;
     });
 
+    // REQ 5: Total Calculation
+    const totalProfit = report.reduce((sum, i) => sum + i.profit, 0);
+
     return (
         <div className="fixed inset-0 z-[100] bg-white overflow-y-auto animate-in slide-in-from-bottom">
             <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center z-10">
-                <div>
-                    <h2 className="font-bold text-lg">Item-wise Profit & Loss</h2>
-                    <p className="text-xs text-gray-500">Net Profit analysis based on Sales</p>
-                </div>
+                <div><h2 className="font-bold text-lg">Item-wise Profit & Loss</h2></div>
                 <button onClick={onClose} className="p-2 bg-gray-100 rounded-full"><X size={20}/></button>
             </div>
             
             <div className="p-4 space-y-4">
-                {/* Filters */}
                 <div className="flex gap-2">
-                    <div className="flex-1 space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">From</label>
-                        <input type="date" className="w-full p-2 border rounded-xl text-xs bg-gray-50" value={dateRange.start} onChange={e=>setDateRange({...dateRange, start:e.target.value})}/>
-                    </div>
-                    <div className="flex-1 space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">To</label>
-                        <input type="date" className="w-full p-2 border rounded-xl text-xs bg-gray-50" value={dateRange.end} onChange={e=>setDateRange({...dateRange, end:e.target.value})}/>
-                    </div>
+                    <input type="date" className="w-1/2 p-2 border rounded text-xs bg-gray-50" value={dateRange.start} onChange={e=>setDateRange({...dateRange, start:e.target.value})}/>
+                    <input type="date" className="w-1/2 p-2 border rounded text-xs bg-gray-50" value={dateRange.end} onChange={e=>setDateRange({...dateRange, end:e.target.value})}/>
+                </div>
+                <div className="flex gap-2">
+                    <input className="flex-1 p-2 border rounded text-xs" placeholder="Search Item..." value={search} onChange={e=>setSearch(e.target.value)}/>
+                    <select className="p-2 border rounded text-xs" value={sort} onChange={e=>setSort(e.target.value)}><option value="ProfitDesc">High Profit</option><option value="ProfitAsc">Low Profit</option><option value="QtyDesc">High Qty</option></select>
                 </div>
 
-                <div className="flex gap-2">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-                        <input className="w-full pl-9 p-2 border rounded-xl text-xs" placeholder="Search Item..." value={search} onChange={e=>setSearch(e.target.value)}/>
-                    </div>
-                    <select className="p-2 border rounded-xl text-xs font-bold bg-gray-50" value={sort} onChange={e=>setSort(e.target.value)}>
-                        <option value="ProfitDesc">High Profit</option>
-                        <option value="ProfitAsc">Low Profit</option>
-                        <option value="QtyDesc">High Qty Sold</option>
-                    </select>
+                {/* REQ 5: Total Row */}
+                <div className={`p-3 rounded-xl border flex justify-between items-center ${totalProfit >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                    <span className="font-bold text-gray-600 uppercase text-xs">Total Net Profit</span>
+                    <span className={`font-black text-lg ${totalProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatCurrency(totalProfit)}</span>
                 </div>
                 
-                {/* List */}
-                <div className="space-y-2 mt-4 pb-20">
-                    <div className="flex justify-between items-center px-2 pb-2 border-b text-xs font-bold text-gray-400 uppercase">
-                        <span>Item Name</span>
-                        <span>Net Profit</span>
-                    </div>
+                <div className="space-y-2 mt-2 pb-20">
                     {report.map(item => (
-                        <div key={item.id} className="p-3 border rounded-xl bg-white flex justify-between items-center shadow-sm">
+                        <div key={item.id} onClick={() => { onClose(); setViewDetail({ type: 'item', id: item.id }); }} className="p-3 border rounded-xl bg-white flex justify-between items-center shadow-sm cursor-pointer active:scale-95 transition-transform">
                             <div>
                                 <p className="font-bold text-sm text-gray-800">{item.name}</p>
-                                <p className="text-[10px] text-gray-500 font-bold">Sold: {item.qtySold} {item.unit} • Rev: {formatCurrency(item.revenue)}</p>
+                                <div className="flex gap-2 items-center">
+                                    <span className="text-[10px] bg-gray-100 px-1 rounded text-gray-500">{item.type || 'Goods'}</span>
+                                    <span className="text-[10px] text-gray-500 font-bold">Sold: {item.qtySold} {item.unit}</span>
+                                </div>
                             </div>
                             <div className="text-right">
                                 <p className={`font-black text-sm ${item.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(item.profit)}</p>
-                                <p className="text-[10px] text-gray-400">Cost: {formatCurrency(item.cost)}</p>
+                                <p className="text-[10px] text-gray-400">Rev: {formatCurrency(item.revenue)}</p>
                             </div>
                         </div>
                     ))}
-                    {report.length === 0 && (
-                        <div className="text-center py-10">
-                            <p className="text-gray-400 font-bold">No sales data found.</p>
-                            <p className="text-xs text-gray-300">Try changing dates or search</p>
-                        </div>
-                    )}
+                    {report.length === 0 && <p className="text-center text-gray-400 py-10">No data found.</p>}
                 </div>
             </div>
         </div>
@@ -1847,7 +1852,7 @@ const MasterList = ({ title, collection, type, onRowClick, search, setSearch, da
     )}
     
     {/* RENDER P&L MODAL */}
-    {showPnL && <ItemPnLModal isOpen={showPnL} onClose={()=>setShowPnL(false)} data={data} />}
+    {showPnL && <ItemPnLModal isOpen={showPnL} onClose={()=>setShowPnL(false)} data={data} setViewDetail={setViewDetail} />}
   </div>
 );
 
@@ -2120,11 +2125,11 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
                       
                       // 2. Check Duplicate (Already task created for this asset around this date?)
                       // Logic: Check if any task exists for this party with description containing asset name AND created recently
+                      // FIX: Strict check using Linked Asset Name AND Due Date to prevent duplicates on refresh
                       const alreadyExists = data.tasks.some(t => 
                           t.partyId === p.id && 
-                          t.description?.includes(asset.name) && 
-                          // Create window check (e.g. task created within last 20 days to avoid duplicate for same cycle)
-                          new Date(t.createdAt) > new Date(today.getTime() - (20 * 24 * 60 * 60 * 1000))
+                          t.linkedAssetStr === asset.name && 
+                          t.dueDate === asset.nextServiceDate
                       );
 
                       if (!alreadyExists) {
@@ -4037,7 +4042,10 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     <button onClick={shareTask} className="p-2 bg-green-100 text-green-700 rounded-lg"><MessageCircle size={20}/></button>
                     
                     {checkPermission(user, 'canEditTasks') && (
-                        <button onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
+                        <div className="flex gap-2">
+                             <button onClick={() => deleteRecord('tasks', task.id)} className="text-red-600 text-sm font-bold bg-red-50 px-3 py-1 rounded-lg">Delete</button>
+                             <button onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
+                        </div>
                     )}
               </div>
             </div>
@@ -4427,9 +4435,16 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                             <p className={`text-lg font-black ${color}`}>
                                                 {displayQty > 0 ? '+' : ''}{displayQty} {record.unit}
                                             </p>
-                                            <p className="text-[10px] text-gray-400 font-bold">
-                                                {formatCurrency(line.price * qty)}
-                                            </p>
+                                            
+                                            {/* REQ 6: Detailed Pricing & P&L */}
+                                            <div className="text-[9px] font-bold text-gray-400 flex flex-col items-end">
+                                                <span>Buy: {line.buyPrice || 0} | Sell: {line.price}</span>
+                                                {isOut && (
+                                                    <span className={`${(line.price - (line.buyPrice||0)) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                        P&L: {formatCurrency((line.price - (line.buyPrice||0)) * qty)}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 );
@@ -4459,7 +4474,10 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         const PartyDetailInner = ({ record }) => {
             const [activeTab, setActiveTab] = useState('transactions');
             const [filter, setFilter] = useState('All');
-            const [selectedAsset, setSelectedAsset] = useState(null);
+            // FIX: Open specific asset if passed in viewDetail
+            const [selectedAsset, setSelectedAsset] = useState(
+                viewDetail.openAsset ? record.assets.find(a => a.name === viewDetail.openAsset) : null
+            );
             const [editingAsset, setEditingAsset] = useState(null);
             // CHANGE: Search States for Party Detail Tabs
             const [txSearch, setTxSearch] = useState('');
