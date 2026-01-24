@@ -4054,6 +4054,14 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 <div className="bg-gray-50 p-4 rounded-2xl border">
                     <h1 className="text-xl font-black text-gray-800 mb-2">{task.name}</h1>
                     <span className={`px-2 py-1 rounded-lg text-xs font-bold ${task.status === 'Done' ? 'bg-green-100 text-green-700' : task.status === 'Converted' ? 'bg-purple-100 text-purple-700' : 'bg-yellow-100 text-yellow-700'}`}>{task.status}</span>
+                    {/* REQ 1: Display Estimate Time */}
+                    {task.estimateTime && (
+                        <div className="mt-2 flex items-center gap-2 text-xs bg-white border px-3 py-2 rounded-lg w-fit">
+                            <Clock size={14} className="text-orange-500"/>
+                            <span className="font-bold text-gray-500">Est. Time:</span>
+                            <span className="font-black text-gray-800">{task.estimateTime}</span>
+                        </div>
+                    )}
                     {/* CHANGE: Assigned Staff Names */}
     {task.assignedStaff && task.assignedStaff.length > 0 && (
         <div className="flex gap-1">
@@ -5154,9 +5162,10 @@ const [form, setForm] = useState(record ? {
     ...record, 
     itemsUsed: record.itemsUsed || [], 
     assignedStaff: record.assignedStaff || [],
-    selectedContacts: record.selectedContacts || [] // <--- NEW ARRAY
+    selectedContacts: record.selectedContacts || [], // <--- NEW ARRAY
+    estimateTime: record.estimateTime || ''
 } : { 
-    name: '', partyId: '', description: '', status: 'To Do', dueDate: '', 
+    name: '', partyId: '', description: '', status: 'To Do', dueDate: '', estimateTime: '',
     assignedStaff: [], itemsUsed: [], 
     address: '', mobile: '', lat: '', lng: '', locationLabel: '', 
     selectedContacts: [] // <--- NEW ARRAY
@@ -5405,19 +5414,53 @@ const toggleMobile = (mob) => {
                     </span>
                 </div>
             </div>
+            
             {/* --- NEW CODE END --- */}
-        <div className="grid grid-cols-2 gap-4"><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /><select 
-    className="w-full p-3 bg-gray-50 border rounded-xl" 
-    value={form.status} 
-    onChange={e => setForm({...form, status: e.target.value})}
->
-    {/* Dynamic Options from Settings */}
-    {(data.categories.taskStatus || ["To Do", "In Progress", "Done"]).map(s => (
-        <option key={s} value={s}>{s}</option>
-    ))}
-    {/* Converted option ko hidden rakh sakte hain ya dikha sakte hain, usually manual select nahi karte */}
-    <option value="Converted">Converted (System)</option>
-</select></div>
+     {/* REQ 1: Estimate Time (Duration Picker Style) */}
+        <div className="grid grid-cols-2 gap-4">
+            <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase">Due Date</label>
+                <input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} />
+            </div>
+            
+            {/* NEW DURATION PICKER (Hours & Minutes) */}
+            <div>
+                 <label className="text-[10px] font-bold text-gray-400 uppercase">Est. Duration</label>
+                 <div className="flex gap-1">
+                    {/* Hours Selector */}
+                    <div className="relative w-1/2">
+                        <select 
+                            className="w-full p-3 bg-gray-50 border rounded-xl appearance-none text-center font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"
+                            value={parseInt((form.estimateTime || '0h').split('h')[0]) || 0} 
+                            onChange={e => {
+                                const h = e.target.value;
+                                const currentM = (form.estimateTime || '').includes(' ') ? parseInt((form.estimateTime || '').split(' ')[1]) : 0;
+                                setForm({...form, estimateTime: `${h}h ${currentM}m`});
+                            }} 
+                        >
+                            {[...Array(51).keys()].map(i => <option key={i} value={i}>{i}</option>)}
+                        </select>
+                        <span className="absolute right-2 top-3.5 text-[10px] text-gray-400 font-bold pointer-events-none">H</span>
+                    </div>
+
+                    {/* Minutes Selector (Steps of 5) */}
+                    <div className="relative w-1/2">
+                        <select 
+                            className="w-full p-3 bg-gray-50 border rounded-xl appearance-none text-center font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"
+                            value={(form.estimateTime || '').includes(' ') ? parseInt((form.estimateTime || '').split(' ')[1]) : 0} 
+                            onChange={e => {
+                                const m = e.target.value;
+                                const currentH = parseInt((form.estimateTime || '0h').split('h')[0]) || 0;
+                                setForm({...form, estimateTime: `${currentH}h ${m}m`});
+                            }} 
+                        >
+                            {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(i => <option key={i} value={i}>{i}</option>)}
+                        </select>
+                        <span className="absolute right-2 top-3.5 text-[10px] text-gray-400 font-bold pointer-events-none">M</span>
+                    </div>
+                 </div>
+            </div>
+        </div>
         <button onClick={async () => { handleCloseUI(); await saveRecord('tasks', form, 'task'); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
       </div>
     );
