@@ -3686,63 +3686,42 @@ else pnl.goods += iProfit;
             <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
             <div className="flex gap-2">
                {tx.status !== 'Cancelled' && <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1"><Share2 size={16}/> PDF</button>}
-               
+               {/* --- FIX: Updated Buttons for Restore --- */}
+               {checkPermission(user, 'canEditTasks') && (
+                   <>
+                       {tx.status !== 'Cancelled' ? (
+                          <button onClick={() => cancelTransaction(tx.id)} className="p-2 bg-gray-100 text-gray-600 rounded-lg border hover:bg-red-50 hover:text-red-600 font-bold text-xs">Cancel</button>
+                       ) : (
+                          <div className="flex items-center gap-2">
+                              <span className="px-2 py-2 bg-red-50 text-red-600 rounded-lg font-black text-xs border border-red-200">CANCELLED</span>
+                              {/* NEW RESTORE BUTTON */}
+                              <button onClick={() => restoreTransaction(tx.id)} className="px-3 py-2 bg-green-100 text-green-700 rounded-lg font-bold text-xs border border-green-200 hover:bg-green-200">
+                                  Restore
+                              </button>
+                          </div>
+                       )}
+                       
+                       {/* Edit Button (Only show if NOT Cancelled) */}
+                       {tx.status !== 'Cancelled' && (
+                           <button 
+                                onClick={() => { 
+                                    pushHistory(); 
+                                    setModal({ type: tx.type, data: tx }); 
+                                }} 
+                                className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full"
+                           >
+                                Edit
+                           </button>
+                       )}
+                   </>
+               )}
               
             </div>
-          <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
-                
-                <div className="flex gap-2">
-                   {/* PDF Share Button */}
-                   {tx.status !== 'Cancelled' && (
-                       <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1">
-                           <Share2 size={16}/> PDF
-                       </button>
-                   )}
-
-                   {/* REQ 2: Restore Edit, Cancel, Restore Buttons */}
-                   {tx.status !== 'Cancelled' ? (
-                       <>
-                           {checkPermission(user, 'canEditAccounts') && (
-                               <button 
-                                   onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} 
-                                   className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
-                                   title="Edit"
-                               >
-                                   <Edit2 size={18}/>
-                               </button>
-                           )}
-                           {checkPermission(user, 'canEditAccounts') && (
-                               <button 
-                                   onClick={() => {
-                                       if(window.confirm('Cancel this transaction? Stock will be reverted.')) {
-                                           updateRecord(tx.type === 'sales' ? 'sales' : 'purchase', tx.id, { status: 'Cancelled' });
-                                           // Note: Actual stock reversion logic handle in updateRecord or backend
-                                           setViewDetail(null); 
-                                       }
-                                   }} 
-                                   className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100"
-                                   title="Cancel"
-                               >
-                                   <X size={18}/>
-                               </button>
-                           )}
-                       </>
-                   ) : (
-                       // Restore Button for Cancelled Transactions
-                       checkPermission(user, 'canEditAccounts') && (
-                           <button 
-                               onClick={() => {
-                                   if(window.confirm('Restore this transaction?')) {
-                                       updateRecord(tx.type === 'sales' ? 'sales' : 'purchase', tx.id, { status: 'Generated' });
-                                   }
-                               }} 
-                               className="px-3 py-2 bg-green-100 text-green-700 rounded-lg font-bold text-xs flex items-center gap-1"
-                           >
-                               <RefreshCw size={14}/> Restore
-                           </button>
-                       )
-                   )}
-                </div>
+          </div>
+          <div className={`p-4 space-y-6 ${tx.status === 'Cancelled' ? 'opacity-60 grayscale' : ''}`}>
+            <div className="text-center">
+              <h1 className={`text-2xl font-black ${tx.status === 'Cancelled' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{formatCurrency(totals.amount)}</h1>
+              <p className="text-xs font-bold text-gray-400 uppercase">{tx.type} • {formatDate(tx.date)}</p>
             </div>
             
             {/* CHANGE: Party Card Clickable for Admin Only */}
