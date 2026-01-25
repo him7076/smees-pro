@@ -3684,7 +3684,12 @@ else pnl.goods += iProfit;
         <div className="fixed inset-0 z-[70] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
           <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
             <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
+            <div className="flex gap-2">
+               {tx.status !== 'Cancelled' && <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1"><Share2 size={16}/> PDF</button>}
+               
+              
+            </div>
+          <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
                 
                 <div className="flex gap-2">
                    {/* PDF Share Button */}
@@ -3738,12 +3743,6 @@ else pnl.goods += iProfit;
                        )
                    )}
                 </div>
-            </div>
-          </div>
-          <div className={`p-4 space-y-6 ${tx.status === 'Cancelled' ? 'opacity-60 grayscale' : ''}`}>
-            <div className="text-center">
-              <h1 className={`text-2xl font-black ${tx.status === 'Cancelled' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{formatCurrency(totals.amount)}</h1>
-              <p className="text-xs font-bold text-gray-400 uppercase">{tx.type} • {formatDate(tx.date)}</p>
             </div>
             
             {/* CHANGE: Party Card Clickable for Admin Only */}
@@ -4186,14 +4185,15 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                 </div>
                                 <p className="font-bold text-gray-800 text-lg leading-tight">{party.name}</p>
                             </div>
-                            {(task.lat || party.lat) && (
+                            
+                            {/* Get Direction Button (Right Side) */}
+                             {(task.lat || party.lat) && (
                     <a href={`https://www.google.com/maps/search/?api=1&query=${task.lat || party.lat},${task.lng || party.lng}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-2 rounded-xl shadow-lg shadow-blue-200 active:scale-95 transition-transform hover:bg-blue-700"
                                 >
                                     <span className="text-[10px] font-bold uppercase tracking-wide">Get Direction</span>
                                     <MapPin size={16} fill="currentColor" className="text-white"/>
                     </a>
                 )}
-
                         </div>
 
                         {/* Contact Numbers */}
