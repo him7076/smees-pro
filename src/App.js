@@ -3684,10 +3684,60 @@ else pnl.goods += iProfit;
         <div className="fixed inset-0 z-[70] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
           <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
             <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-            <div className="flex gap-2">
-               {tx.status !== 'Cancelled' && <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1"><Share2 size={16}/> PDF</button>}
-               
-              
+            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
+                
+                <div className="flex gap-2">
+                   {/* PDF Share Button */}
+                   {tx.status !== 'Cancelled' && (
+                       <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1">
+                           <Share2 size={16}/> PDF
+                       </button>
+                   )}
+
+                   {/* REQ 2: Restore Edit, Cancel, Restore Buttons */}
+                   {tx.status !== 'Cancelled' ? (
+                       <>
+                           {checkPermission(user, 'canEditAccounts') && (
+                               <button 
+                                   onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} 
+                                   className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
+                                   title="Edit"
+                               >
+                                   <Edit2 size={18}/>
+                               </button>
+                           )}
+                           {checkPermission(user, 'canEditAccounts') && (
+                               <button 
+                                   onClick={() => {
+                                       if(window.confirm('Cancel this transaction? Stock will be reverted.')) {
+                                           updateRecord(tx.type === 'sales' ? 'sales' : 'purchase', tx.id, { status: 'Cancelled' });
+                                           // Note: Actual stock reversion logic handle in updateRecord or backend
+                                           setViewDetail(null); 
+                                       }
+                                   }} 
+                                   className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100"
+                                   title="Cancel"
+                               >
+                                   <X size={18}/>
+                               </button>
+                           )}
+                       </>
+                   ) : (
+                       // Restore Button for Cancelled Transactions
+                       checkPermission(user, 'canEditAccounts') && (
+                           <button 
+                               onClick={() => {
+                                   if(window.confirm('Restore this transaction?')) {
+                                       updateRecord(tx.type === 'sales' ? 'sales' : 'purchase', tx.id, { status: 'Generated' });
+                                   }
+                               }} 
+                               className="px-3 py-2 bg-green-100 text-green-700 rounded-lg font-bold text-xs flex items-center gap-1"
+                           >
+                               <RefreshCw size={14}/> Restore
+                           </button>
+                       )
+                   )}
+                </div>
             </div>
           </div>
           <div className={`p-4 space-y-6 ${tx.status === 'Cancelled' ? 'opacity-60 grayscale' : ''}`}>
@@ -4136,15 +4186,14 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                 </div>
                                 <p className="font-bold text-gray-800 text-lg leading-tight">{party.name}</p>
                             </div>
-                            
-                            {/* Get Direction Button (Right Side) */}
-                             {(task.lat || party.lat) && (
+                            {(task.lat || party.lat) && (
                     <a href={`https://www.google.com/maps/search/?api=1&query=${task.lat || party.lat},${task.lng || party.lng}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-2 rounded-xl shadow-lg shadow-blue-200 active:scale-95 transition-transform hover:bg-blue-700"
                                 >
                                     <span className="text-[10px] font-bold uppercase tracking-wide">Get Direction</span>
                                     <MapPin size={16} fill="currentColor" className="text-white"/>
                     </a>
                 )}
+
                         </div>
 
                         {/* Contact Numbers */}
