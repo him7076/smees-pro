@@ -4138,22 +4138,13 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                             </div>
                             
                             {/* Get Direction Button (Right Side) */}
-                            {/* REQ: Get Direction Button using Lat/Lng if available */}
-                            {(task.lat && task.lng) || task.address || party.address ? (
-                                <a 
-                                    href={
-                                        (task.lat && task.lng) 
-                                        ? `https://www.google.com/maps/dir/?api=1&destination=${task.lat},${task.lng}`
-                                        : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(task.address || party.address)}`
-                                    }
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-2 rounded-xl shadow-lg shadow-blue-200 active:scale-95 transition-transform hover:bg-blue-700"
+                             {(task.lat || party.lat) && (
+                    <a href={`https://www.google.com/maps/search/?api=1&query=${task.lat || party.lat},${task.lng || party.lng}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-2 rounded-xl shadow-lg shadow-blue-200 active:scale-95 transition-transform hover:bg-blue-700"
                                 >
                                     <span className="text-[10px] font-bold uppercase tracking-wide">Get Direction</span>
                                     <MapPin size={16} fill="currentColor" className="text-white"/>
-                                </a>
-                            ) : null}
+                    </a>
+                )}
                         </div>
 
                         {/* Contact Numbers */}
