@@ -3746,7 +3746,7 @@ else pnl.goods += iProfit;
                                <button 
                                    onClick={() => {
                                        if(window.confirm('Cancel this transaction? Stock will be reverted.')) {
-                                           updateRecord(tx.type === 'sales' ? 'sales' : 'purchase', tx.id, { status: 'Cancelled' });
+                                           saveRecord(tx.type === 'sales' ? 'sales' : 'purchase', tx.id, { status: 'Cancelled' });
                                            // Note: Actual stock reversion logic backend/updateRecord handle karega
                                            setViewDetail(null); 
                                        }
@@ -3764,7 +3764,7 @@ else pnl.goods += iProfit;
                            <button 
                                onClick={() => {
                                    if(window.confirm('Restore this transaction?')) {
-                                       updateRecord(tx.type === 'sales' ? 'sales' : 'purchase', tx.id, { status: 'Generated' });
+                                       saveRecord(tx.type === 'sales' ? 'sales' : 'purchase', tx.id, { status: 'Generated' });
                                    }
                                }} 
                                className="px-3 py-2 bg-green-100 text-green-700 rounded-lg font-bold text-xs flex items-center gap-1"
