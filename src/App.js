@@ -161,57 +161,33 @@ const getTransactionTotals = (tx) => {
 // --- FIX: Logic updated for Bidirectional Linking ---
 const getBillStats = (bill, transactions) => {
     if (bill.type === 'estimate') return { ...getTransactionTotals(bill), status: 'ESTIMATE', pending: 0, paid: 0 };
-    
     const basic = getTransactionTotals(bill);
 
-    // 1. EXTERNAL LINKS: Koi Payment jo is Bill ko point kar raha ho
-    const linkedFromPayments = transactions
-        .filter(t => t.type === 'payment' && t.linkedBills && t.status !== 'Cancelled')
-        .reduce((sum, p) => {
-             const link = p.linkedBills.find(l => l.billId === bill.id);
+    // Ye check karega ki koi bhi transaction (Sale/Purchase/Payment) is current bill/payment ko link kar raha hai ya nahi
+    const totalLinkedToThis = transactions
+        .filter(t => t.status !== 'Cancelled' && t.linkedBills && t.id !== bill.id)
+        .reduce((sum, t) => {
+             const link = t.linkedBills.find(l => l.billId === bill.id);
              return sum + (link ? parseFloat(link.amount || 0) : 0);
         }, 0);
 
-    // 2. INTERNAL LINKS: Agar Bill khud kisi Payment ko point kar raha ho (Reverse Link)
-    // Ye sales/purchase/expense me kaam karega jo aapne "Link Bills" feature add kiya hai
-    const linkedToPayments = (bill.linkedBills || []).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
+    // Ye check karega ki is current bill/payment ne kitne doosre records ko link kiya hai
+    const totalLinkedByThis = (bill.linkedBills || []).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
 
-    // --- PAYMENT STATUS LOGIC ---
     let status = 'UNPAID';
     if(bill.type === 'payment') {
-         // Payment ke case me 'linkedToPayments' wo hai jo Payment ne bills ko settle kiya
-         // Aur 'linkedFromPayments' wo hai jo Bills ne is Payment ko use kiya (Reverse)
-         
-         const usedInternal = linkedToPayments;
-         
-         // Check karo ki koi Sale/Purchase is payment ko use kar rhi h kya
-         const usedExternal = transactions
-            .filter(t => ['sales', 'purchase', 'expense'].includes(t.type) && t.status !== 'Cancelled' && t.linkedBills)
-            .reduce((sum, t) => {
-                const link = t.linkedBills.find(l => l.billId === bill.id);
-                return sum + (link ? parseFloat(link.amount || 0) : 0);
-            }, 0);
-
-         const totalUsed = usedInternal + usedExternal;
-         
-         // Fix: Payment Available = Amount + Discount
-         const payAmt = parseFloat(bill.amount || 0);
-         const payDisc = parseFloat(bill.discountValue || 0);
-         const totalAvailable = payAmt + payDisc;
+         const totalUsed = totalLinkedToThis + totalLinkedByThis;
+         const totalAvailable = parseFloat(bill.amount || 0) + parseFloat(bill.discountValue || 0);
 
          if (totalUsed >= totalAvailable - 0.1 && totalAvailable > 0) status = 'FULLY USED';
-         else if (totalUsed > 0) status = 'PARTIALLY USED';
+         else if (totalUsed > 0.1) status = 'PARTIALLY USED';
          else status = 'UNUSED';
-         
-         return { ...basic, used: totalUsed, status, totalAvailable }; 
+         return { ...basic, used: totalUsed, status, totalAvailable, amount: parseFloat(bill.amount || 0) }; 
     }
 
-    // --- BILL (Sale/Purchase/Expense) STATUS LOGIC ---
-    const totalPaid = basic.paid + linkedFromPayments + linkedToPayments;
-    
+    const totalPaid = basic.paid + totalLinkedToThis + totalLinkedByThis;
     if (totalPaid >= basic.final - 0.1) status = 'PAID';
-    else if (totalPaid > 0) status = 'PARTIAL';
-    
+    else if (totalPaid > 0.1) status = 'PARTIAL';
     return { ...basic, totalPaid, pending: basic.final - totalPaid, status };
 };
 
@@ -425,10 +401,28 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                     )}
                     
                     <div className="flex gap-1 mt-1">
-                        {isCancelled ? <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span> : 
-                           ['sales', 'purchase', 'expense'].includes(tx.type) && <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${status === 'PAID' ? 'bg-green-100 text-green-700' : status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{status}</span>
-                        }
-                    </div>
+    {isCancelled ? (
+        <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span>
+    ) : (
+        <>
+            {/* Sales/Purchase Tags */}
+            {['sales', 'purchase', 'expense'].includes(tx.type) && (
+                <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${status === 'PAID' ? 'bg-green-100 text-green-700' : status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                    {status}
+                </span>
+            )}
+            {/* Payment Tags (Add this block) */}
+            {tx.type === 'payment' && (() => {
+                const payStats = getBillStats(tx, data.transactions);
+                return (
+                    <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${payStats.status === 'FULLY USED' ? 'bg-green-100 text-green-700' : payStats.status === 'PARTIALLY USED' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>
+                        {payStats.status}
+                    </span>
+                );
+            })()}
+        </>
+    )}
+</div>
                   </div>
                 </div>
                 <div className="text-right">
@@ -4372,23 +4366,23 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                     );
                                 })}
 
-                                {/* Total Value & Total P&L */}
-                                {task.itemsUsed && task.itemsUsed.length > 0 && (
-                                    <div className="pt-3 border-t border-gray-200">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="text-xs font-bold text-gray-400 uppercase">Total Value</span>
-                                            <span className="text-lg font-black text-gray-800">
-                                                {formatCurrency(task.itemsUsed.reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.price || 0)), 0))}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs font-bold text-gray-400 uppercase">Total P&L</span>
-                                            <span className={`text-sm font-black ${(task.itemsUsed.reduce((sum, item) => sum + ((parseFloat(item.price||0) - parseFloat(item.buyPrice||0)) * parseFloat(item.qty||0)), 0)) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                                {formatCurrency(task.itemsUsed.reduce((sum, item) => sum + ((parseFloat(item.price||0) - parseFloat(item.buyPrice||0)) * parseFloat(item.qty||0)), 0))}
-                                            </span>
-                                        </div>
-                                    </div>
-                                )}
+                                {/* Total Value & Total P&L Summary */}
+{task.itemsUsed && task.itemsUsed.length > 0 && (
+    <div className="pt-3 mt-2 border-t border-gray-200 space-y-1">
+        <div className="flex justify-between items-center">
+            <span className="text-xs font-bold text-gray-500 uppercase">Total Amount</span>
+            <span className="text-lg font-black text-gray-800">
+                {formatCurrency(task.itemsUsed.reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.price || 0)), 0))}
+            </span>
+        </div>
+        <div className="flex justify-between items-center bg-blue-50 p-2 rounded-lg">
+            <span className="text-xs font-bold text-blue-600 uppercase">Estimated P&L</span>
+            <span className={`font-black text-sm ${(task.itemsUsed.reduce((sum, item) => sum + ((parseFloat(item.price||0) - parseFloat(item.buyPrice||0)) * parseFloat(item.qty||0)), 0)) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(task.itemsUsed.reduce((sum, item) => sum + ((parseFloat(item.price||0) - parseFloat(item.buyPrice||0)) * parseFloat(item.qty||0)), 0))}
+            </span>
+        </div>
+    </div>
+)}
 
                                 {task.status !== 'Converted' && (
                                     <SearchableSelect 
@@ -5338,8 +5332,23 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         const n = [...form.itemsUsed];
         n[idx][field] = val;
         const item = data.items.find(i => i.id === n[idx].itemId);
+
         if (field === 'itemId' && item) {
-            n[idx].price = item.sellPrice; n[idx].buyPrice = item.buyPrice; n[idx].description = item.description || ''; n[idx].brand = '';
+            n[idx].price = item.sellPrice || 0;
+            n[idx].buyPrice = item.buyPrice || 0;
+            n[idx].description = item.description || '';
+            n[idx].brand = ''; // Reset brand on item change
+        }
+
+        if (field === 'brand' && item && item.brands) {
+            const brandData = item.brands.find(b => b.name === val);
+            if (brandData) {
+                n[idx].price = brandData.sellPrice || 0;
+                n[idx].buyPrice = brandData.buyPrice || 0;
+            } else {
+                n[idx].price = item.sellPrice || 0;
+                n[idx].buyPrice = item.buyPrice || 0;
+            }
         }
         setForm({ ...form, itemsUsed: n });
     };
@@ -5397,13 +5406,73 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
             <div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4><button onClick={() => setShowItems(!showItems)} className="text-[10px] font-bold text-blue-600 bg-white border border-blue-200 px-3 py-1 rounded-full">{showItems ? 'Hide Items' : 'Show Items'}</button></div>
             {showItems && (
                 <div className="space-y-2 pt-2">
-                    {form.itemsUsed.map((line, idx) => (
-                        <div key={idx} className="p-2 border rounded-xl bg-white relative space-y-2">
-                            <button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
-                            <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} />
-                            <div className="flex gap-2"><input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} /><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Price" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} /></div>
-                        </div>
-                    ))}
+                    {form.itemsUsed.map((line, idx) => {
+    const selectedItemMaster = data.items.find(i => i.id === line.itemId);
+    const brandOptions = selectedItemMaster?.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}`, subColor: 'text-green-600' })) || [];
+    const lineProfit = (parseFloat(line.price || 0) - parseFloat(line.buyPrice || 0)) * parseFloat(line.qty || 0);
+
+    return (
+        <div key={idx} className="p-3 border rounded-xl bg-white relative space-y-2 shadow-sm">
+            <button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500 z-10"><X size={12}/></button>
+            
+            {/* Searchable Item Dropdown */}
+            <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} placeholder="Select Item" />
+            
+            {/* Brand Dropdown (Sales Form Style) */}
+            {selectedItemMaster && (
+                <SearchableSelect 
+                    placeholder={brandOptions.length > 0 ? "Select Brand" : "No Brands"} 
+                    options={brandOptions} 
+                    value={line.brand || ''} 
+                    onChange={v => updateItem(idx, 'brand', v)} 
+                />
+            )}
+
+            <input className="w-full text-[10px] p-2 border rounded-lg bg-gray-50" placeholder="Item Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} />
+
+            <div className="flex gap-2 items-center">
+                <div className="flex-1">
+                    <label className="text-[9px] font-bold text-gray-400 uppercase">Qty</label>
+                    <input type="number" className="w-full p-2 border rounded text-xs" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
+                </div>
+                <div className="flex-1">
+                    <label className="text-[9px] font-bold text-gray-400 uppercase">Sale Price</label>
+                    <input type="number" className="w-full p-2 border rounded text-xs" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
+                </div>
+                <div className="flex-1">
+                    <label className="text-[9px] font-bold text-gray-400 uppercase">Purchase</label>
+                    <input type="number" className="w-full p-2 border rounded text-xs bg-yellow-50" value={line.buyPrice} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} />
+                </div>
+            </div>
+
+            {/* Individual Line P&L */}
+            <div className="flex justify-between items-center pt-1 border-t border-dashed">
+                <span className="text-[10px] text-gray-400 font-bold">Line Total: {formatCurrency(line.qty * line.price)}</span>
+                <span className={`text-[10px] font-bold ${lineProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    P&L: {formatCurrency(lineProfit)}
+                </span>
+            </div>
+        </div>
+    );
+})}
+
+{/* Final Summary Section - Just before "Add Item" button */}
+{form.itemsUsed.length > 0 && (
+    <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 space-y-1">
+        <div className="flex justify-between items-center">
+            <span className="text-xs font-bold text-gray-500 uppercase">Total Amount</span>
+            <span className="text-lg font-black text-gray-800">
+                {formatCurrency(form.itemsUsed.reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.price || 0)), 0))}
+            </span>
+        </div>
+        <div className="flex justify-between items-center border-t border-blue-200 pt-1">
+            <span className="text-xs font-bold text-blue-600 uppercase">Net Profit (P&L)</span>
+            <span className={`text-sm font-black ${(form.itemsUsed.reduce((sum, item) => sum + ((parseFloat(item.price || 0) - parseFloat(item.buyPrice || 0)) * parseFloat(item.qty || 0)), 0)) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(form.itemsUsed.reduce((sum, item) => sum + ((parseFloat(item.price || 0) - parseFloat(item.buyPrice || 0)) * parseFloat(item.qty || 0)), 0))}
+            </span>
+        </div>
+    </div>
+)}
                     <button onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="w-full py-3 border-2 border-dashed border-blue-200 text-blue-600 rounded-xl font-bold text-sm">+ Add Item</button>
                 </div>
             )}
