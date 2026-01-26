@@ -256,11 +256,11 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
 
     // 1. Create a Fast Lookup Map for Linked Amounts
     const linksMap = useMemo(() => {
-        const map = {}; // { billId: paidAmount }
+        const map = {}; 
         data.transactions.forEach(tx => {
             if (tx.linkedBills && tx.status !== 'Cancelled') {
                 tx.linkedBills.forEach(link => {
-                    const targetId = link.billId; 
+                    const targetId = String(link.billId); // Force String
                     if (!map[targetId]) map[targetId] = 0;
                     map[targetId] += parseFloat(link.amount || 0);
                 });
@@ -275,21 +275,16 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             if (filter !== 'all' && tx.type !== filter) return false;
             if (listPaymentMode && (tx.paymentMode || 'Cash') !== listPaymentMode) return false;
             if (categoryFilter && tx.category !== categoryFilter) return false;
-
             if (dateRange.start && tx.date < dateRange.start) return false;
             if (dateRange.end && tx.date > dateRange.end) return false;
-
             if (searchQuery) {
                 const lowerQuery = searchQuery.toLowerCase();
                 const party = data.parties.find(p => p.id === tx.partyId);
-                
                 const matchVoucher = tx.id.toLowerCase().includes(lowerQuery);
                 const matchName = (party?.name || tx.category || '').toLowerCase().includes(lowerQuery);
                 const matchDesc = (tx.description || '').toLowerCase().includes(lowerQuery);
-                const matchAddress = (party?.address || '').toLowerCase().includes(lowerQuery);
                 const matchAmount = (tx.amount || tx.finalTotal || 0).toString().includes(lowerQuery);
-
-                return matchVoucher || matchName || matchDesc || matchAddress || matchAmount;
+                return matchVoucher || matchName || matchDesc || matchAmount;
             }
             return true;
         });
@@ -304,7 +299,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             // Only calculate DUE for bill types
             if(['sales', 'purchase', 'expense'].includes(tx.type)) {
                 // A. Linked Payment (Baad me jo pay hua)
-                const linkedPaid = linksMap[tx.id] || 0;
+               const linkedPaid = linksMap[String(tx.id)] || 0;
                 
                 // B. Direct Payment (Jo bill banate waqt pay hua)
                 const directPaid = parseFloat(tx.received || tx.paid || 0);
@@ -1968,6 +1963,7 @@ const scrollPos = useRef({}); // Scroll position save karne ke liye
   const [adjustCashModal, setAdjustCashModal] = useState(null);
   // NEW: State for selected time log detail
   const [selectedTimeLog, setSelectedTimeLog] = useState(null);
+  const [taskDraft, setTaskDraft] = useState(null);
 
   // REQ 2: Deep Linking (Open Task from URL)
   useEffect(() => {
@@ -2113,6 +2109,39 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
           window.location.reload();
       }
   }, [data.staff, user]); // Jab bhi staff data update hoga (sync se), ye check chalega
+  // REQ 4: Real-time Background Sync (Zero-Read Overhead Logic)
+  // This listens only for changes happening AFTER the app loaded
+  useEffect(() => {
+    if (!user) return;
+    
+    // Start Time (Listen for changes from NOW onwards)
+    const nowISO = new Date().toISOString();
+    
+    // Listeners
+    const qTasks = query(collection(db, "tasks"), where("updatedAt", ">", nowISO));
+    const qAtt = query(collection(db, "attendance"), where("updatedAt", ">", nowISO));
+    
+    const handleRealtimeUpdate = (snapshot, collectionKey) => {
+        snapshot.docChanges().forEach(change => {
+            if (change.type === "added" || change.type === "modified") {
+                const docData = change.doc.data();
+                setData(prev => {
+                    const list = prev[collectionKey] || [];
+                    const idx = list.findIndex(i => i.id === docData.id);
+                    let newList = [...list];
+                    if(idx > -1) newList[idx] = docData;
+                    else newList.push(docData);
+                    return { ...prev, [collectionKey]: newList };
+                });
+            }
+        });
+    };
+
+    const unsubTasks = onSnapshot(qTasks, (snap) => handleRealtimeUpdate(snap, 'tasks'));
+    const unsubAtt = onSnapshot(qAtt, (snap) => handleRealtimeUpdate(snap, 'attendance'));
+    
+    return () => { unsubTasks(); unsubAtt(); };
+  }, [user]);
   // --- REQ 5: AUTOMATED AMC TASK CREATION ---
   useEffect(() => {
       // Run only if user is admin and data is loaded
@@ -2500,8 +2529,14 @@ if (tx.type === 'payment') {
         // Note: Yahan hum abhi full sync nahi kar rahe, local state update ho chuka hai
         // await refreshSingleRecord(collectionName, finalId); <--- Isse hata bhi sakte hain agar local update sahi hai
     } catch (e) { console.error(e); showToast("Save Error", "error"); }
+    // REQ 5: Restore Task Draft if coming back from Party Creation
+    if (collectionName === 'parties' && taskDraft) {
+        setModal({ type: 'task', data: { ...taskDraft, partyId: finalId } });
+        setTaskDraft(null);
+    }
     return finalId; 
   };
+  
 const deleteRecord = async (collectionName, id) => {
     if (!user) return;
 
@@ -3685,38 +3720,63 @@ else pnl.goods += iProfit;
           <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
             <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
             <div className="flex gap-2">
-               {tx.status !== 'Cancelled' && <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1"><Share2 size={16}/> PDF</button>}
-               {/* --- FIX: Updated Buttons for Restore --- */}
-               {checkPermission(user, 'canEditTasks') && (
-                   <>
-                       {tx.status !== 'Cancelled' ? (
-                          <button onClick={() => cancelTransaction(tx.id)} className="p-2 bg-gray-100 text-gray-600 rounded-lg border hover:bg-red-50 hover:text-red-600 font-bold text-xs">Cancel</button>
-                       ) : (
-                          <div className="flex items-center gap-2">
-                              <span className="px-2 py-2 bg-red-50 text-red-600 rounded-lg font-black text-xs border border-red-200">CANCELLED</span>
-                              {/* NEW RESTORE BUTTON */}
-                              <button onClick={() => restoreTransaction(tx.id)} className="px-3 py-2 bg-green-100 text-green-700 rounded-lg font-bold text-xs border border-green-200 hover:bg-green-200">
-                                  Restore
-                              </button>
-                          </div>
-                       )}
-                       
-                       {/* Edit Button (Only show if NOT Cancelled) */}
-                       {tx.status !== 'Cancelled' && (
-                           <button 
-                                onClick={() => { 
-                                    pushHistory(); 
-                                    setModal({ type: tx.type, data: tx }); 
-                                }} 
-                                className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full"
-                           >
-                                Edit
-                           </button>
-                       )}
-                   </>
+               {/* PDF Share Button */}
+               {tx.status !== 'Cancelled' && (
+                   <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1">
+                       <Share2 size={16}/> PDF
+                   </button>
                )}
-              
+
+               {/* --- OLD CODE RESTORED: Edit, Cancel, Restore Buttons --- */}
+                   {tx.status !== 'Cancelled' ? (
+                       <>
+                           {/* Edit Button */}
+                           {checkPermission(user, 'canEditAccounts') && (
+                               <button 
+                                   onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} 
+                                   className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
+                                   title="Edit"
+                               >
+                                   <Edit2 size={18}/>
+                               </button>
+                           )}
+
+                           {/* Cancel Button */}
+                           {checkPermission(user, 'canEditAccounts') && (
+                               <button 
+                                   onClick={() => {
+                                       if(window.confirm('Cancel this transaction? Stock will be reverted.')) {
+                                           updateRecord(tx.type === 'sales' ? 'sales' : 'purchase', tx.id, { status: 'Cancelled' });
+                                           // Note: Actual stock reversion logic backend/updateRecord handle karega
+                                           setViewDetail(null); 
+                                       }
+                                   }} 
+                                   className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100"
+                                   title="Cancel"
+                               >
+                                   <X size={18}/>
+                               </button>
+                           )}
+                       </>
+                   ) : (
+                       // Restore Button (For Cancelled Transactions)
+                       checkPermission(user, 'canEditAccounts') && (
+                           <button 
+                               onClick={() => {
+                                   if(window.confirm('Restore this transaction?')) {
+                                       updateRecord(tx.type === 'sales' ? 'sales' : 'purchase', tx.id, { status: 'Generated' });
+                                   }
+                               }} 
+                               className="px-3 py-2 bg-green-100 text-green-700 rounded-lg font-bold text-xs flex items-center gap-1"
+                           >
+                               <RefreshCw size={14}/> Restore
+                           </button>
+                       )
+                   )}
             </div>
+               
+              
+            
           </div>
           <div className={`p-4 space-y-6 ${tx.status === 'Cancelled' ? 'opacity-60 grayscale' : ''}`}>
             <div className="text-center">
@@ -4653,7 +4713,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     // REQ 6: Professional Format
     const msg = `*Service Reminder*\n\nDear ${record.name},\n\nThis is a gentle reminder regarding the upcoming AMC service for your asset:\n\n*Item:* ${selectedAsset.name} (${selectedAsset.brand})\n*Due Date:* ${formatDate(selectedAsset.nextServiceDate)}\n\nPlease let us know a convenient time to visit.\n\nRegards,\n*${data.company.name}*`;
     
-    window.open(`https://wa.me/${record.mobile}?text=${encodeURIComponent(msg)}`, '_blank');
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
 }}className="w-full mt-2 py-2 bg-green-100 text-green-700 rounded-lg font-bold flex items-center justify-center gap-2"><MessageCircle size={16}/> WhatsApp Reminder</button>
                             </div>
 
@@ -5257,173 +5317,73 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
 
   const TaskForm = ({ record }) => {
     const [showItems, setShowItems] = useState(false);
-    // TaskForm ke andar
-const [form, setForm] = useState(record ? { 
-    ...record, 
-    itemsUsed: record.itemsUsed || [], 
-    assignedStaff: record.assignedStaff || [],
-    selectedContacts: record.selectedContacts || [], // <--- NEW ARRAY
-    estimateTime: record.estimateTime || ''
-} : { 
-    name: '', partyId: '', description: '', status: 'To Do', dueDate: '', estimateTime: '',
-    assignedStaff: [], itemsUsed: [], 
-    address: '', mobile: '', lat: '', lng: '', locationLabel: '', 
-    selectedContacts: [] // <--- NEW ARRAY
-});
-    const [showLocPicker, setShowLocPicker] = useState(false); // Local state for location picker
-    const [showMobilePicker, setShowMobilePicker] = useState(false);// mobile number picker
+    const [form, setForm] = useState(record ? { 
+        ...record, 
+        itemsUsed: record.itemsUsed || [], 
+        assignedStaff: record.assignedStaff || [],
+        selectedContacts: record.selectedContacts || [], 
+        estimateTime: record.estimateTime || ''
+    } : { 
+        name: '', partyId: '', description: '', status: 'To Do', dueDate: '', estimateTime: '',
+        assignedStaff: [], itemsUsed: [], 
+        address: '', mobile: '', lat: '', lng: '', locationLabel: '', 
+        selectedContacts: []
+    });
+    const [showLocPicker, setShowLocPicker] = useState(false);
     
     const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
     const selectedParty = data.parties.find(p => p.id === form.partyId);
     
-    // TaskForm component ke andar
-const updateItem = (idx, field, val) => {
-    const n = [...form.itemsUsed];
-    n[idx][field] = val;
-
-    const item = data.items.find(i => i.id === n[idx].itemId);
-
-    if (field === 'itemId') {
-        if (item) {
-            // Reset to default
-            n[idx].price = item.sellPrice;
-            n[idx].buyPrice = item.buyPrice;
-            n[idx].description = item.description || '';
-            n[idx].brand = '';
+    const updateItem = (idx, field, val) => {
+        const n = [...form.itemsUsed];
+        n[idx][field] = val;
+        const item = data.items.find(i => i.id === n[idx].itemId);
+        if (field === 'itemId' && item) {
+            n[idx].price = item.sellPrice; n[idx].buyPrice = item.buyPrice; n[idx].description = item.description || ''; n[idx].brand = '';
         }
-    }
-    
-    // CHANGE: Update Price when Brand Changes
-    if (field === 'brand') {
-        if (item && item.brands) {
-            const brandData = item.brands.find(b => b.name === val);
-            if (brandData) {
-                n[idx].price = brandData.sellPrice;
-                n[idx].buyPrice = brandData.buyPrice;
-            } else if (!val) {
-                // If brand cleared, revert to item default
-                n[idx].price = item.sellPrice;
-                n[idx].buyPrice = item.buyPrice;
-            }
-        }
-    }
-    setForm({ ...form, itemsUsed: n });
-};
+        setForm({ ...form, itemsUsed: n });
+    };
     
     const handleLocationSelect = (loc) => {
-        setForm({
-            ...form,
-            address: loc.address,
-            mobile: loc.mobile || selectedParty?.mobile || '',
-            lat: loc.lat || '',
-            lng: loc.lng || '',
-            locationLabel: loc.label,
-        });
+        setForm({ ...form, address: loc.address, mobile: loc.mobile || selectedParty?.mobile || '', lat: loc.lat || '', lng: loc.lng || '', locationLabel: loc.label });
         setShowLocPicker(false);
     };
-  // --- FIX: Update both Array and String for compatibility ---
-const toggleMobile = (mob) => {
-    const exists = form.selectedContacts.find(c => c.number === mob.number);
-    let newContacts;
 
-    if (exists) {
-        // Remove contact
-        newContacts = form.selectedContacts.filter(c => c.number !== mob.number);
-    } else {
-        // Add contact
-        newContacts = [...form.selectedContacts, { label: mob.label || 'Primary', number: mob.number }];
-    }
-
-    // Update form state (Save both specific contacts AND comma-separated string)
-    setForm({ 
-        ...form, 
-        selectedContacts: newContacts,
-        mobile: newContacts.map(c => c.number).join(', ') // String bhi update karein
-    });
-};
     return (
       <div className="space-y-4">
-        <input className="w-full p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Task Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+        {/* REQ 6: Status Dropdown Returned */}
+        <div className="flex gap-2">
+            <input className="flex-1 p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Task Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+            <select className="w-1/3 p-3 bg-gray-50 border rounded-xl font-bold text-sm" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+                {(data.categories.taskStatus || ["To Do", "In Progress", "Done"]).map(s => <option key={s}>{s}</option>)}
+            </select>
+        </div>
+
         <div className="p-3 bg-gray-50 rounded-xl border"><label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Assigned Staff</label><div className="flex flex-wrap gap-2 mb-2">{form.assignedStaff.map(sid => { const s = data.staff.find(st => st.id === sid); return (<span key={sid} className="bg-white border px-2 py-1 rounded-full text-xs flex items-center gap-1">{s?.name} <button onClick={() => setForm({...form, assignedStaff: form.assignedStaff.filter(id => id !== sid)})}><X size={12}/></button></span>); })}</div><select className="w-full p-2 border rounded-lg text-sm bg-white" onChange={e => { if(e.target.value && !form.assignedStaff.includes(e.target.value)) setForm({...form, assignedStaff: [...form.assignedStaff, e.target.value]}); }}><option value="">+ Add Staff</option>{data.staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
         
         <div>
-            <SearchableSelect label="Client" options={data.parties} value={form.partyId} onChange={v => setForm({...form, partyId: v, locationLabel: '', address: ''})} />
+            {/* REQ 5: New Party Option */}
+            <SearchableSelect 
+                label="Client" 
+                options={data.parties} 
+                value={form.partyId} 
+                onChange={v => setForm({...form, partyId: v, locationLabel: '', address: ''})} 
+                onAddNew={() => {
+                    setTaskDraft(form); // Save Draft
+                    setModal({ type: 'party' }); // Open Party Modal
+                }}
+            />
             
-            {/* FIX #6 (TaskForm): Multiple Contact/Location Selector */}
             {(selectedParty?.locations?.length > 0 || selectedParty?.mobileNumbers?.length > 0) && (
                 <div className="relative mt-1 mb-2">
                     <div className="flex justify-between items-center bg-blue-50 p-2 rounded-lg border border-blue-100">
-                         <div className="text-xs text-blue-800 overflow-hidden">
-                            <span className="font-bold">Selected: </span> 
-                            <span className="font-bold bg-white px-1 rounded ml-1">
-                                {form.locationLabel || 'Default'}
-                            </span>
-                            <div className="truncate max-w-[200px] text-gray-600 mt-0.5">
-                                {form.address || selectedParty.address}
-                            </div>
-                            <div className="font-bold text-green-700 flex items-center gap-1">
-                                <Phone size={10}/> {form.mobile || selectedParty.mobile}
-                            </div>
-                         </div>
-                         <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[10px] font-bold bg-white border px-3 py-2 rounded-lg shadow-sm text-blue-600 whitespace-nowrap">
-                             Change
-                         </button>
+                         <div className="text-xs text-blue-800 overflow-hidden"><span className="font-bold">Selected: </span> <span className="font-bold bg-white px-1 rounded ml-1">{form.locationLabel || 'Default'}</span><div className="truncate max-w-[200px] text-gray-600 mt-0.5">{form.address || selectedParty.address}</div></div>
+                         <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[10px] font-bold bg-white border px-3 py-2 rounded-lg shadow-sm text-blue-600 whitespace-nowrap">Change</button>
                     </div>
-                    
                     {showLocPicker && (
                         <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1 max-h-60 overflow-y-auto">
-                            {/* 1. Default Option */}
-                            <div onClick={() => handleLocationSelect({ label: '', address: selectedParty.address, mobile: selectedParty.mobile, lat: selectedParty.lat, lng: selectedParty.lng })} className="p-2 hover:bg-gray-50 border-b cursor-pointer bg-gray-50 rounded mb-1">
-                                <span className="font-bold text-xs text-gray-600">Default Details</span>
-                                <div className="text-[10px]">{selectedParty.mobile}</div>
-                            </div>
-                            {/* 2. Mobile Numbers List (Multi-Select for TaskForm) */}
-                            {selectedParty.mobileNumbers?.length > 0 && (
-                                <div className="mb-2 border-b pb-2">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <p className="text-[10px] font-bold text-gray-400 uppercase">Mobile Numbers (Multi-Select)</p>
-                                        <span className="text-[9px] text-blue-400">(Tap to Add/Remove)</span>
-                                    </div>
-                                    {selectedParty.mobileNumbers.map((mob, idx) => {
-                                        // FIX: Check in 'selectedContacts' array instead of string
-                                        const isSelected = form.selectedContacts?.some(c => c.number === mob.number);
-                                        
-                                        return (
-                                            <div 
-                                                key={`mob-${idx}`} 
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    // FIX: Use the new toggle function
-                                                    toggleMobile(mob);
-                                                }} 
-                                                className={`p-2 cursor-pointer border-b flex justify-between items-center transition-colors ${isSelected ? 'bg-green-50 border-green-200' : 'hover:bg-gray-50'}`}
-                                            >
-                                                 <span className={`text-xs font-bold flex items-center gap-1 ${isSelected ? 'text-green-700' : 'text-gray-600'}`}>
-                                                    <Phone size={10}/> {mob.label}
-                                                 </span>
-                                                 <div className="flex items-center gap-2">
-                                                     <span className={`text-xs font-mono ${isSelected ? 'font-bold text-black' : 'text-gray-500'}`}>{mob.number}</span>
-                                                     {isSelected && <CheckCircle2 size={14} className="text-green-600"/>}
-                                                 </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-
-                            {/* 3. Locations List */}
-                            {selectedParty.locations?.length > 0 && (
-                                <div>
-                                    <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Addresses</p>
-                                    {selectedParty.locations.map((loc, idx) => (
-                                        <div key={`loc-${idx}`} onClick={() => handleLocationSelect(loc)} className="p-2 hover:bg-blue-50 cursor-pointer border-b">
-                                            <span className="text-xs font-bold text-blue-600 flex items-center gap-1"><MapPin size={10}/> {loc.label}</span>
-                                            <div className="text-[10px] truncate text-gray-500">{loc.address}</div>
-                                            {loc.mobile && <div className="text-[10px] font-bold text-green-600">{loc.mobile}</div>}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            <div onClick={() => handleLocationSelect({ label: '', address: selectedParty.address, mobile: selectedParty.mobile, lat: selectedParty.lat, lng: selectedParty.lng })} className="p-2 hover:bg-gray-50 border-b cursor-pointer bg-gray-50 rounded mb-1"><span className="font-bold text-xs text-gray-600">Default Details</span></div>
+                            {selectedParty.locations?.map((loc, idx) => (<div key={`loc-${idx}`} onClick={() => handleLocationSelect(loc)} className="p-2 hover:bg-blue-50 cursor-pointer border-b"><span className="text-xs font-bold text-blue-600 flex items-center gap-1"><MapPin size={10}/> {loc.label}</span><div className="text-[10px] truncate text-gray-500">{loc.address}</div></div>))}
                         </div>
                     )}
                 </div>
@@ -5431,154 +5391,31 @@ const toggleMobile = (mob) => {
         </div>
 
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-20" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
-        {/* FIX #5: Google Photos Link Input for Tasks */}
-        <input 
-            className="w-full p-3 bg-gray-50 border rounded-xl text-sm mt-2" 
-            placeholder="Paste Google Photos/Album Link" 
-            value={form.photosLink || ''} 
-            onChange={e => setForm({...form, photosLink: e.target.value})} 
-        />
-        {/* REQ 4: Task Form Items Toggle */}
+        <input className="w-full p-3 bg-gray-50 border rounded-xl text-sm mt-2" placeholder="Paste Google Photos/Album Link" value={form.photosLink || ''} onChange={e => setForm({...form, photosLink: e.target.value})} />
+        
         <div className="space-y-2 bg-gray-50 p-3 rounded-xl border">
-            <div className="flex justify-between items-center">
-                <h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4>
-                <button 
-                    type="button"
-                    onClick={() => setShowItems(!showItems)}
-                    className="text-[10px] font-bold text-blue-600 bg-white border border-blue-200 px-3 py-1 rounded-full"
-                >
-                    {showItems ? 'Hide Items' : 'Show Items'}
-                </button>
-            </div>
-            
+            <div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4><button onClick={() => setShowItems(!showItems)} className="text-[10px] font-bold text-blue-600 bg-white border border-blue-200 px-3 py-1 rounded-full">{showItems ? 'Hide Items' : 'Show Items'}</button></div>
             {showItems && (
-                <div className="animate-in slide-in-from-top-2 fade-in duration-300 space-y-2 pt-2">
-                    {/* List Items */}
+                <div className="space-y-2 pt-2">
                     {form.itemsUsed.map((line, idx) => (
                         <div key={idx} className="p-2 border rounded-xl bg-white relative space-y-2">
                             <button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
                             <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} />
-                            
-                            {data.items.find(i => i.id === line.itemId)?.brands && (
-                                <div className="mb-2">
-                                     <select 
-                                        className="w-full p-2 border rounded-lg text-xs bg-blue-50 text-blue-800 font-bold outline-none"
-                                        value={line.brand || ''} 
-                                        onChange={(e) => {
-                                            if (e.target.value === 'ADD_NEW_BRAND') {
-                                                const bName = prompt("Enter New Brand Name:");
-                                                if(!bName) return;
-                                                const sPrice = prompt("Selling Price?", line.price);
-                                                const bPrice = prompt("Buying Price?", line.buyPrice);
-                                                
-                                                const item = data.items.find(i => i.id === line.itemId);
-                                                const newBrandObj = { name: bName, sellPrice: sPrice, buyPrice: bPrice };
-                                                const updatedItem = { ...item, brands: [...(item.brands || []), newBrandObj] };
-                                                
-                                                setDoc(doc(db, "items", item.id), updatedItem);
-                                                setData(prev => ({ ...prev, items: prev.items.map(i => i.id === item.id ? updatedItem : i) }));
-                                                
-                                                updateItem(idx, 'brand', bName);
-                                            } else {
-                                                updateItem(idx, 'brand', e.target.value);
-                                            }
-                                        }}
-                                    >
-                                        <option value="">Select Brand/Variant</option>
-                                        {data.items.find(i => i.id === line.itemId).brands.map((b, bi) => (
-                                            <option key={bi} value={b.name}>{b.name} (₹{b.sellPrice})</option>
-                                        ))}
-                                        <option value="ADD_NEW_BRAND" className="font-bold text-blue-600">+ Add New Brand</option>
-                                    </select>
-                                </div>
-                            )}
-                            <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} />
-                            <div className="flex gap-2">
-                                <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
-                                <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
-                                <input type="number" className="w-20 p-1 border rounded text-xs bg-gray-100" placeholder="Buy" value={line.buyPrice} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} />
-                            </div>
+                            <div className="flex gap-2"><input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} /><input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Price" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} /></div>
                         </div>
                     ))}
-                    
-
-                    {/* Add Button */}
-                    <button 
-                        onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} 
-                        className="w-full py-3 border-2 border-dashed border-blue-200 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-50 flex items-center justify-center gap-2"
-                    >
-                        <Plus size={16}/> Add Item
-                    </button>
-
-                    {/* Total Calculation */}
-                    <div className="flex justify-end pt-2 mt-2 border-t border-gray-200">
-                        <div className="text-right">
-                            <span className="text-xs font-bold text-gray-500 uppercase mr-2">Estimated Total</span>
-                            <span className="text-xl font-black text-blue-600">
-                                {formatCurrency(
-                                    form.itemsUsed.reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.price || 0)), 0)
-                                )}
-                            </span>
-                        </div>
-                    </div>
+                    <button onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="w-full py-3 border-2 border-dashed border-blue-200 text-blue-600 rounded-xl font-bold text-sm">+ Add Item</button>
                 </div>
             )}
         </div>
-{/* --- NEW CODE START: Task Total Calculation --- */}
-            <div className="flex justify-end pt-2 mt-2 border-t border-gray-200">
-                <div className="text-right">
-                    <span className="text-xs font-bold text-gray-500 uppercase mr-2">Estimated Total</span>
-                    <span className="text-xl font-black text-blue-600">
-                        {formatCurrency(
-                            form.itemsUsed.reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.price || 0)), 0)
-                        )}
-                    </span>
-                </div>
-            </div>
-            
-            {/* --- NEW CODE END --- */}
-     {/* REQ 1: Estimate Time (Duration Picker Style) */}
+
         <div className="grid grid-cols-2 gap-4">
-            <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase">Due Date</label>
-                <input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} />
-            </div>
-            
-            {/* NEW DURATION PICKER (Hours & Minutes) */}
+            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Due Date</label><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /></div>
             <div>
                  <label className="text-[10px] font-bold text-gray-400 uppercase">Est. Duration</label>
                  <div className="flex gap-1">
-                    {/* Hours Selector */}
-                    <div className="relative w-1/2">
-                        <select 
-                            className="w-full p-3 bg-gray-50 border rounded-xl appearance-none text-center font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"
-                            value={parseInt((form.estimateTime || '0h').split('h')[0]) || 0} 
-                            onChange={e => {
-                                const h = e.target.value;
-                                const currentM = (form.estimateTime || '').includes(' ') ? parseInt((form.estimateTime || '').split(' ')[1]) : 0;
-                                setForm({...form, estimateTime: `${h}h ${currentM}m`});
-                            }} 
-                        >
-                            {[...Array(51).keys()].map(i => <option key={i} value={i}>{i}</option>)}
-                        </select>
-                        <span className="absolute right-2 top-3.5 text-[10px] text-gray-400 font-bold pointer-events-none">H</span>
-                    </div>
-
-                    {/* Minutes Selector (Steps of 5) */}
-                    <div className="relative w-1/2">
-                        <select 
-                            className="w-full p-3 bg-gray-50 border rounded-xl appearance-none text-center font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"
-                            value={(form.estimateTime || '').includes(' ') ? parseInt((form.estimateTime || '').split(' ')[1]) : 0} 
-                            onChange={e => {
-                                const m = e.target.value;
-                                const currentH = parseInt((form.estimateTime || '0h').split('h')[0]) || 0;
-                                setForm({...form, estimateTime: `${currentH}h ${m}m`});
-                            }} 
-                        >
-                            {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(i => <option key={i} value={i}>{i}</option>)}
-                        </select>
-                        <span className="absolute right-2 top-3.5 text-[10px] text-gray-400 font-bold pointer-events-none">M</span>
-                    </div>
+                    <select className="w-full p-3 bg-gray-50 border rounded-xl" value={parseInt((form.estimateTime || '0h').split('h')[0]) || 0} onChange={e => { const h = e.target.value; const m = (form.estimateTime||'').includes(' ')?parseInt((form.estimateTime||'').split(' ')[1]):0; setForm({...form, estimateTime: `${h}h ${m}m`}); }}>{[...Array(51).keys()].map(i => <option key={i} value={i}>{i}h</option>)}</select>
+                    <select className="w-full p-3 bg-gray-50 border rounded-xl" value={(form.estimateTime || '').includes(' ') ? parseInt((form.estimateTime || '').split(' ')[1]) : 0} onChange={e => { const m = e.target.value; const h = parseInt((form.estimateTime||'0h').split('h')[0])||0; setForm({...form, estimateTime: `${h}h ${m}m`}); }}>{[0,5,10,15,20,30,45].map(i => <option key={i} value={i}>{i}m</option>)}</select>
                  </div>
             </div>
         </div>
@@ -5971,9 +5808,17 @@ const removeMobile = (idx) => {
       {/* REQ 4: Header with Manual Sync Button */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md px-4 py-3 border-b flex justify-between items-center">
         <div className="flex items-center gap-2"><div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black italic">S</div><span className="font-black text-gray-800 tracking-tight">SMEES Pro</span></div>
-        <div className="flex gap-3">
+       <div className="flex gap-3">
             <button onClick={() => syncData(false)} className={`p-2 hover:bg-gray-100 rounded-full ${loading ? 'animate-spin' : ''}`}><RefreshCw size={20} className="text-blue-600" /></button>
             <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 hover:bg-gray-100 rounded-full"><Settings size={20} className="text-gray-500" /></button>
+            {/* REQ 3: Logout Button */}
+            <button onClick={() => {
+                if(window.confirm("Logout?")) {
+                    localStorage.removeItem('smees_user');
+                    setUser(null);
+                    setData(INITIAL_DATA);
+                }
+            }} className="p-2 hover:bg-red-50 rounded-full"><LogOut size={20} className="text-red-500" /></button>
         </div>
       </div>
 
