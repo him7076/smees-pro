@@ -669,19 +669,20 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                         <h3 className="text-xs font-black text-indigo-500 uppercase tracking-wider mb-2 mt-4 ml-1 sticky top-0 bg-gray-50 py-1 z-10">{groupKey}</h3>
                         {amcData.grouped[groupKey].map((item, idx) => {
                             // FIX: Robust check for existing task (Auto or Manual)
-// Check both 'dueDate' match AND 'status' not done
-// Also check if task was manually created for this asset around this date (+/- 5 days buffer)
+// FIX 1: Robust check that ignores Date Change
 const existingTask = data.tasks.find(t => {
     const isSameParty = t.partyId === item.party.id;
+    // Sirf Asset Name match karo, Date exact hona zaruri nahi hai
     const isSameAsset = t.linkedAssetStr === item.asset.name || (t.description && t.description.includes(item.asset.name));
     
-    // Date match logic (Flexible)
+    // Check if task belongs to roughly the same service cycle (e.g. created/due within 45 days of service date)
+    // Isse agar aap date 10-15 din aage piche bhi kar doge to bhi ye 'Created' hi dikhayega
     const taskDate = new Date(t.dueDate);
     const serviceDate = new Date(item.date);
     const diffTime = Math.abs(taskDate - serviceDate);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
 
-    return isSameParty && isSameAsset && (t.dueDate === item.date || diffDays <= 5) && t.status !== 'Cancelled';
+    return isSameParty && isSameAsset && diffDays <= 45 && t.status !== 'Cancelled';
 });
                             
                             return (
@@ -1174,7 +1175,8 @@ const StatementModal = ({ isOpen, onClose, partyId, data }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    // FIX: Increased z-index to 200 so it appears ABOVE StaffDetailView (which is z-50)
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
         <h3 className="font-bold text-lg mb-4">Generate Statement</h3>
         <div className="space-y-4">
@@ -1212,17 +1214,16 @@ const StatementModal = ({ isOpen, onClose, partyId, data }) => {
 
 const ManualAttendanceModal = ({ manualAttModal, setManualAttModal, data, setData, handleCloseUI, showToast }) => {
   const [form, setForm] = useState({ date: '', in: '', out: '', lStart: '', lEnd: '' });
-    
   useEffect(() => {
       if (manualAttModal) {
-          // FIX: Don't default CheckOut/Lunch if not provided
-const initial = manualAttModal.isEdit ? manualAttModal : { 
-    date: new Date().toISOString().split('T')[0], 
-    checkIn: '09:00', 
-    checkOut: '', // Blank by default
-    lunchStart: '', 
-    lunchEnd: '' 
-};
+          // FIX: Default blank if not provided
+          const initial = manualAttModal.isEdit ? manualAttModal : { 
+              date: new Date().toISOString().split('T')[0], 
+              checkIn: '09:00', 
+              checkOut: '', 
+              lunchStart: '', 
+              lunchEnd: '' 
+          };
           setForm({
               date: initial.date,
               in: initial.checkIn || '09:00',
@@ -1232,15 +1233,12 @@ const initial = manualAttModal.isEdit ? manualAttModal : {
           });
       }
   }, [manualAttModal]);
-
   if (!manualAttModal) return null;
     
-  // --- FIX IN ManualAttendanceModal Component ---
 const handleSave = async () => {
     const staffId = manualAttModal.staffId || manualAttModal.id.split('-')[1]; 
     const attId = manualAttModal.isEdit ? manualAttModal.id : `ATT-${staffId}-${form.date}`;
-    const timestamp = new Date().toISOString(); 
-
+    const timestamp = new Date().toISOString();
     const record = { 
         staffId, 
         date: form.date, 
@@ -1252,8 +1250,6 @@ const handleSave = async () => {
         status: 'Present',
         updatedAt: timestamp 
     };
-    
-    // Naya record hai to createdAt bhi daalo (optional but good practice)
     if(!manualAttModal.isEdit) {
         record.createdAt = timestamp;
     }
@@ -1261,15 +1257,16 @@ const handleSave = async () => {
     const newAtt = [...data.attendance.filter(a => a.id !== attId), record];
     setData(prev => ({ ...prev, attendance: newAtt }));
     
-    await setDoc(doc(db, "attendance", attId), record); // Save
+    await setDoc(doc(db, "attendance", attId), record);
     
     setManualAttModal(false); 
-    handleCloseUI(); 
+    // handleCloseUI(); // Note: Agar aapne edit button se pushHistory hataya h to iski zarurat nahi, par safe side rakh sakte hain
     showToast(manualAttModal.isEdit ? "Updated" : "Added");
 };
-    
+
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    // FIX: Z-Index increased to 200
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
         <h3 className="font-bold text-lg mb-4">{manualAttModal.isEdit ? 'Edit' : 'Manual'} Attendance</h3>
         <div className="space-y-4">
@@ -1283,6 +1280,7 @@ const handleSave = async () => {
             <input type="time" className="w-full p-3 border rounded-xl" placeholder="Lunch End" value={form.lEnd} onChange={e=>setForm({...form, lEnd: e.target.value})} />
           </div>
           <button onClick={handleSave} className="w-full p-3 bg-blue-600 text-white rounded-xl font-bold">Save Entry</button>
+          <button onClick={() => setManualAttModal(null)} className="w-full p-3 bg-gray-100 text-gray-600 rounded-xl font-bold">Cancel</button>
         </div>
       </div>
     </div>
@@ -3814,59 +3812,38 @@ else pnl.goods += iProfit;
           <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
             <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
             <div className="flex gap-2">
-               {/* PDF Share Button */}
-               {tx.status !== 'Cancelled' && (
-                   <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1">
-                       <Share2 size={16}/> PDF
-                   </button>
-               )}
-
-               {/* --- OLD CODE RESTORED: Edit, Cancel, Restore Buttons --- */}
-                   {tx.status !== 'Cancelled' ? (
-                       <>
-                           {/* Edit Button */}
-                           {checkPermission(user, 'canEditAccounts') && (
-                               <button 
-                                   onClick={() => { pushHistory(); setModal({ type: tx.type, data: tx }); setViewDetail(null); }} 
-                                   className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
-                                   title="Edit"
-                               >
-                                   <Edit2 size={18}/>
-                               </button>
-                           )}
-
-                           {/* Cancel Button */}
-                           {checkPermission(user, 'canEditAccounts') && (
-                               <button 
-                                   onClick={() => {
-                                       if(window.confirm('Cancel this transaction? Stock will be reverted.')) {
-                                           saveRecord(tx.type === 'sales' ? 'sales' : 'purchase', tx.id, { status: 'Cancelled' });
-                                           // Note: Actual stock reversion logic backend/updateRecord handle karega
-                                           setViewDetail(null); 
-                                       }
-                                   }} 
-                                   className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100"
-                                   title="Cancel"
-                               >
-                                   <X size={18}/>
-                               </button>
-                           )}
-                       </>
-                   ) : (
-                       // Restore Button (For Cancelled Transactions)
-                       checkPermission(user, 'canEditAccounts') && (
+               {tx.status !== 'Cancelled' && 
+               <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1"><Share2 size={16}/> PDF</button>}
+               
+               {/* --- FIX 3: OLD BUTTON LOGIC RESTORED --- */}
+               {checkPermission(user, 'canEditTasks') && (
+                   <>
+                       {tx.status !== 'Cancelled' ? (
+                          <button onClick={() => cancelTransaction(tx.id)} className="p-2 bg-gray-100 text-gray-600 rounded-lg border hover:bg-red-50 hover:text-red-600 font-bold text-xs">Cancel</button>
+                       ) : (
+                          <div className="flex items-center gap-2">
+                              <span className="px-2 py-2 bg-red-50 text-red-600 rounded-lg font-black text-xs border border-red-200">CANCELLED</span>
+                              {/* RESTORE BUTTON */}
+                              <button onClick={() => restoreTransaction(tx.id)} className="px-3 py-2 bg-green-100 text-green-700 rounded-lg font-bold text-xs border border-green-200 hover:bg-green-200">
+                                  Restore
+                              </button>
+                          </div>
+                       )}
+                       
+                       {/* Edit Button (Only show if NOT Cancelled) */}
+                       {tx.status !== 'Cancelled' && (
                            <button 
-                               onClick={() => {
-                                   if(window.confirm('Restore this transaction?')) {
-                                       saveRecord(tx.type === 'sales' ? 'sales' : 'purchase', tx.id, { status: 'Generated' });
-                                   }
-                               }} 
-                               className="px-3 py-2 bg-green-100 text-green-700 rounded-lg font-bold text-xs flex items-center gap-1"
+                                onClick={() => { 
+                                    pushHistory(); 
+                                    setModal({ type: tx.type, data: tx }); 
+                                }} 
+                                className="px-4 py-2 bg-black text-white text-xs font-bold rounded-full"
                            >
-                               <RefreshCw size={14}/> Restore
+                                Edit
                            </button>
-                       )
-                   )}
+                       )}
+                   </>
+               )}
             </div>
                
               
@@ -5686,17 +5663,26 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
                  </div>
             </div>
         </div>
-        <button onClick={async () => { 
-    // CHANGE: Navigation Logic Fix
-    const savedId = await saveRecord('tasks', form, 'task');
-    // Agar ye naya task nahi h (edit h), to detail view open rakho
-    if(form.id) {
-         setModal({ type: null }); // Modal band karo
-         handleCloseUI(); // History pop karo
-         setViewDetail({ type: 'task', id: savedId }); // Detail view ensure karo
+        <button onClick={() => { 
+    // FIX 2: Save in Background (No Await) for Instant Close
+    const isEdit = !!form.id;
+    
+    // 1. Close UI Immediately
+    if(isEdit) {
+         setModal({ type: null }); 
+         handleCloseUI();
+         // Edit ke case me hum wahi id use kar rhe h, to navigation turant kar sakte h
+         setViewDetail({ type: 'task', id: form.id }); 
     } else {
-         handleCloseUI(); 
+         handleCloseUI();
     }
+
+    // 2. Run Sync/Save in Background
+    saveRecord('tasks', form, 'task').then((savedId) => {
+        // Optional: Toast dikha sakte ho jab actual me save ho jaye
+        // console.log("Saved in background", savedId);
+    });
+
 }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
       </div>
     );
