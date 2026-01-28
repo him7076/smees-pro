@@ -611,9 +611,12 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
         </div>
 
         <div className="flex bg-gray-100 p-1 rounded-xl">
-            <button onClick={()=>setViewMode('tasks')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${viewMode==='tasks' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>My Tasks</button>
-            <button onClick={()=>setViewMode('amc')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${viewMode==='amc' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>AMC / Assets</button>
-        </div>
+    <button onClick={()=>setViewMode('tasks')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${viewMode==='tasks' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>My Tasks</button>
+    {/* Fix: AMC Tab hidden for non-admins */}
+    {user.role === 'admin' && (
+        <button onClick={()=>setViewMode('amc')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${viewMode==='amc' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>AMC / Assets</button>
+    )}
+</div>
           {viewMode === 'amc' && (
              <div className="flex gap-2 mb-3 border-b pb-2">
                  <button onClick={()=>setAmcGroup('Month')} className={`px-3 py-1 rounded-full text-xs font-bold ${amcGroup !== 'All' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-400'}`}>Upcoming AMC</button>
@@ -665,8 +668,21 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                     <div key={groupKey}>
                         <h3 className="text-xs font-black text-indigo-500 uppercase tracking-wider mb-2 mt-4 ml-1 sticky top-0 bg-gray-50 py-1 z-10">{groupKey}</h3>
                         {amcData.grouped[groupKey].map((item, idx) => {
-                            // Check if task already exists
-                            const existingTask = data.tasks.find(t => t.partyId === item.party.id && t.linkedAssetStr === item.asset.name && t.dueDate === item.date);
+                            // FIX: Robust check for existing task (Auto or Manual)
+// Check both 'dueDate' match AND 'status' not done
+// Also check if task was manually created for this asset around this date (+/- 5 days buffer)
+const existingTask = data.tasks.find(t => {
+    const isSameParty = t.partyId === item.party.id;
+    const isSameAsset = t.linkedAssetStr === item.asset.name || (t.description && t.description.includes(item.asset.name));
+    
+    // Date match logic (Flexible)
+    const taskDate = new Date(t.dueDate);
+    const serviceDate = new Date(item.date);
+    const diffTime = Math.abs(taskDate - serviceDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+
+    return isSameParty && isSameAsset && (t.dueDate === item.date || diffDays <= 5) && t.status !== 'Cancelled';
+});
                             
                             return (
                                 <div 
@@ -752,10 +768,18 @@ const LoginScreen = ({ setUser }) => {
 
   const handleLogin = async () => {
       if(id === 'him23' && pass === 'Himanshu#3499sp') {
-          const adminUser = { name: 'Admin', role: 'admin', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true } };
-          setUser(adminUser);
-          localStorage.setItem('smees_user', JSON.stringify(adminUser));
-      } else {
+        try {
+            // FIX: Admin ke liye bhi Firebase Auth zaruri hai
+            await signInAnonymously(auth); 
+            
+            const adminUser = { name: 'Admin', role: 'admin', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true } };
+            setUser(adminUser);
+            localStorage.setItem('smees_user', JSON.stringify(adminUser));
+        } catch (e) {
+            alert("Login Failed: Check Internet or Firebase Console");
+            console.error(e);
+        }
+    }else {
           try {
               await signInAnonymously(auth);
               const q = query(collection(db, 'staff'), where('loginId', '==', id), where('password', '==', pass));
@@ -792,19 +816,31 @@ const LoginScreen = ({ setUser }) => {
 
 const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) => {
   const record = task || data;
-  const party = data.parties.find(p => p.id === record.partyId); // Party Data nikalo
+  const party = data.parties.find(p => p.id === record.partyId);
   
+  // FIX: Auto-Select Linked Asset from Task
+  const initialAssets = [];
+  if(record.linkedAssetStr) {
+      // Find asset in party
+      const assetMatch = party?.assets?.find(a => a.name === record.linkedAssetStr);
+      if(assetMatch) {
+           // Default +3 Months or existing logic
+           const d = new Date();
+           d.setMonth(d.getMonth() + 3);
+           initialAssets.push({ name: assetMatch.name, nextServiceDate: d.toISOString().split('T')[0] });
+      }
+  }
+
   const [form, setForm] = useState({ 
       date: new Date().toISOString().split('T')[0], 
       received: '', 
       mode: 'Cash',
-      linkedAssets: [] // New State for Assets
+      linkedAssets: initialAssets 
   });
 
-  // Default Asset Date Logic (+3 Months)
   const handleAddAsset = (assetName) => {
       const d = new Date(form.date);
-      d.setMonth(d.getMonth() + 3); // Default 3 Month
+      d.setMonth(d.getMonth() + 3); 
       const nextDate = d.toISOString().split('T')[0];
       setForm(prev => ({...prev, linkedAssets: [...prev.linkedAssets, { name: assetName, nextServiceDate: nextDate }] }));
   };
@@ -812,7 +848,18 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
   if (!record) return null;
 
   const handleConfirm = async () => {
-      // Items Calculation
+      // FIX 6: Prevent Duplicate Invoice (Fetch latest counter)
+      let nextId = '';
+      try {
+          const counterSnap = await getDoc(doc(db, "settings", "counters"));
+          const counters = counterSnap.exists() ? counterSnap.data() : data.counters;
+          const num = counters['sales'] || 1;
+          nextId = `Sales-${num}`; // Generate ID locally based on server data
+      } catch(e) {
+          console.error("Counter Fetch Error", e);
+          nextId = getNextId(data, 'sales').id; // Fallback
+      }
+
       const saleItems = (record.itemsUsed || []).map(i => ({ 
           itemId: i.itemId, 
           qty: i.qty, 
@@ -828,6 +875,8 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
       const workSummary = totalMins > 0 ? `${workDoneBy} | Total: ${totalMins} mins` : '';
 
       const newSale = { 
+          // FIX: Use Checked ID
+          id: nextId, 
           type: 'sales', 
           date: form.date, 
           partyId: record.partyId, 
@@ -841,25 +890,36 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
           convertedFromTask: record.id, 
           workSummary: workSummary, 
           description: `Converted from Task ${record.id}.\n${workSummary}`,
-          linkedAssets: form.linkedAssets // Add Linked Assets
+          linkedAssets: form.linkedAssets 
       };
       
-      // 1. Asset Service Date Update (Firebase & Local)
+      // FIX 5: Robust Asset Date Update with Timestamp
       if (form.linkedAssets.length > 0 && party && party.assets) {
+          const timestamp = new Date().toISOString();
           const updatedAssets = party.assets.map(a => {
               const match = form.linkedAssets.find(la => la.name === a.name);
               return match ? { ...a, nextServiceDate: match.nextServiceDate } : a;
           });
-          const updatedParty = { ...party, assets: updatedAssets };
-          // Background update
-          setDoc(doc(db, "parties", party.id), updatedParty); 
+          
+          const updatedParty = { ...party, assets: updatedAssets, updatedAt: timestamp };
+          
+          // 1. Update Local Data Immediately
+          // Note: App.js ka setData hum yahan direct access nahi kar sakte prop ke bina,
+          // but Firebase update + Sync will handle it. Better to trigger refresh.
+          
+          // 2. Update Firebase
+          await setDoc(doc(db, "parties", party.id), updatedParty); 
       }
 
       // 2. Save Sale
+      // Note: saveRecord will handle ID generation logic inside App.js too, 
+      // but providing ID overrides it.
+      // Better to let saveRecord handle ID to keep counters synced in App state.
+      // We pass 'sales' type so it increments counter.
       const saleId = await saveRecord('transactions', newSale, 'sales');
       
       // 3. Update Task Status
-      const updatedTask = { ...record, status: 'Converted', generatedSaleId: saleId ,convertedDate: new Date().toISOString()};
+      const updatedTask = { ...record, status: 'Converted', generatedSaleId: saleId, convertedDate: new Date().toISOString()};
       await saveRecord('tasks', updatedTask, 'task');
       
       if(onClose) onClose();
@@ -1155,7 +1215,14 @@ const ManualAttendanceModal = ({ manualAttModal, setManualAttModal, data, setDat
     
   useEffect(() => {
       if (manualAttModal) {
-          const initial = manualAttModal.isEdit ? manualAttModal : { date: new Date().toISOString().split('T')[0], checkIn: '09:00', checkOut: '18:00', lunchStart: '13:00', lunchEnd: '14:00' };
+          // FIX: Don't default CheckOut/Lunch if not provided
+const initial = manualAttModal.isEdit ? manualAttModal : { 
+    date: new Date().toISOString().split('T')[0], 
+    checkIn: '09:00', 
+    checkOut: '', // Blank by default
+    lunchStart: '', 
+    lunchEnd: '' 
+};
           setForm({
               date: initial.date,
               in: initial.checkIn || '09:00',
@@ -1458,7 +1525,11 @@ const SearchableSelect = ({ label, options, value, onChange, onAddNew, placehold
             const name = typeof opt === 'string' ? opt : opt.name;
             return (
               <div key={id || idx} className="p-3 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-0 flex justify-between items-center" onClick={() => { onChange(id); setIsOpen(false); setSearchTerm(''); }}>
-                <span>{name}</span>
+                <div className="flex flex-col">
+                    <span>{name}</span>
+                    {/* CHANGE: Show Subtitle (Prices) below Name */}
+                    {opt.subtitle && <span className="text-[9px] text-gray-500 font-bold">{opt.subtitle}</span>}
+                </div>
                 {opt.subText && <span className={`text-[10px] font-bold ${opt.subColor}`}>{opt.subText}</span>}
                 {!opt.subText && <span className="text-xs text-gray-400 ml-2">({id || 'N/A'})</span>}
               </div>
@@ -1892,35 +1963,55 @@ export default function App() {
   }, []);
   
   // Load from LocalStorage ONLY on the client-side after mount
-  useEffect(() => {// Load User & Check Active Status
-    const savedUser = localStorage.getItem('smees_user');
-    if (savedUser) {
-        try { 
-            const u = JSON.parse(savedUser);
-            
-            // --- CHANGE: Check Active/Inactive ---
-            if (u.active === false) {
-                // Agar user inactive hai:
-                // 1. Sara Local Data Delete karo
-                localStorage.clear(); 
-                // 2. User state null karo (Logout)
-                setUser(null);
-                // 3. Data state reset karo
-                setData(INITIAL_DATA);
-                // 4. Message dikhao
-                alert("Your account is INACTIVE. Contact Admin.");
-            } else {
-                // Agar active hai to normal login
-                setUser(u); 
-            }
-        } catch (e) { console.error(e); }
-    }
+  useEffect(() => {
+    const restoreSession = async () => {
+        const savedUser = localStorage.getItem('smees_user');
+        
+        if (savedUser) {
+            try { 
+                const u = JSON.parse(savedUser);
+                
+                // --- FIX: Firebase Auth Restore Logic ---
+                // User set karne se pehle wait karein ki Firebase connect ho jaye
+                await new Promise(resolve => {
+                    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+                        if (firebaseUser) {
+                            // Already connected
+                            resolve();
+                            unsub();
+                        } else {
+                            // Not connected, force login
+                            signInAnonymously(auth).then(() => {
+                                resolve();
+                                unsub();
+                            }).catch((err) => {
+                                console.error("Auto-login failed", err);
+                                resolve(); // Error aaye to bhi aage badho
+                            });
+                        }
+                    });
+                });
+                // ----------------------------------------
 
-    // Load Data
-    const savedData = localStorage.getItem('smees_data');
-    if (savedData) {
-        try { setData(JSON.parse(savedData)); } catch (e) { console.error(e); }
-    }
+                if (u.active === false) {
+                    localStorage.clear(); 
+                    setUser(null);
+                    setData(INITIAL_DATA);
+                    alert("Your account is INACTIVE. Contact Admin.");
+                } else {
+                    setUser(u); // Ab user set karein, jab Firebase ready ho
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        // Load Data
+        const savedData = localStorage.getItem('smees_data');
+        if (savedData) {
+            try { setData(JSON.parse(savedData)); } catch (e) { console.error(e); }
+        }
+    };
+
+    restoreSession();
   }, []);
 
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -2875,10 +2966,19 @@ const StaffDetailView = ({ staff, data, setData, user, pushHistory, setManualAtt
       };
 
       const deleteAtt = async (id) => {
-          if(!window.confirm("Delete this attendance record?")) return;
-          await deleteDoc(doc(db, "attendance", id));
-          setData(prev => ({...prev, attendance: prev.attendance.filter(a => a.id !== id)}));
-      }
+      if(!window.confirm("Delete this attendance record?")) return;
+      
+      // FIX: Update Local State First & Persist to LocalStorage
+      const newAtt = data.attendance.filter(a => a.id !== id);
+      const newData = { ...data, attendance: newAtt };
+      setData(newData);
+      localStorage.setItem('smees_data', JSON.stringify(newData)); // Persist
+
+      // Then delete from Cloud
+      try {
+        await deleteDoc(doc(db, "attendance", id));
+      } catch(e) { console.error("Del Error", e); }
+}
       
       const editAtt = (record) => {
           if(pushHistory) pushHistory();
@@ -2915,7 +3015,7 @@ const StaffDetailView = ({ staff, data, setData, user, pushHistory, setManualAtt
                          <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2"><UserCheck size={18}/> Actions (Today)</h3>
                          <div className="grid grid-cols-2 gap-2 mb-3">
                              <button onClick={() => handleAttendance('checkIn')} disabled={!!attToday.checkIn} className="p-3 bg-green-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 disabled:bg-gray-400">Check In <br/> <span className="text-xs font-normal">{attToday.checkIn || '--:--'}</span></button>
-                             <button onClick={() => handleAttendance('checkOut')} className="p-3 bg-red-600 text-white rounded-xl font-bold text-sm">Check Out <br/> <span className="text-xs font-normal">{attToday.checkOut || '--:--'}</span></button>
+                             <button onClick={() => handleAttendance('checkOut')} disabled={!!attToday.checkOut} className="p-3 bg-red-600 text-white rounded-xl font-bold text-sm disabled:opacity-50 disabled:bg-gray-400">Check Out <br/> <span className="text-xs font-normal">{attToday.checkOut || '--:--'}</span></button>
                              <button onClick={() => handleAttendance('lunchStart')} disabled={!!attToday.lunchStart} className="p-2 bg-yellow-100 text-yellow-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50"><Coffee size={14}/> Start Lunch <br/>{attToday.lunchStart}</button>
                              <button onClick={() => handleAttendance('lunchEnd')} disabled={!!attToday.lunchEnd} className="p-2 bg-yellow-100 text-yellow-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50"><Briefcase size={14}/> End Lunch <br/>{attToday.lunchEnd}</button>
                          </div>
@@ -3947,8 +4047,9 @@ else pnl.goods += iProfit;
         // Helper for Items dropdown
         const itemOptions = data.items.map(i => ({ 
             ...i, 
-            subText: `Stock: ${itemStock[i.id] || 0}`, 
-            subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' 
+            subText: `Stk: ${itemStock[i.id] || 0}`, 
+            subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600',
+            subtitle: `Buy: ${i.buyPrice || 0} | Sell: ${i.sellPrice || 0}`
         }));
         
  // --- FIX FOR TIMER SYNC (FETCH BEFORE SAVE) ---
@@ -4124,13 +4225,13 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                             
                             {showTaskMenu && (
                                 <div className="absolute right-0 top-12 bg-white border shadow-2xl rounded-xl w-48 z-50 p-2 space-y-1 animate-in zoom-in-95 origin-top-right">
-                                    {/* Edit Option */}
-                                    <button 
-                                        onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); setViewDetail(null); }} 
-                                        className="w-full text-left p-2 hover:bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-2"
-                                    >
-                                        <Edit2 size={16}/> Edit Task
-                                    </button>
+                                   {/* Edit Option (Fix: Removed setViewDetail(null) to stay on detail screen) */}
+<button 
+    onClick={() => { pushHistory(); setModal({ type: 'task', data: task }); }} 
+    className="w-full text-left p-2 hover:bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-2"
+>
+    <Edit2 size={16}/> Edit Task
+</button>
                                     
                                     {/* WhatsApp Option with Logo */}
                                     <button 
@@ -4729,9 +4830,9 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                   <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
                   <h2 className="font-bold text-lg">{record.name}</h2>
                   <div className="flex gap-2">
-                     <button onClick={() => { pushHistory(); setStatementModal({ partyId: record.id }); }} className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-lg flex items-center gap-1"><FileText size={12}/> Stmt</button>
-                     <button onClick={() => { pushHistory(); setModal({ type: 'party', data: record }); setViewDetail(null); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
-                  </div>
+     <button onClick={() => { pushHistory(); setStatementModal({ partyId: record.id }); }} className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-lg flex items-center gap-1"><FileText size={12}/> Stmt</button>
+     <button onClick={() => { pushHistory(); setModal({ type: 'party', data: record }); }} className="text-blue-600 text-sm font-bold bg-blue-50 px-3 py-1 rounded-lg">Edit</button>
+</div>
                 </div>
                 
                 <div className="p-4 space-y-6">
@@ -5060,7 +5161,14 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         });
     }, [tx.partyId, data.transactions, tx.linkedBills, type, tx.subType]);
     const updateLine = (idx, field, val) => { const newItems = [...tx.items]; newItems[idx][field] = val; if (field === 'itemId') { const item = data.items.find(i => i.id === val); if (item) { newItems[idx].price = type === 'purchase' ? item.buyPrice : item.sellPrice; newItems[idx].buyPrice = item.buyPrice; newItems[idx].description = item.description || ''; newItems[idx].brand = ''; } } if (field === 'brand') { const item = data.items.find(i => i.id === newItems[idx].itemId); if (item && item.brands) { const brandData = item.brands.find(b => b.name === val); if (brandData) { newItems[idx].price = type === 'purchase' ? brandData.buyPrice : brandData.sellPrice; newItems[idx].buyPrice = brandData.buyPrice; } else if (!val) { newItems[idx].price = type === 'purchase' ? item.buyPrice : item.sellPrice; newItems[idx].buyPrice = item.buyPrice; } } } setTx({ ...tx, items: newItems }); };
-    const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
+    // FIX: Show Last Prices (Master Prices) & Stock
+// FIX: Clean Qty & Subtitle for Prices
+    const itemOptions = data.items.map(i => ({ 
+        ...i, 
+        subText: `Stk: ${itemStock[i.id] || 0}`, 
+        subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-blue-600',
+        subtitle: `Buy: ${i.buyPrice || 0} | Sell: ${i.sellPrice || 0}`
+    }));
     const partyOptions = data.parties.map(p => ({ ...p, subText: partyBalances[p.id] ? formatCurrency(Math.abs(partyBalances[p.id])) + (partyBalances[p.id]>0?' DR':' CR') : 'Settled', subColor: partyBalances[p.id]>0?'text-green-600':partyBalances[p.id]<0?'text-red-600':'text-gray-400' }));
     const handleLinkChange = (billId, value) => { const amt = parseFloat(value) || 0; let maxLimit = totals.final; if (type === 'payment') { const baseAmt = parseFloat(tx.amount || 0); const disc = parseFloat(tx.discountValue || 0); maxLimit = baseAmt + disc; } if (maxLimit <= 0) { alert("Please enter the Payment Amount first."); return; } let newLinked = [...(tx.linkedBills || [])]; const existingIdx = newLinked.findIndex(l => l.billId === billId); if (existingIdx >= 0) { if (amt <= 0) newLinked.splice(existingIdx, 1); else newLinked[existingIdx] = { ...newLinked[existingIdx], amount: amt }; } else if (amt > 0) { newLinked.push({ billId, amount: amt }); } const currentTotal = newLinked.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0); if (currentTotal > maxLimit) { alert(`Cannot link more than the Payment Amount (${maxLimit}). Current Total: ${currentTotal}`); return; } setTx({ ...tx, linkedBills: newLinked }); };
     
@@ -5285,13 +5393,14 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                              const match = tx.linkedAssets.find(la => la.name === a.name);
                              return match ? { ...a, nextServiceDate: match.nextServiceDate } : a;
                          });
-                         const updatedParty = { ...partyRef, assets: updatedAssets };
-                         
-                         // Update Local & Firebase
-                         setData(prev => ({
-                             ...prev,
-                             parties: prev.parties.map(p => p.id === updatedParty.id ? updatedParty : p)
-                         }));
+                         // Fix: Add updatedAt timestamp
+const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date().toISOString() };
+ 
+ // Update Local & Firebase
+ setData(prev => ({
+     ...prev,
+     parties: prev.parties.map(p => p.id === updatedParty.id ? updatedParty : p)
+ }));
                          setDoc(doc(db, "parties", updatedParty.id), updatedParty);
                      }
                 }
@@ -5325,7 +5434,13 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     });
     const [showLocPicker, setShowLocPicker] = useState(false);
     
-    const itemOptions = data.items.map(i => ({ ...i, subText: `Stock: ${itemStock[i.id] || 0}`, subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600' }));
+    // FIX: Clean Qty & Subtitle for Prices
+    const itemOptions = data.items.map(i => ({ 
+        ...i, 
+        subText: `Stk: ${itemStock[i.id] || 0}`, 
+        subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600',
+        subtitle: `Buy: ${i.buyPrice || 0} | Sell: ${i.sellPrice || 0}`
+    }));
     const selectedParty = data.parties.find(p => p.id === form.partyId);
     
     const updateItem = (idx, field, val) => {
@@ -5377,11 +5492,66 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 options={data.parties} 
                 value={form.partyId} 
                 onChange={v => setForm({...form, partyId: v, locationLabel: '', address: ''})} 
-                onAddNew={() => {
-                    setTaskDraft(form); // Save Draft
-                    setModal({ type: 'party' }); // Open Party Modal
-                }}
-            />
+                />
+{/* CHANGE: Added Multiple Mobile Selection Back */}
+{(selectedParty?.locations?.length > 0 || selectedParty?.mobileNumbers?.length > 0) && (
+    <div className="relative mt-1 mb-2">
+        <div className="flex justify-between items-center bg-blue-50 p-2 rounded-lg border border-blue-100">
+                <div className="text-xs text-blue-800 overflow-hidden">
+                    <span className="font-bold">Contacts: </span> 
+                    <div className="text-gray-600 mt-0.5 font-bold">
+                        {/* Show selected contacts or Primary */}
+                        {(form.selectedContacts && form.selectedContacts.length > 0) 
+                            ? form.selectedContacts.map(c => c.number).join(', ') 
+                            : (form.mobile || selectedParty.mobile)}
+                    </div>
+                </div>
+                <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[10px] font-bold bg-white border px-3 py-2 rounded-lg shadow-sm text-blue-600 whitespace-nowrap">Select No.</button>
+        </div>
+        {showLocPicker && (
+            <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1 max-h-60 overflow-y-auto">
+                {/* Default Primary */}
+                <div onClick={() => {
+                    // Reset to Primary
+                    setForm({ ...form, mobile: selectedParty.mobile, selectedContacts: [] });
+                }} className="p-2 hover:bg-gray-50 border-b cursor-pointer bg-gray-50 rounded mb-1">
+                    <span className="font-bold text-xs text-gray-600">Primary Mobile</span>
+                    <div className="text-[10px]">{selectedParty.mobile}</div>
+                </div>
+
+                {/* Multiple Numbers List */}
+                {selectedParty.mobileNumbers?.length > 0 && (
+                    <div className="mb-2 border-b pb-2">
+                        <div className="flex justify-between items-center mb-1">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase">Select Numbers to Call</p>
+                        </div>
+                        {selectedParty.mobileNumbers.map((mob, idx) => {
+                            const isSelected = form.selectedContacts?.some(c => c.number === mob.number);
+                            return (
+                                <div key={`mob-${idx}`} onClick={(e) => {
+                                    e.stopPropagation();
+                                    let current = form.selectedContacts ? [...form.selectedContacts] : [];
+                                    if (isSelected) {
+                                        current = current.filter(c => c.number !== mob.number);
+                                    } else {
+                                        current.push(mob);
+                                    }
+                                    setForm({ ...form, selectedContacts: current });
+                                }} className={`p-2 cursor-pointer border-b flex justify-between items-center transition-colors ${isSelected ? 'bg-green-50 border-green-200' : 'hover:bg-gray-50'}`}>
+                                    <span className={`text-xs font-bold flex items-center gap-1 ${isSelected ? 'text-green-700' : 'text-gray-600'}`}><Phone size={10}/> {mob.label}</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-xs font-mono ${isSelected ? 'font-bold text-black' : 'text-gray-500'}`}>{mob.number}</span>
+                                        {isSelected && <CheckCircle2 size={14} className="text-green-600"/>}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+        )}
+    </div>
+)}
             
             {(selectedParty?.locations?.length > 0 || selectedParty?.mobileNumbers?.length > 0) && (
                 <div className="relative mt-1 mb-2">
@@ -5397,6 +5567,34 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     )}
                 </div>
             )}
+            {/* REQ 4: Multiple Mobile Selection Logic Restored */}
+{selectedParty?.mobileNumbers?.length > 0 && (
+    <div className="mt-2 mb-2 p-2 bg-green-50 rounded-xl border border-green-100">
+        <p className="text-[10px] font-bold text-green-700 uppercase mb-1">Select Contacts for Task</p>
+        <div className="flex flex-wrap gap-2">
+            {selectedParty.mobileNumbers.map((mob, idx) => {
+                const isSelected = form.selectedContacts?.some(c => c.number === mob.number);
+                return (
+                    <button 
+                        key={idx}
+                        onClick={() => {
+                            let newContacts = form.selectedContacts || [];
+                            if (isSelected) {
+                                newContacts = newContacts.filter(c => c.number !== mob.number);
+                            } else {
+                                newContacts.push(mob);
+                            }
+                            setForm({ ...form, selectedContacts: newContacts });
+                        }}
+                        className={`text-[10px] px-2 py-1 rounded-lg border font-bold transition-colors ${isSelected ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200'}`}
+                    >
+                        {mob.label}: {mob.number} {isSelected && '✓'}
+                    </button>
+                );
+            })}
+        </div>
+    </div>
+)}
         </div>
 
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-20" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
@@ -5488,7 +5686,18 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                  </div>
             </div>
         </div>
-        <button onClick={async () => { handleCloseUI(); await saveRecord('tasks', form, 'task'); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
+        <button onClick={async () => { 
+    // CHANGE: Navigation Logic Fix
+    const savedId = await saveRecord('tasks', form, 'task');
+    // Agar ye naya task nahi h (edit h), to detail view open rakho
+    if(form.id) {
+         setModal({ type: null }); // Modal band karo
+         handleCloseUI(); // History pop karo
+         setViewDetail({ type: 'task', id: savedId }); // Detail view ensure karo
+    } else {
+         handleCloseUI(); 
+    }
+}} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
       </div>
     );
   };
@@ -5702,7 +5911,16 @@ const removeMobile = (idx) => {
                         + Add Asset
                     </button>
                 </div>
-           <button onClick={async () => { handleCloseUI();await saveRecord('parties', form, 'party');  }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
+           <button onClick={async () => { 
+    const savedId = await saveRecord('parties', form, 'party'); 
+    if(form.id) {
+         setModal({ type: null });
+         handleCloseUI();
+         setViewDetail({ type: 'party', id: savedId });
+    } else {
+         handleCloseUI();
+    }
+}} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save</button>
         </div>
     );
   };
@@ -6083,6 +6301,8 @@ const removeMobile = (idx) => {
         <ConvertTaskModal 
             task={modal.data} 
             data={data}
+            setData={setData}
+            syncData={syncData}
             onClose={handleCloseUI} 
             saveRecord={saveRecord} 
             setViewDetail={setViewDetail} 
