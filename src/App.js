@@ -67,7 +67,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 
-// --- FIREBASE CONFIGURATION ---
+// --- FIREBASE CONFIGURATION ----
 const firebaseConfig = {
   apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
   authDomain: "smeestest.firebaseapp.com",
