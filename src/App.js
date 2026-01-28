@@ -67,7 +67,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 
-// --- FIREBASE CONFIGURATION ----
+// --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
   apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
   authDomain: "smeestest.firebaseapp.com",
@@ -849,16 +849,16 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
   if (!record) return null;
 
   const handleConfirm = async () => {
-      // FIX 6: Prevent Duplicate Invoice (Fetch latest counter)
-      let nextId = '';
+      // FIX 6: Refresh Counters & Let saveRecord handle ID (Prevents Overwrite)
       try {
           const counterSnap = await getDoc(doc(db, "settings", "counters"));
-          const counters = counterSnap.exists() ? counterSnap.data() : data.counters;
-          const num = counters['sales'] || 1;
-          nextId = `Sales-${num}`; // Generate ID locally based on server data
+          if(counterSnap.exists()) {
+              // Local Counters ko update kar do taaki getNextId (inside saveRecord) sahi Fresh ID banaye
+              // Hum yahan 'data' prop ko directly mutate kar rahe hain temporary fix ke liye
+              data.counters = { ...data.counters, ...counterSnap.data() };
+          }
       } catch(e) {
-          console.error("Counter Fetch Error", e);
-          nextId = getNextId(data, 'sales').id; // Fallback
+          console.error("Counter Sync Error", e);
       }
 
       const saleItems = (record.itemsUsed || []).map(i => ({ 
@@ -876,8 +876,8 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
       const workSummary = totalMins > 0 ? `${workDoneBy} | Total: ${totalMins} mins` : '';
 
       const newSale = { 
-          // FIX: Use Checked ID
-          id: nextId, 
+          // FIX: Removed 'id' field so saveRecord treats it as NEW and increments counter
+          // id: nextId, <--- REMOVED
           type: 'sales', 
           date: form.date, 
           partyId: record.partyId, 
@@ -2678,9 +2678,11 @@ const deleteRecord = async (collectionName, id) => {
   const cancelTransaction = async (id) => {
     if (!window.confirm("Are you sure you want to cancel this transaction? It will be removed from all calculations but kept in records.")) return;
     
+    const timestamp = new Date().toISOString(); // NEW: Get current time
+
     // 1. Update local state immediately
     const updatedTransactions = data.transactions.map(t => 
-        t.id === id ? { ...t, status: 'Cancelled' } : t
+        t.id === id ? { ...t, status: 'Cancelled', updatedAt: timestamp } : t
     );
     setData(prev => ({ ...prev, transactions: updatedTransactions }));
     
@@ -2688,7 +2690,8 @@ const deleteRecord = async (collectionName, id) => {
     try {
         const tx = data.transactions.find(t => t.id === id);
         if (tx) {
-            await setDoc(doc(db, "transactions", id), { ...tx, status: 'Cancelled' });
+            // FIX: Added 'updatedAt' so sync respects this change
+            await setDoc(doc(db, "transactions", id), { ...tx, status: 'Cancelled', updatedAt: timestamp });
             // 3. Sync quietly
             await syncData(true);
             showToast("Transaction Cancelled");
