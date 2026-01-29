@@ -3888,7 +3888,7 @@ else pnl.goods += iProfit;
                             <span className="text-xs font-bold text-green-700 uppercase">{tx.type === 'sales' || (tx.type==='payment' && tx.subType==='in') ? 'Received' : 'Paid'}:</span>
                             <span className="font-black text-green-800">{formatCurrency(amt)}</span>
                             <span className="flex items-center gap-1 text-[10px] font-bold bg-white px-2 py-1 rounded text-gray-600 border">
-                                {mode === 'Cash' ? <Wallet size={12}/> : <Landmark size={12}/>} {mode}
+                                {mode === 'Cash' ? <Banknote size={12}/> : <Landmark size={12}/>} {mode}
                             </span>
                         </div>
                     );
@@ -4887,7 +4887,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                            const unusedAmount = tx.type === 'payment' ? (totals.amount - (totals.used || 0)) : 0;
                            let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
                            const mode = tx.paymentMode || 'Cash';
-                           const ModeIcon = mode === 'Bank' || mode === 'UPI' ? Landmark : Wallet;
+                           const ModeIcon = mode === 'Bank' || mode === 'UPI' ? Landmark : Banknote;
                            if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
                            if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
                            if (tx.type === 'payment') { Icon = ModeIcon; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
