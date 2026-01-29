@@ -65,7 +65,6 @@ import {
   MessageCircle, 
   MoreHorizontal, 
   RefreshCw,
-  Banknote, 
   Landmark,
    ShieldCheck
 } from 'lucide-react';
