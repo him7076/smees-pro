@@ -65,7 +65,7 @@ import {
   MessageCircle, 
   MoreHorizontal, 
   RefreshCw,
-  Wallet, 
+  Banknote, 
   Landmark,
    ShieldCheck
 } from 'lucide-react';
@@ -369,7 +369,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             // --- FIX: MISSING DEFINITIONS ADDED HERE ---
             const mode = tx.paymentMode || 'Cash';
             // 1. Define Icon Component (Avoids 'Objects are not valid' error)
-            const ModeIcon = (mode === 'Bank' || mode === 'UPI') ? Landmark : Wallet;
+            const ModeIcon = (mode === 'Bank' || mode === 'UPI') ? Landmark : Banknote;
             
             // 2. Define showPayIcon Boolean (Fixes ReferenceError)
             const showPayIcon = (['sales','purchase','expense'].includes(tx.type) && (parseFloat(tx.received||0) > 0 || parseFloat(tx.paid||0) > 0));
@@ -387,23 +387,24 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                   <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                   <div>
                     <div className="flex items-center gap-2"><p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p></div>
-                    
-                    <p className="text-[10px] text-gray-400 uppercase font-bold">
-                         {/* FIX: Payment Icon Usage in JSX */}
-                        {tx.type === 'payment' ? (
-                            <span className="flex items-center gap-1">
-                                <span className={tx.subType==='in'?'text-green-600':'text-red-500'}>{typeLabel} #{tx.id.split(':')[1] || tx.id}</span>
-                                <span className="text-gray-400 ml-1"><ModeIcon size={10}/></span>
-                            </span>
-                        ) : (
-                            <span className="flex items-center gap-1">
-                                {tx.id} 
-                                {/* Safe Check for showPayIcon */}
-                                {showPayIcon && <span className="text-green-600 ml-1" title={mode}><ModeIcon size={10}/></span>}
-                            </span>
-                        )} 
-                        <span className="text-gray-300 mx-1">•</span> {formatDate(tx.date)}
-                    </p>
+
+{/* FIX: Changed 'p' to 'div' to fix DOM Nesting Error */}
+<div className="text-[10px] text-gray-400 uppercase font-bold mt-0.5">
+    {tx.type === 'payment' ? (
+        <div className="flex items-center gap-2">
+            <span className="text-gray-600">{typeLabel} #{tx.id.split(':')[1] || tx.id}</span>
+            <span className="text-gray-400"><ModeIcon size={12}/></span>
+            <span>{formatDate(tx.date)}</span>
+        </div>
+    ) : (
+        <span className="flex items-center gap-1">
+            {tx.id} 
+            {/* Safe Check for showPayIcon */}
+            {showPayIcon && <span className="text-green-600 ml-1" title={mode}><ModeIcon size={10}/></span>}
+            <span className="text-gray-300 mx-1">•</span> {formatDate(tx.date)}
+        </span>
+    )} 
+</div>
                     
                     {(tx.type === 'payment' || (searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()))) && tx.description && ( 
                         <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p> 
@@ -676,20 +677,15 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                         {amcData.grouped[groupKey].map((item, idx) => {
                             // FIX: Robust check for existing task (Auto or Manual)
 // FIX 1: Robust check that ignores Date Change
-const existingTask = data.tasks.find(t => {
-    const isSameParty = t.partyId === item.party.id;
-    // Sirf Asset Name match karo, Date exact hona zaruri nahi hai
-    const isSameAsset = t.linkedAssetStr === item.asset.name || (t.description && t.description.includes(item.asset.name));
-    
-    // Check if task belongs to roughly the same service cycle (e.g. created/due within 45 days of service date)
-    // Isse agar aap date 10-15 din aage piche bhi kar doge to bhi ye 'Created' hi dikhayega
-    const taskDate = new Date(t.dueDate);
-    const serviceDate = new Date(item.date);
-    const diffTime = Math.abs(taskDate - serviceDate);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-
-    return isSameParty && isSameAsset && diffDays <= 45 && t.status !== 'Cancelled';
-});
+// FIX 7: Link by Open Status (Ignore Date Change)
+        const existingTask = data.tasks.find(t => {
+            const isSameParty = t.partyId === item.party.id;
+            const isSameAsset = t.linkedAssetStr === item.asset.name;
+            // Check if any task is Active (Not Converted/Cancelled)
+            // Isse agar aap date change bhi karoge to bhi yahi task link rahega
+            const isOpen = t.status !== 'Converted' && t.status !== 'Cancelled'; 
+            return isSameParty && isSameAsset && isOpen;
+        });
                             
                             return (
                                 <div 
@@ -3696,110 +3692,125 @@ else pnl.goods += iProfit;
       // --- UPDATE THIS FUNCTION INSIDE DetailView ---
       // New Professional Share/Print Logic
       const shareInvoice = () => {
-        const companyName = data.company.name || "My Enterprise";
-        const companyMobile = data.company.mobile || "";
-        const partyName = party?.name || tx.category || "Cash Sale";
-        const partyMobile = party?.mobile || "";
-        const partyAddress = party?.address || "";
-        
-        // Calculate Totals for Display
-        const subTotal = tx.items?.reduce((sum, i) => sum + (parseFloat(i.qty) * parseFloat(i.price)), 0) || 0;
-        const discount = parseFloat(tx.discountValue || 0);
-        const grandTotal = parseFloat(totals.amount || 0);
-        const paidAmount = parseFloat(tx.received || tx.paid || 0);
-        const currentDue = grandTotal - paidAmount;
-        const partyTotalDue = partyBalances[tx.partyId] || 0;
+      const record = viewDetail.type === 'transaction' 
+          ? data.transactions.find(t => t.id === viewDetail.id) 
+          : data.tasks.find(t => t.id === viewDetail.id);
+      
+      if (!record) return;
 
-        // HTML Template for Professional Invoice
-        const content = `
-          <html>
-            <head>
-              <title>Invoice ${tx.id}</title>
-              <style>
-                body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 20px; color: #333; }
-                .header { text-align: center; margin-bottom: 30px; }
-                .company-name { font-size: 24px; font-weight: bold; color: #2563eb; text-transform: uppercase; }
-                .meta { display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px; }
-                .box { width: 48%; }
-                .label { font-size: 10px; color: #6b7280; text-transform: uppercase; font-weight: bold; }
-                .value { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
-                table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-                th { background-color: #eff6ff; color: #1e40af; padding: 10px; text-align: left; font-size: 12px; border-bottom: 2px solid #2563eb; }
-                td { padding: 10px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
-                .text-right { text-align: right; }
-                .totals { display: flex; justify-content: flex-end; }
-                .total-box { width: 50%; }
-                .row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-                .big-total { font-size: 18px; font-weight: bold; color: #2563eb; border-top: 2px solid #e5e7eb; padding-top: 10px; margin-top: 5px; }
-                .footer { margin-top: 40px; text-align: center; font-size: 10px; color: #9ca3af; }
-                .badge { background: #dbeafe; color: #1e40af; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; }
-              </style>
-            </head>
-            <body>
+      const party = data.parties.find(p => p.id === record.partyId) || {};
+      const company = data.company || {};
+      
+      // Calculate Totals (if transaction)
+      let itemsHtml = '';
+      let totalAmount = 0;
+      
+      if (record.items) {
+          record.items.forEach((item, index) => {
+              const itemMaster = data.items.find(i => i.id === item.itemId);
+              const itemName = itemMaster ? itemMaster.name : (item.itemName || 'Item');
+              const lineTotal = (parseFloat(item.qty) || 0) * (parseFloat(item.price) || 0);
+              totalAmount += lineTotal;
+
+              // --- FIX: Warranty Logic for PDF ---
+              let warrantyText = '';
+              if(item.warrantyDate) {
+                  const start = new Date(record.date || new Date()); // Bill Date
+                  const end = new Date(item.warrantyDate);
+                  
+                  // Simple calculation for display (Months/Days)
+                  let months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+                  let days = end.getDate() - start.getDate();
+                  if (days < 0) { months--; days += 30; } // Approx adjust
+                  
+                  let durationStr = [];
+                  if(months > 0) durationStr.push(`${months} Month${months>1?'s':''}`);
+                  if(days > 0) durationStr.push(`${days} Day${days>1?'s':''}`);
+                  
+                  const durText = durationStr.length > 0 ? `(${durationStr.join(' ')})` : '';
+                  warrantyText = `<br/><span style="color:#444; font-size:9px; font-weight:bold;">Warranty Till: ${formatDate(item.warrantyDate)} ${durText}</span>`;
+              }
+              // -----------------------------------
+
+              itemsHtml += `
+                <tr style="background-color: ${index % 2 === 0 ? '#fff' : '#f9f9f9'};">
+                  <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${index + 1}</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #eee;">
+                      <b>${itemName}</b> ${item.brand ? `(${item.brand})` : ''}
+                      ${item.description ? `<br/><span style="color:#666; font-size:10px;">${item.description}</span>` : ''}
+                      ${warrantyText} 
+                  </td>
+                  <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${item.qty}</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(item.price)}</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${formatCurrency(lineTotal)}</td>
+                </tr>
+              `;
+          });
+      }
+
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Invoice - ${record.id}</title>
+            <style>
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; }
+              .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+              .header { text-align: center; margin-bottom: 30px; }
+              .company-name { font-size: 24px; font-weight: bold; color: #2563eb; }
+              .meta { display: flex; justify-content: space-between; margin-bottom: 30px; }
+              table { w-full; border-collapse: collapse; width: 100%; }
+              th { background: #f3f4f6; padding: 10px; text-align: left; font-size: 12px; text-transform: uppercase; }
+              .totals { margin-top: 20px; text-align: right; }
+              .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #666; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
               <div class="header">
-                <div class="company-name">${companyName}</div>
-                <div style="font-size: 12px;">${companyMobile}</div>
+                <div class="company-name">${company.name || 'My Company'}</div>
+                <div>${company.address || ''}</div>
+                <div>Phone: ${company.mobile || ''}</div>
               </div>
-
+              
               <div class="meta">
-                <div class="box">
-                  <div class="label">Billed To</div>
-                  <div class="value">${partyName}</div>
-                  <div style="font-size: 12px;">${partyMobile}</div>
-                  <div style="font-size: 12px; color: #6b7280;">${partyAddress}</div>
+                <div>
+                  <strong>Billed To:</strong><br/>
+                  ${party.name || 'Cash Sale'}<br/>
+                  ${party.mobile ? `Phone: ${party.mobile}<br/>` : ''}
+                  ${party.address ? `${party.address}` : ''}
                 </div>
-                <div class="box text-right">
-                  <div class="label">Invoice Details</div>
-                  <div class="value">#${tx.id}</div>
-                  <div class="value">${formatDate(tx.date)}</div>
-                  <div class="badge">${tx.type.toUpperCase()}</div>
+                <div style="text-align: right;">
+                  <strong>Invoice No:</strong> ${record.id}<br/>
+                  <strong>Date:</strong> ${formatDate(record.date)}<br/>
+                  <strong>Mode:</strong> ${record.paymentMode || 'Cash'}
                 </div>
               </div>
 
               <table>
                 <thead>
                   <tr>
-                    <th>ITEM</th>
-                    <th class="text-right">QTY</th>
-                    <th class="text-right">PRICE</th>
-                    <th class="text-right">TOTAL</th>
+                    <th style="text-align: center; width: 50px;">#</th>
+                    <th>Item Description</th>
+                    <th style="text-align: center; width: 60px;">Qty</th>
+                    <th style="text-align: right; width: 100px;">Price</th>
+                    <th style="text-align: right; width: 100px;">Total</th>
                   </tr>
                 </thead>
-<tbody>
-                  ${(tx.items || []).map(item => {
-                    const m = data.items.find(x => x.id === item.itemId);
-                    // CHANGE: Added Brand and better layout
-                    return `
-                      <tr>
-                        <td>
-                          <div style="font-weight:bold;">${m?.name || 'Item'} <span style="font-weight:normal; color:#2563eb;">${item.brand ? `(${item.brand})` : ''}</span></div>
-                          <div style="font-size:10px; color:#6b7280;">${item.description || ''}</div>
-                        </td>
-                        <td class="text-right">${item.qty}</td>
-                        <td class="text-right">${item.price}</td>
-                        <td class="text-right">${(item.qty * item.price).toFixed(2)}</td>
-                      </tr>
-                    `;
-                  }).join('')}
+                <tbody>
+                  ${itemsHtml}
                 </tbody>
               </table>
 
               <div class="totals">
-                <div class="total-box">
-                  <div class="row"><span>Sub Total</span><span>${subTotal.toFixed(2)}</span></div>
-                  <div class="row"><span>Discount (${tx.discountType})</span><span>-${discount}</span></div>
-                  <div class="row big-total"><span>Grand Total</span><span>${grandTotal.toFixed(2)}</span></div>
-                  <div class="row" style="color: #059669; font-weight: bold;"><span>Paid Amount</span><span>${paidAmount.toFixed(2)}</span></div>
-                  <div class="row" style="color: #dc2626; font-weight: bold;"><span>Balance Due (Bill)</span><span>${currentDue.toFixed(2)}</span></div>
-                  <div class="row" style="margin-top: 10px; border-top: 1px dashed #ccc; padding-top: 5px;">
-                    <span style="font-size: 11px;">Total Party Due</span>
-                    <span style="font-weight: bold;">${partyTotalDue.toFixed(2)}</span>
-                  </div>
-                </div>
+                <p><strong>Sub Total:</strong> ${formatCurrency(record.grossTotal || totalAmount)}</p>
+                ${record.discountValue ? `<p>Discount: -${formatCurrency(record.discountValue)}</p>` : ''}
+                <p style="font-size: 18px;"><strong>Grand Total: ${formatCurrency(record.finalTotal || totalAmount)}</strong></p>
+                <p>Paid: ${formatCurrency(record.received || 0)}</p>
+                <p>Balance: ${formatCurrency((record.finalTotal || totalAmount) - (record.received || 0))}</p>
               </div>
 
               <div class="footer">
-                {/* FIX 7: Disclaimer */}
                 <div style="border-top: 1px solid #eee; padding-top: 10px; margin-bottom: 20px; font-style: italic; color: #666;">
                     <p>This invoice is generated for record and information purpose only.</p>
                     <p>Sun Electricals is currently not registered under GST, hence GST is not applicable.</p>
@@ -3809,23 +3820,13 @@ else pnl.goods += iProfit;
                 <p>Thank you for your business!</p>
                 <p>Generated by SMEES Pro</p>
               </div>
-                <p>Thank you for your business!</p>
-                <p>Generated by SMEES Pro</p>
-              </div>
-            </body>
-          </html>
-        `;
-
-        const win = window.open('', '_blank');
-        if (win) {
-          win.document.write(content);
-          win.document.close();
-          // Timeout to ensure styles load before printing
-          setTimeout(() => {
-              win.print();
-          }, 500);
-        }
-      };
+            </div>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.print();
+  };
 
       return (
         <div className="fixed inset-0 z-[70] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
@@ -5337,24 +5338,44 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 {tx.items.map((line, idx) => {
                     const selectedItemMaster = data.items.find(i => i.id === line.itemId);
                     const specificBrandOptions = selectedItemMaster?.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}`, subColor: 'text-green-600' })) || [];
+                    
                     return (
                         <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
                             <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
                     
                             <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine(idx, 'itemId', v)} placeholder="Select Item"/>
                             
-                            {/* FIX #7: Permanent Brand Add */}
                             {selectedItemMaster && ( 
                                 <SearchableSelect 
                                     placeholder={specificBrandOptions.length > 0 ? "Select Brand" : "No Brands (Add New)"} 
                                     options={specificBrandOptions} 
                                     value={line.brand || ''} 
                                     onChange={v => updateLine(idx, 'brand', v)} 
-                                    // FIX 1: Open Form for Brand Add
-                                  onAddNew={() => setAddBrandModal({ item: selectedItemMaster, idx })}
+                                    onAddNew={() => setAddBrandModal({ item: selectedItemMaster, idx })}
                                 /> 
                             )}
                             <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
+                            
+                            {/* FIX: Warranty Field Added */}
+                            <div className="flex gap-2 items-center bg-blue-100 p-1.5 rounded-lg border border-blue-200">
+                                <ShieldCheck size={14} className="text-blue-600"/>
+                                <span className="text-[10px] font-bold text-blue-700 uppercase">Till:</span>
+                                <input type="date" className="p-1 border rounded text-[10px] bg-white w-24" value={line.warrantyDate || ''} onChange={(e) => updateLine(idx, 'warrantyDate', e.target.value)} />
+                                <select className="p-1 border rounded text-[10px] bg-white flex-1" onChange={(e) => {
+                                    if(!e.target.value) return;
+                                    const d = new Date(tx.date || new Date()); 
+                                    d.setMonth(d.getMonth() + parseInt(e.target.value));
+                                    updateLine(idx, 'warrantyDate', d.toISOString().split('T')[0]);
+                                }}>
+                                    <option value="">Duration...</option>
+                                    <option value="1">1 Month</option>
+                                    <option value="3">3 Months</option>
+                                    <option value="6">6 Months</option>
+                                    <option value="12">1 Year</option>
+                                    <option value="24">2 Years</option>
+                                </select>
+                            </div>
+
                             <div className="flex gap-2">
                                 <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} />
                                 <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
@@ -5399,7 +5420,6 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                 
                                 if(!name) return alert("Brand Name is required");
                                 
-                                // Update Logic
                                 const item = addBrandModal.item;
                                 const newBrandObj = { name, sellPrice: sell, buyPrice: buy };
                                 const updatedItem = { ...item, brands: [...(item.brands || []), newBrandObj] };
@@ -5407,13 +5427,17 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                 // 1. Save to Cloud
                                 await setDoc(doc(db, "items", item.id), updatedItem);
                                 
-                                // 2. Update Local State (Items)
-                                setData(prev => ({ ...prev, items: prev.items.map(i => i.id === item.id ? updatedItem : i) }));
+                                // FIX 2 & 3: Direct Mutation (Prevents App Re-render/Form Reset)
+                                // Hum setData use nahi karenge taki TransactionForm unmount na ho
+                                const itemIdx = data.items.findIndex(i => i.id === item.id);
+                                if(itemIdx > -1) {
+                                    data.items[itemIdx] = updatedItem; // Update memory directly
+                                }
                                 
-                                // 3. Update Current Line Item in Form
+                                // 3. Update Current Line Item (Triggers Local Render Only)
                                 updateLine(addBrandModal.idx, 'brand', name);
                                 
-                                setAddBrandModal(null); // Close Modal
+                                setAddBrandModal(null); 
                             }}
                             className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold mt-2"
                         >
@@ -5494,6 +5518,7 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
         selectedContacts: []
     });
     const [showLocPicker, setShowLocPicker] = useState(false);
+    const [addBrandModal, setAddBrandModal] = useState(null); // FIX 1: Brand Modal State
     
     // FIX: Clean Qty & Subtitle for Prices
     const itemOptions = data.items.map(i => ({ 
@@ -5579,7 +5604,42 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
                     <span className="font-bold text-xs text-gray-600">Primary Mobile</span>
                     <div className="text-[10px]">{selectedParty.mobile}</div>
                 </div>
+                {/* FIX 1: Brand Add Modal for TaskForm */}
+            {addBrandModal && (
+                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <div className="bg-white p-5 rounded-2xl w-full max-w-xs shadow-2xl">
+                        <h3 className="font-bold text-lg mb-2">Add Brand</h3>
+                        <input id="task_brand_name" autoFocus className="w-full p-2 border rounded-lg font-bold text-sm mb-3" placeholder="Brand Name" />
+                        <button 
+                            onClick={async () => {
+                                const name = document.getElementById('task_brand_name').value;
+                                if(!name) return alert("Required");
+                                
+                                const item = addBrandModal.item;
+                                const updatedItem = { ...item, brands: [...(item.brands || []), { name, sellPrice: item.sellPrice || 0, buyPrice: item.buyPrice || 0 }] };
+                                
+                                // 1. Cloud Save
+                                await setDoc(doc(db, "items", item.id), updatedItem);
+                                
+                                // 2. Local Mutation (Prevent Reset)
+                                const itemIdx = data.items.findIndex(i => i.id === item.id);
+                                if(itemIdx > -1) data.items[itemIdx] = updatedItem;
 
+                                // 3. Update Form
+                                const newItems = [...form.itemsUsed];
+                                newItems[addBrandModal.idx].brand = name;
+                                setForm({ ...form, itemsUsed: newItems });
+                                
+                                setAddBrandModal(null);
+                            }}
+                            className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold"
+                        >
+                            Save Brand
+                        </button>
+                        <button onClick={() => setAddBrandModal(null)} className="w-full py-3 text-gray-500 font-bold text-xs mt-1">Cancel</button>
+                    </div>
+                </div>
+            )}
                 {/* Multiple Numbers List */}
                 {selectedParty.mobileNumbers?.length > 0 && (
                     <div className="mb-2 border-b pb-2">
@@ -5666,54 +5726,70 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
             {showItems && (
                 <div className="space-y-2 pt-2">
                     {form.itemsUsed.map((line, idx) => {
-    const selectedItemMaster = data.items.find(i => i.id === line.itemId);
-    const brandOptions = selectedItemMaster?.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}`, subColor: 'text-green-600' })) || [];
-    const lineProfit = (parseFloat(line.price || 0) - parseFloat(line.buyPrice || 0)) * parseFloat(line.qty || 0);
+                    const selectedItemMaster = data.items.find(i => i.id === line.itemId);
+                    const specificBrandOptions = selectedItemMaster?.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}`, subColor: 'text-green-600' })) || [];
+                    
+                    const updateLine = (field, val) => {
+                        const newItems = [...form.itemsUsed];
+                        newItems[idx] = { ...newItems[idx], [field]: val };
+                        if(field === 'itemId') {
+                           const master = data.items.find(i => i.id === val);
+                           if(master) { newItems[idx].itemName = master.name; newItems[idx].price = master.sellPrice; newItems[idx].buyPrice = master.buyPrice; newItems[idx].brand = ''; }
+                        }
+                        setForm({ ...form, itemsUsed: newItems });
+                    };
 
-    return (
-        <div key={idx} className="p-3 border rounded-xl bg-white relative space-y-2 shadow-sm">
-            <button onClick={() => setForm({...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500 z-10"><X size={12}/></button>
-            
-            {/* Searchable Item Dropdown */}
-            <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} placeholder="Select Item" />
-            
-            {/* Brand Dropdown (Sales Form Style) */}
-            {selectedItemMaster && (
-                <SearchableSelect 
-                    placeholder={brandOptions.length > 0 ? "Select Brand" : "No Brands"} 
-                    options={brandOptions} 
-                    value={line.brand || ''} 
-                    onChange={v => updateItem(idx, 'brand', v)} 
-                />
-            )}
+                    return (
+                        <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
+                            <button onClick={() => {
+                                const newItems = form.itemsUsed.filter((_, i) => i !== idx);
+                                setForm({ ...form, itemsUsed: newItems });
+                            }} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
+                    
+                            <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine('itemId', v)} placeholder="Select Item"/>
+                            
+                            {selectedItemMaster && ( 
+                                <SearchableSelect 
+                                    placeholder={specificBrandOptions.length > 0 ? "Select Brand" : "No Brands (Add New)"} 
+                                    options={specificBrandOptions} 
+                                    value={line.brand || ''} 
+                                    onChange={v => updateLine('brand', v)} 
+                                    onAddNew={() => setAddBrandModal({ item: selectedItemMaster, idx })}
+                                /> 
+                            )}
 
-            <input className="w-full text-[10px] p-2 border rounded-lg bg-gray-50" placeholder="Item Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} />
-
-            <div className="flex gap-2 items-center">
-                <div className="flex-1">
-                    <label className="text-[9px] font-bold text-gray-400 uppercase">Qty</label>
-                    <input type="number" className="w-full p-2 border rounded text-xs" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
-                </div>
-                <div className="flex-1">
-                    <label className="text-[9px] font-bold text-gray-400 uppercase">Sale Price</label>
-                    <input type="number" className="w-full p-2 border rounded text-xs" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
-                </div>
-                <div className="flex-1">
-                    <label className="text-[9px] font-bold text-gray-400 uppercase">Purchase</label>
-                    <input type="number" className="w-full p-2 border rounded text-xs bg-yellow-50" value={line.buyPrice} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} />
-                </div>
-            </div>
-
-            {/* Individual Line P&L */}
-            <div className="flex justify-between items-center pt-1 border-t border-dashed">
-                <span className="text-[10px] text-gray-400 font-bold">Line Total: {formatCurrency(line.qty * line.price)}</span>
-                <span className={`text-[10px] font-bold ${lineProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    P&L: {formatCurrency(lineProfit)}
-                </span>
-            </div>
-        </div>
-    );
-})}
+                            <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine('description', e.target.value)} />
+                            
+                            {/* FIX: Warranty Field Added */}
+                            <div className="flex gap-2 items-center bg-blue-100 p-1.5 rounded-lg border border-blue-200">
+                                <ShieldCheck size={14} className="text-blue-600"/>
+                                <span className="text-[10px] font-bold text-blue-700 uppercase">Till:</span>
+                                <input type="date" className="p-1 border rounded text-[10px] bg-white w-24" value={line.warrantyDate || ''} onChange={(e) => updateLine('warrantyDate', e.target.value)} />
+                                <select className="p-1 border rounded text-[10px] bg-white flex-1" onChange={(e) => {
+                                    if(!e.target.value) return;
+                                    const d = new Date(); 
+                                    d.setMonth(d.getMonth() + parseInt(e.target.value));
+                                    updateLine('warrantyDate', d.toISOString().split('T')[0]);
+                                }}>
+                                    <option value="">Duration...</option>
+                                    <option value="1">1 Month</option>
+                                    <option value="3">3 Months</option>
+                                    <option value="6">6 Months</option>
+                                    <option value="12">1 Year</option>
+                                </select>
+                            </div>
+                            
+                            <div className="flex gap-2">
+                                <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateLine('qty', e.target.value)} />
+                                <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateLine('price', e.target.value)} />
+                                <input type="number" className="w-20 p-1 border rounded text-xs bg-yellow-50 text-gray-600" placeholder="Buy" value={line.buyPrice} onChange={e => updateLine('buyPrice', e.target.value)} />
+                                <div className="flex-1 text-right self-end text-xs font-bold text-gray-500 pb-2">
+                                    {formatCurrency((parseFloat(line.qty)||0) * (parseFloat(line.price)||0))}
+                                </div>
+                            </div>
+                        </div>
+                    );
+                  })}
 
 {/* Final Summary Section - Just before "Add Item" button */}
 {form.itemsUsed.length > 0 && (
