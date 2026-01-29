@@ -64,7 +64,10 @@ import {
   Save, 
   MessageCircle, 
   MoreHorizontal, 
-  RefreshCw
+  RefreshCw,
+  Wallet, 
+  Landmark,
+   ShieldCheck
 } from 'lucide-react';
 
 // --- FIREBASE CONFIGURATION ---
@@ -343,15 +346,10 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             const party = data.parties.find(p => p.id === tx.partyId);
             const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
             
-            // --- FIXED LOGIC START ---
+            // --- CALCULATION LOGIC ---
             const totalAmt = parseFloat(tx.amount || tx.finalTotal || 0);
-            
-            // 1. Linked Payment (External: Other tx linked to this)
             const linkedPaid = linksMap[tx.id] || 0;
-            
-            // 2. Direct Payment (Received/Paid on Bill)
             const directPaid = parseFloat(tx.received || tx.paid || 0);
-            
             const totalPaid = linkedPaid + directPaid;
             const pendingAmt = Math.max(0, totalAmt - totalPaid);
             
@@ -359,25 +357,29 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             if (pendingAmt <= 0.5) status = 'PAID'; 
             else if (totalPaid > 0) status = 'PARTIAL';
             
-            // FIX: Payment Unused Calculation
-            // Unused = Amount - (Sum of bills linked INSIDE this payment)
             let paymentUnused = 0;
             if (tx.type === 'payment') {
                  const usedInternally = (tx.linkedBills || []).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
-                 // Also subtract if this payment was linked REVERSELY by a bill (rare but possible in double entry)
                  paymentUnused = totalAmt - (usedInternally + linkedPaid);
             }
-            // --- FIXED LOGIC END ---
-            
-            // FIX: Display Name for Payment
+
             let typeLabel = tx.type;
             if(tx.type === 'payment') typeLabel = tx.subType === 'in' ? 'Payment IN' : 'Payment OUT';
 
-            const isCancelled = tx.status === 'Cancelled';
+            // --- FIX: MISSING DEFINITIONS ADDED HERE ---
+            const mode = tx.paymentMode || 'Cash';
+            // 1. Define Icon Component (Avoids 'Objects are not valid' error)
+            const ModeIcon = (mode === 'Bank' || mode === 'UPI') ? Landmark : Wallet;
+            
+            // 2. Define showPayIcon Boolean (Fixes ReferenceError)
+            const showPayIcon = (['sales','purchase','expense'].includes(tx.type) && (parseFloat(tx.received||0) > 0 || parseFloat(tx.paid||0) > 0));
+
             let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
             if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
             if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
-            if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+            if (tx.type === 'payment') { Icon = ModeIcon; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+            
+            const isCancelled = tx.status === 'Cancelled';
             
             return (
               <div key={tx.id} onClick={() => { pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className={`p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform ${isCancelled ? 'opacity-50 grayscale bg-gray-50' : ''}`}>
@@ -385,13 +387,20 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                   <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                   <div>
                     <div className="flex items-center gap-2"><p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p></div>
-                    {/* REQ 7: Fix Double Type Display */}
+                    
                     <p className="text-[10px] text-gray-400 uppercase font-bold">
+                         {/* FIX: Payment Icon Usage in JSX */}
                         {tx.type === 'payment' ? (
-                            <span className={tx.subType==='in'?'text-green-600':'text-red-500'}>{typeLabel} #{tx.id.split(':')[1] || tx.id}</span>
+                            <span className="flex items-center gap-1">
+                                <span className={tx.subType==='in'?'text-green-600':'text-red-500'}>{typeLabel} #{tx.id.split(':')[1] || tx.id}</span>
+                                <span className="text-gray-400 ml-1"><ModeIcon size={10}/></span>
+                            </span>
                         ) : (
-                            // For Sales/Purchase, ID usually contains type (e.g. Sales:101). Just show ID.
-                            <span>{tx.id}</span>
+                            <span className="flex items-center gap-1">
+                                {tx.id} 
+                                {/* Safe Check for showPayIcon */}
+                                {showPayIcon && <span className="text-green-600 ml-1" title={mode}><ModeIcon size={10}/></span>}
+                            </span>
                         )} 
                         <span className="text-gray-300 mx-1">•</span> {formatDate(tx.date)}
                     </p>
@@ -401,34 +410,31 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                     )}
                     
                     <div className="flex gap-1 mt-1">
-    {isCancelled ? (
-        <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span>
-    ) : (
-        <>
-            {/* Sales/Purchase Tags */}
-            {['sales', 'purchase', 'expense'].includes(tx.type) && (
-                <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${status === 'PAID' ? 'bg-green-100 text-green-700' : status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                    {status}
-                </span>
-            )}
-            {/* Payment Tags (Add this block) */}
-            {tx.type === 'payment' && (() => {
-                const payStats = getBillStats(tx, data.transactions);
-                return (
-                    <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${payStats.status === 'FULLY USED' ? 'bg-green-100 text-green-700' : payStats.status === 'PARTIALLY USED' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>
-                        {payStats.status}
-                    </span>
-                );
-            })()}
-        </>
-    )}
-</div>
+                        {isCancelled ? (
+                            <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span>
+                        ) : (
+                            <>
+                                {['sales', 'purchase', 'expense'].includes(tx.type) && (
+                                    <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${status === 'PAID' ? 'bg-green-100 text-green-700' : status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                        {status}
+                                    </span>
+                                )}
+                                {tx.type === 'payment' && (() => {
+                                    const payStats = getBillStats(tx, data.transactions);
+                                    return (
+                                        <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${payStats.status === 'FULLY USED' ? 'bg-green-100 text-green-700' : payStats.status === 'PARTIALLY USED' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>
+                                            {payStats.status}
+                                        </span>
+                                    );
+                                })()}
+                            </>
+                        )}
+                    </div>
                   </div>
                 </div>
                 <div className="text-right">
                   <p className={`font-bold ${isCancelled ? 'text-gray-400 line-through' : isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totalAmt)}</p>
                   
-                  {/* Balance ab sahi pending amount dikhayega */}
                   {['sales', 'purchase', 'expense'].includes(tx.type) && status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(pendingAmt)}</p>}
                   
                   {tx.type === 'payment' && !isCancelled && paymentUnused > 0.1 && <p className="text-[10px] font-bold text-orange-600">Unused: {formatCurrency(paymentUnused)}</p>}
@@ -1227,7 +1233,8 @@ const ManualAttendanceModal = ({ manualAttModal, setManualAttModal, data, setDat
           setForm({
               date: initial.date,
               in: initial.checkIn || '09:00',
-              out: initial.checkOut || '18:00',
+              // FIX 3: Keep blank if checkOut is empty
+out: initial.checkOut || '',
               lStart: initial.lunchStart || '',
               lEnd: initial.lunchEnd || ''
           });
@@ -1350,8 +1357,8 @@ const TimeLogModal = ({ editingTimeLog, setEditingTimeLog, data, setData, handle
             const { task, index } = editingTimeLog;
             const log = task.timeLogs[index];
             setForm({
-                start: log.start ? new Date(log.start).toISOString().slice(0, 16) : '',
-                end: log.end ? new Date(log.end).toISOString().slice(0, 16) : ''
+                start: log.start ? new Date(new Date(log.start).getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0, 16) : '',
+                end: log.end ? new Date(new Date(log.end).getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0, 16) : ''
             });
         }
     }, [editingTimeLog]);
@@ -3792,6 +3799,16 @@ else pnl.goods += iProfit;
               </div>
 
               <div class="footer">
+                {/* FIX 7: Disclaimer */}
+                <div style="border-top: 1px solid #eee; padding-top: 10px; margin-bottom: 20px; font-style: italic; color: #666;">
+                    <p>This invoice is generated for record and information purpose only.</p>
+                    <p>Sun Electricals is currently not registered under GST, hence GST is not applicable.</p>
+                    <p>This bill is for internal accounting and service reference only.</p>
+                    <p>It is not a tax invoice.</p>
+                </div>
+                <p>Thank you for your business!</p>
+                <p>Generated by SMEES Pro</p>
+              </div>
                 <p>Thank you for your business!</p>
                 <p>Generated by SMEES Pro</p>
               </div>
@@ -3853,10 +3870,30 @@ else pnl.goods += iProfit;
             
           </div>
           <div className={`p-4 space-y-6 ${tx.status === 'Cancelled' ? 'opacity-60 grayscale' : ''}`}>
-            <div className="text-center">
-              <h1 className={`text-2xl font-black ${tx.status === 'Cancelled' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{formatCurrency(totals.amount)}</h1>
-              <p className="text-xs font-bold text-gray-400 uppercase">{tx.type} • {formatDate(tx.date)}</p>
-            </div>
+            {/* FIX 4: Description & Payment Info Block */}
+            {tx.description && (
+                <div className="bg-yellow-50 p-3 rounded-xl border border-yellow-100 text-center">
+                    <p className="text-[10px] text-yellow-700 font-bold uppercase mb-1">Description</p>
+                    <p className="text-sm text-gray-700">{tx.description}</p>
+                </div>
+            )}
+
+            {/* Show Payment Details for Sales/Purchase/Expense/Payment */}
+            {(() => {
+                const amt = tx.type === 'sales' ? tx.received : (tx.type === 'payment' ? tx.amount : tx.paid);
+                if (parseFloat(amt) > 0) {
+                    const mode = tx.paymentMode || 'Cash';
+                    return (
+                        <div className="flex justify-center items-center gap-2 bg-green-50 p-2 rounded-xl border border-green-100">
+                            <span className="text-xs font-bold text-green-700 uppercase">{tx.type === 'sales' || (tx.type==='payment' && tx.subType==='in') ? 'Received' : 'Paid'}:</span>
+                            <span className="font-black text-green-800">{formatCurrency(amt)}</span>
+                            <span className="flex items-center gap-1 text-[10px] font-bold bg-white px-2 py-1 rounded text-gray-600 border">
+                                {mode === 'Cash' ? <Wallet size={12}/> : <Landmark size={12}/>} {mode}
+                            </span>
+                        </div>
+                    );
+                }
+            })()}
             
             {/* CHANGE: Party Card Clickable for Admin Only */}
             <div 
@@ -4849,9 +4886,12 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                            const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
                            const unusedAmount = tx.type === 'payment' ? (totals.amount - (totals.used || 0)) : 0;
                            let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
+                           const mode = tx.paymentMode || 'Cash';
+                           const ModeIcon = mode === 'Bank' || mode === 'UPI' ? Landmark : Wallet;
                            if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
                            if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
-                           if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+                           if (tx.type === 'payment') { Icon = ModeIcon; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+                           const showPayIcon = (['sales','purchase','expense'].includes(tx.type) && (parseFloat(tx.received||0) > 0 || parseFloat(tx.paid||0) > 0));
                            let displayAmount = totals.amount;
                            return (
                              <div key={tx.id} onClick={() => { const el = document.getElementById('detail-scroller'); if(el) scrollPos.current[record.id] = el.scrollTop; setNavStack(prev => [...prev, viewDetail]); pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
@@ -5088,6 +5128,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     // ... (States same as before) ...
     const [showLinking, setShowLinking] = useState(false);
     const [showLocPicker, setShowLocPicker] = useState(false);
+    const [addBrandModal, setAddBrandModal] = useState(null); // State for Brand Form
     const [linkSearch, setLinkSearch] = useState('');
     // Helper for Salary Calc
     const getMins = (t) => {
@@ -5309,24 +5350,8 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                     options={specificBrandOptions} 
                                     value={line.brand || ''} 
                                     onChange={v => updateLine(idx, 'brand', v)} 
-                                    onAddNew={async () => { 
-                                        const newBrand = prompt(`Add new brand for ${selectedItemMaster.name}?`); 
-                                        if(!newBrand) return;
-                                        
-                                        const sPrice = prompt("Selling Price for this brand?", line.price || selectedItemMaster.sellPrice);
-                                        const bPrice = prompt("Buying Price for this brand?", line.buyPrice || selectedItemMaster.buyPrice);
-
-                                        // Update Master Data
-                                        const newBrandObj = { name: newBrand, sellPrice: sPrice, buyPrice: bPrice };
-                                        const updatedItem = { ...selectedItemMaster, brands: [...(selectedItemMaster.brands || []), newBrandObj] };
-                                        
-                                        // Save to Cloud & Local
-                                        await setDoc(doc(db, "items", selectedItemMaster.id), updatedItem);
-                                        setData(prev => ({ ...prev, items: prev.items.map(i => i.id === selectedItemMaster.id ? updatedItem : i) }));
-                                        
-                                        // Update current line
-                                        updateLine(idx, 'brand', newBrand); 
-                                    }} 
+                                    // FIX 1: Open Form for Brand Add
+                                  onAddNew={() => setAddBrandModal({ item: selectedItemMaster, idx })}
                                 /> 
                             )}
                             <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
@@ -5341,6 +5366,62 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 })}
                 <button onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="w-full py-3 border-2 border-dashed border-blue-200 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-50 flex items-center justify-center gap-2"><Plus size={16}/> Add Item</button>
                 <div className="flex justify-end pt-2 border-t border-gray-100"><div className="text-right"><span className="text-xs font-bold text-gray-400 uppercase mr-2">Sub Total</span><span className="text-xl font-bold text-gray-800">{formatCurrency(totals.gross)}</span></div></div>
+            </div>
+        )}
+        {/* FIX 1: Brand Add Form Modal */}
+        {addBrandModal && (
+            <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                <div className="bg-white p-5 rounded-2xl w-full max-w-xs shadow-2xl animate-in zoom-in-95">
+                    <h3 className="font-bold text-lg mb-2 text-gray-800">Add Brand</h3>
+                    <p className="text-xs text-gray-500 mb-4">Item: {addBrandModal.item.name}</p>
+                    
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-[10px] font-bold text-gray-400 uppercase">Brand Name</label>
+                            <input id="new_brand_name" autoFocus className="w-full p-2 border rounded-lg font-bold text-sm" placeholder="e.g. Havells" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-400 uppercase">Sell Price</label>
+                                <input id="new_brand_sell" type="number" className="w-full p-2 border rounded-lg" defaultValue={addBrandModal.item.sellPrice} />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-400 uppercase">Buy Price</label>
+                                <input id="new_brand_buy" type="number" className="w-full p-2 border rounded-lg bg-yellow-50" defaultValue={addBrandModal.item.buyPrice} />
+                            </div>
+                        </div>
+                        
+                        <button 
+                            onClick={async () => {
+                                const name = document.getElementById('new_brand_name').value;
+                                const sell = document.getElementById('new_brand_sell').value;
+                                const buy = document.getElementById('new_brand_buy').value;
+                                
+                                if(!name) return alert("Brand Name is required");
+                                
+                                // Update Logic
+                                const item = addBrandModal.item;
+                                const newBrandObj = { name, sellPrice: sell, buyPrice: buy };
+                                const updatedItem = { ...item, brands: [...(item.brands || []), newBrandObj] };
+                                
+                                // 1. Save to Cloud
+                                await setDoc(doc(db, "items", item.id), updatedItem);
+                                
+                                // 2. Update Local State (Items)
+                                setData(prev => ({ ...prev, items: prev.items.map(i => i.id === item.id ? updatedItem : i) }));
+                                
+                                // 3. Update Current Line Item in Form
+                                updateLine(addBrandModal.idx, 'brand', name);
+                                
+                                setAddBrandModal(null); // Close Modal
+                            }}
+                            className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold mt-2"
+                        >
+                            Save Brand
+                        </button>
+                        <button onClick={() => setAddBrandModal(null)} className="w-full py-3 text-gray-500 font-bold text-xs">Cancel</button>
+                    </div>
+                </div>
             </div>
         )}
 
@@ -6002,6 +6083,12 @@ const removeMobile = (idx) => {
                  </div>
              </div>
              <input type="number" className="w-full p-2 bg-white border rounded-lg text-sm" placeholder="Opening Stock" value={form.openingStock} onChange={e => setForm({...form, openingStock: e.target.value})} />
+{/* FIX 8: Warranty Field */}
+<div className="flex items-center gap-2 mt-2">
+    <ShieldCheck size={16} className="text-blue-500" />
+    <span className="text-xs font-bold text-gray-500">Warranty Till:</span>
+    <input type="date" className="flex-1 p-2 bg-white border rounded-lg text-xs" value={form.warrantyDate || ''} onChange={e => setForm({...form, warrantyDate: e.target.value})} />
+</div>
          </div>
 
          {/* --- BRAND / VARIANT MANAGER --- */}
