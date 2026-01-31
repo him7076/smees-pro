@@ -2,12 +2,13 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyA0GkAFhV6GfFsszHPJG-aPfGNiVRdBPNg",
-  authDomain: "smees-33e6c.firebaseapp.com",
-  projectId: "smees-33e6c",
-  storageBucket: "smees-33e6c.firebasestorage.app",
-  messagingSenderId: "723248995098",
-  appId: "1:723248995098:web:a61b659e31f42332656aa3",
+  apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
+  authDomain: "smeestest.firebaseapp.com",
+  projectId: "smeestest",
+  storageBucket: "smeestest.firebasestorage.app",
+  messagingSenderId: "1086297510582",
+  appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
+  measurementId: "G-BQ6NW6D84Z"
 };
 
 const app = initializeApp(firebaseConfig);

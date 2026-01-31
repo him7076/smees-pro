@@ -255,6 +255,12 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             if (categoryFilter && tx.category !== categoryFilter) return false;
             if (dateRange.start && tx.date < dateRange.start) return false;
             if (dateRange.end && tx.date > dateRange.end) return false;
+            // CHANGE 3: Only show transactions with actual amount in Cash/Bank mode
+            if (listPaymentMode) {
+                const amt = ['sales'].includes(tx.type) ? parseFloat(tx.received||0) : 
+                           ['purchase','expense'].includes(tx.type) ? parseFloat(tx.paid||0) : parseFloat(tx.amount||0);
+                if (amt <= 0) return false;
+            }
             if (searchQuery) {
                 const lowerQuery = searchQuery.toLowerCase();
                 const party = data.parties.find(p => p.id === tx.partyId);
@@ -346,7 +352,13 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
             
             // --- CALCULATION LOGIC ---
-            const totalAmt = parseFloat(tx.amount || tx.finalTotal || 0);
+            // CHANGE 3: Display Actual Paid/Received in Cash/Bank Mode
+            let totalAmt = parseFloat(tx.amount || tx.finalTotal || 0);
+            if (listPaymentMode) {
+                 if (tx.type === 'sales') totalAmt = parseFloat(tx.received || 0);
+                 else if (tx.type === 'purchase' || tx.type === 'expense') totalAmt = parseFloat(tx.paid || 0);
+            }
+            
             const linkedPaid = linksMap[tx.id] || 0;
             const directPaid = parseFloat(tx.received || tx.paid || 0);
             const totalPaid = linkedPaid + directPaid;
@@ -826,9 +838,10 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
       // Find asset in party
       const assetMatch = party?.assets?.find(a => a.name === record.linkedAssetStr);
       if(assetMatch) {
-           // Default +3 Months or existing logic
+           // CHANGE 6: Use Asset Default
+           const interval = assetMatch.serviceInterval ? parseInt(assetMatch.serviceInterval) : 3;
            const d = new Date();
-           d.setMonth(d.getMonth() + 3);
+           d.setMonth(d.getMonth() + interval);
            initialAssets.push({ name: assetMatch.name, nextServiceDate: d.toISOString().split('T')[0] });
       }
   }
@@ -841,8 +854,12 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
   });
 
   const handleAddAsset = (assetName) => {
+      // CHANGE 6: Auto Calculate for Convert Task
+      const assetObj = party?.assets?.find(a => a.name === assetName);
+      const interval = assetObj?.serviceInterval ? parseInt(assetObj.serviceInterval) : 3;
+
       const d = new Date(form.date);
-      d.setMonth(d.getMonth() + 3); 
+      d.setMonth(d.getMonth() + interval); 
       const nextDate = d.toISOString().split('T')[0];
       setForm(prev => ({...prev, linkedAssets: [...prev.linkedAssets, { name: assetName, nextServiceDate: nextDate }] }));
   };
@@ -2393,6 +2410,8 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
           // --- CHANGE END ---
 
           else if (mastersView) { setMastersView(null); setPartyFilter(null); }
+          // CHANGE 4: Reset Cash/Bank Filter on Back
+          else if (listPaymentMode) { setListPaymentMode(null); setActiveTab('dashboard'); }
           else if (reportView) setReportView(null);
           else if (convertModal) setConvertModal(null);
           else if (showPnlReport) setShowPnlReport(false);
@@ -2406,7 +2425,7 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
       return () => window.removeEventListener('popstate', handlePopState);
       
       // IMPORTANT: Niche dependency array me 'navStack' add karna mat bhulna
-  }, [modal, viewDetail, mastersView, reportView, convertModal, showPnlReport, timerConflict, editingTimeLog, statementModal, manualAttModal, adjustCashModal, selectedTimeLog, navStack]);
+  }, [modal, viewDetail, mastersView, reportView, convertModal, showPnlReport, timerConflict, editingTimeLog, statementModal, manualAttModal, adjustCashModal, selectedTimeLog, navStack, listPaymentMode]);
 
   const pushHistory = () => window.history.pushState({ modal: true }, '');
   const handleCloseUI = () => window.history.back();
@@ -3606,6 +3625,7 @@ const invoiceTotal = getTransactionTotals(tx).final;
     // --- NEW STATES FOR MENU & ITEMS ---
     const [showTaskMenu, setShowTaskMenu] = useState(false);
     const [showItems, setShowItems] = useState(false);
+    const [showAllStaff, setShowAllStaff] = useState(false); // Change 2: State for Toggle
     // --- SCROLL RESTORATION LOGIC ---
 // Jab bhi viewDetail change ho, agar purana scroll saved hai to wahan jump karo
 React.useLayoutEffect(() => {
@@ -3830,7 +3850,14 @@ else pnl.goods += iProfit;
       return (
         <div className="fixed inset-0 z-[70] bg-white overflow-y-auto animate-in slide-in-from-right duration-300">
           <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
-            <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+            <div className="flex items-center gap-2">
+                <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
+                {/* CHANGE 5: Header Info Added */}
+                <div>
+                    <h2 className="font-bold text-sm uppercase">{tx.type} #{tx.id}</h2>
+                    <p className="text-[10px] text-gray-500 font-bold">{formatDate(tx.date)}</p>
+                </div>
+            </div>
             <div className="flex gap-2">
                {tx.status !== 'Cancelled' && 
                <button onClick={shareInvoice} className="px-3 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs flex items-center gap-1"><Share2 size={16}/> PDF</button>}
@@ -4430,14 +4457,19 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                         </div>
                     </div>
 
-                    {/* Staff Timer Controls */}
+                    {/* Staff Timer Controls (CHANGE 2: Limit to 3) */}
                     <div className="flex flex-col gap-2 mb-4">
-                        {visibleStaff.map(s => {
+                        {(showAllStaff ? visibleStaff : visibleStaff.slice(0, 3)).map(s => {
                             const isRunning = task.timeLogs?.some(l => l.staffId === s.id && !l.end);
                             return (
                                 <div key={s.id} className="flex justify-between items-center bg-white p-2 rounded-xl border"><span className="text-sm font-bold text-gray-700">{s.name}</span><button onClick={() => toggleTimer(s.id)} className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 ${isRunning ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{isRunning ? <><Square size={10} fill="currentColor"/> STOP</> : <><Play size={10} fill="currentColor"/> START</>}</button></div>
                             );
                         })}
+                        {visibleStaff.length > 3 && (
+                            <button onClick={() => setShowAllStaff(!showAllStaff)} className="text-xs font-bold text-blue-600 bg-blue-50 py-2 rounded-lg">
+                                {showAllStaff ? 'Show Less' : `Show All (${visibleStaff.length})`}
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -4981,6 +5013,24 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                        <div><label className="text-[10px] font-bold text-gray-400 uppercase">Model</label><input className="w-full p-2 border rounded-lg" value={editingAsset.model} onChange={e => setEditingAsset({...editingAsset, model: e.target.value})} /></div>
                                    </div>
                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Photo Link</label><input className="w-full p-2 border rounded-lg text-blue-600" placeholder="Google Photos Link" value={editingAsset.photosLink || ''} onChange={e => setEditingAsset({...editingAsset, photosLink: e.target.value})} /></div>
+                                   
+                                   {/* NEW: Service Interval in Edit Mode */}
+                                   <div>
+                                       <label className="text-[10px] font-bold text-gray-400 uppercase">Service Interval</label>
+                                       <select 
+                                           className="w-full p-2 border rounded-lg bg-gray-50 text-xs"
+                                           value={editingAsset.serviceInterval || '3'} 
+                                           onChange={e => setEditingAsset({...editingAsset, serviceInterval: e.target.value})}
+                                       >
+                                           <option value="1">Every 1 Month</option>
+                                           <option value="2">Every 2 Months</option>
+                                           <option value="3">Every 3 Months</option>
+                                           <option value="4">Every 4 Months</option>
+                                           <option value="6">Every 6 Months</option>
+                                           <option value="12">Every 1 Year</option>
+                                       </select>
+                                   </div>
+
                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Next Service Date</label><input type="date" className="w-full p-2 border rounded-lg bg-red-50" value={editingAsset.nextServiceDate} onChange={e => setEditingAsset({...editingAsset, nextServiceDate: e.target.value})} /></div>
                                </div>
                                <div className="grid grid-cols-2 gap-3 mt-4">
@@ -5199,9 +5249,12 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
     const [serviceInterval, setServiceInterval] = useState(3); // Default 3 Months
     const handleAddAsset = (assetName) => {
         if (!assetName) return;
-        // Default Next Date: +3 Months
+        // CHANGE 6: Auto Calculate based on Asset Default
+        const assetObj = selectedParty?.assets?.find(a => a.name === assetName);
+        const interval = assetObj?.serviceInterval ? parseInt(assetObj.serviceInterval) : parseInt(serviceInterval);
+
         const d = new Date(tx.date);
-        d.setMonth(d.getMonth() + parseInt(serviceInterval));
+        d.setMonth(d.getMonth() + interval);
         const defaultDate = d.toISOString().split('T')[0];
         
         // Prevent duplicate
@@ -5279,27 +5332,15 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                         ))}
                     </div>
 
-                    {/* NEW: DURATION SELECTOR & ADD ASSET */}
+                    {/* NEW: ADD ASSET ONLY (Duration Selector Removed) */}
                     <div className="flex gap-2">
-                        {/* Duration Dropdown */}
-                        <select 
-                            className="w-1/3 p-2 border rounded-lg text-xs bg-white font-bold"
-                            value={serviceInterval}
-                            onChange={(e) => setServiceInterval(parseInt(e.target.value))}
-                        >
-                            <option value="1">1 Month</option>
-                            <option value="3">3 Months</option>
-                            <option value="6">6 Months</option>
-                            <option value="12">1 Year</option>
-                        </select>
-
                         {/* Add Asset Dropdown */}
                         <select 
-                            className="w-2/3 p-2 border rounded-lg text-xs bg-white text-indigo-600 font-bold outline-none"
+                            className="w-full p-2 border rounded-lg text-xs bg-white text-indigo-600 font-bold outline-none"
                             value=""
                             onChange={(e) => handleAddAsset(e.target.value)}
                         >
-                            <option value="">+ Add Asset ({serviceInterval}M)</option>
+                            <option value="">+ Add Asset to Link</option>
                             {selectedParty.assets.map((a, i) => (
                                 <option key={i} value={a.name} disabled={tx.linkedAssets.some(la => la.name === a.name)}>
                                     {a.name} ({a.brand}) {tx.linkedAssets.some(la => la.name === a.name) ? '✓' : ''}
@@ -5307,7 +5348,6 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                             ))}
                         </select>
                     </div>
-                    <p className="text-[9px] text-gray-400 mt-1">*Selected Assets auto-set to +{serviceInterval} Months from Invoice Date.</p>
                 </div>
              )}
              
@@ -6019,6 +6059,16 @@ const removeMobile = (idx) => {
                     {/* --- NEW: GOOGLE PHOTOS LINK INPUT --- */}
                     <input id="new_asset_photo" className="w-full p-2 border rounded-lg text-xs text-blue-600" placeholder="Paste Google Photos Link" />
                     
+                    {/* CHANGE 6: Service Interval Field (FIXED) */}
+                    <select id="new_asset_interval" defaultValue="3" className="w-full p-2 border rounded-lg text-xs bg-gray-50">
+                        <option value="1">Service Every 1 Month</option>
+                        <option value="2">Service Every 2 Months</option>
+                        <option value="3">Service Every 3 Months (Default)</option>
+                        <option value="4">Service Every 4 Months</option>
+                        <option value="6">Service Every 6 Months</option>
+                        <option value="12">Service Every 1 Year</option>
+                    </select>
+
                     <div className="grid grid-cols-2 gap-2">
                          <div>
                             <label className="text-[9px] font-bold text-gray-400 uppercase">Install Date</label>
@@ -6035,12 +6085,13 @@ const removeMobile = (idx) => {
                             const brand = document.getElementById('new_asset_brand').value;
                             const model = document.getElementById('new_asset_model').value;
                             const photo = document.getElementById('new_asset_photo').value; // Get Photo
+                            const interval = document.getElementById('new_asset_interval').value; // CHANGE 6
                             const installDate = document.getElementById('new_asset_install').value;
                             const nextServiceDate = document.getElementById('new_asset_next').value;
                             
                             if(!name) return alert("Asset Name is required");
 
-                            const newAsset = { name, brand, model, photosLink: photo, installDate, nextServiceDate }; // Add to object
+                            const newAsset = { name, brand, model, photosLink: photo, installDate, nextServiceDate, serviceInterval: interval }; // Add to object
                             setForm(prev => ({ ...prev, assets: [...(prev.assets || []), newAsset] }));
                             
                             // Clear inputs
@@ -6305,7 +6356,7 @@ const removeMobile = (idx) => {
                                 search={staffSearch}        
                                 setSearch={setStaffSearch}  
                                 onRowClick={(s) => { pushHistory(); setViewDetail({type: 'staff', id: s.id}); }} 
-                                // CHANGE: Staff ko sirf apna data dikhega, Admin ko sabka
+                                // CHANGE 1: Admin role walo ko sab dikhega
                                 data={user.role === 'admin' ? data : { ...data, staff: data.staff.filter(s => s.id === user.id) }}
                                 setData={setData}
                                 user={user}
