@@ -4805,10 +4805,30 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
 
             const handleUpdateAsset = async () => {
                 if(!editingAsset || !editingAsset.name) return;
-                const updatedAssets = record.assets.map((a, i) => i === editingAsset.index ? { ...editingAsset } : a);
-                const updatedParty = { ...record, assets: updatedAssets };
-                setData(prev => ({ ...prev, parties: prev.parties.map(p => p.id === record.id ? updatedParty : p) }));
+                
+                // 1. Clean Data (Remove index field)
+                const { index, ...cleanAsset } = editingAsset;
+                
+                const updatedAssets = record.assets.map((a, i) => i === index ? cleanAsset : a);
+                
+                // 2. Add Timestamp (CRITICAL for Sync)
+                const updatedParty = { 
+                    ...record, 
+                    assets: updatedAssets, 
+                    updatedAt: new Date().toISOString() 
+                };
+
+                // 3. Update Local State & Storage Immediately
+                const newData = { 
+                    ...data, 
+                    parties: data.parties.map(p => p.id === record.id ? updatedParty : p) 
+                };
+                setData(newData);
+                localStorage.setItem('smees_data', JSON.stringify(newData)); // Persistence Fix
+
+                // 4. Update Firebase
                 await setDoc(doc(db, "parties", record.id), updatedParty);
+                
                 setEditingAsset(null);
             };
 
