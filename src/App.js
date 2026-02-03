@@ -69,7 +69,7 @@ import {
    ShieldCheck
 } from 'lucide-react';
 
-// --- FIREBASE CONFIGURATION ----
+// --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
   apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
   authDomain: "smeestest.firebaseapp.com",
@@ -3866,9 +3866,9 @@ else pnl.goods += iProfit;
               <div class="meta">
                 <div>
                   <strong>Billed To:</strong><br/>
-                  ${party.name || 'Cash Sale'}<br/>
-                  ${party.mobile ? `Phone: ${party.mobile}<br/>` : ''}
-                  ${party.address ? `${party.address}` : ''}
+                  ${party.name || 'Cash Sale'} ${record.locationLabel ? `(${record.locationLabel})` : ''}<br/>
+                  ${(record.mobile || party.mobile) ? `Phone: ${record.mobile || party.mobile}<br/>` : ''}
+                  ${(record.address || party.address) ? `${record.address || party.address}` : ''}
                 </div>
                 <div style="text-align: right;">
                   <strong>Invoice No:</strong> ${record.id}<br/>
@@ -4011,8 +4011,37 @@ else pnl.goods += iProfit;
             >
               <p className="text-xs font-bold text-gray-400 uppercase mb-1">{isPayment ? 'Paid Via' : 'Party'} {user.role === 'admin' && <span className="text-[9px] text-blue-600 ml-1">(View Profile)</span>}</p>
               <p className="font-bold text-lg">{party?.name || tx.category || 'Unknown'}</p>
-              <p className="text-sm text-gray-500">{party?.mobile}</p>
+              <p className="text-sm text-gray-500">{tx.mobile || party?.mobile}</p>
+              
+              {/* REQ 1: Transaction Specific Address */}
+              {tx.address && (
+                  <div className="mt-2 pt-2 border-t border-gray-200 flex items-start gap-2">
+                      <MapPin size={14} className="text-gray-400 shrink-0 mt-0.5"/>
+                      <p className="text-xs text-gray-600">
+                          {tx.address} 
+                          {tx.locationLabel && <span className="bg-gray-200 px-1 rounded text-[9px] ml-1 font-bold">{tx.locationLabel}</span>}
+                      </p>
+                  </div>
+              )}
             </div>
+
+            {/* REQ 2: Linked Assets Section (In Detail View) */}
+            {tx.linkedAssets && tx.linkedAssets.length > 0 && (
+                <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                    <h3 className="font-bold text-indigo-900 text-xs uppercase mb-2 flex items-center gap-1"><Package size={14}/> Linked Assets (AMC)</h3>
+                    <div className="space-y-2">
+                        {tx.linkedAssets.map((a, idx) => (
+                            <div key={idx} className="bg-white p-2 rounded-lg border flex justify-between items-center text-xs">
+                                <span className="font-bold text-gray-700">{a.name}</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-gray-400">Next Service:</span>
+                                    <span className="font-bold text-indigo-600">{a.nextServiceDate ? formatDate(a.nextServiceDate) : 'N/A'}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Linked Transactions Section */}
             {relatedDocs.length > 0 && (
@@ -5043,6 +5072,18 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                         {tx.type === 'payment' && <span className="text-[9px] bg-gray-100 px-1 rounded border">{mode}</span>}
                                    </div>
                                    <p className="text-[10px] text-gray-400 font-bold">{formatDate(tx.date)}</p>
+                                   
+                                   {/* REQ 3: Show Linked Assets in List */}
+                                   {tx.linkedAssets && tx.linkedAssets.length > 0 && (
+                                       <div className="flex flex-wrap gap-1 mt-1 mb-1">
+                                           {tx.linkedAssets.map((a, idx) => (
+                                               <span key={idx} className="text-[9px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 font-bold flex items-center gap-1">
+                                                   <Package size={8}/> {a.name}
+                                               </span>
+                                           ))}
+                                       </div>
+                                   )}
+
                                    {/* Show Description if any */}
                                    {tx.description && <p className="text-[9px] text-gray-500 italic truncate max-w-[120px]">{tx.description}</p>}
                                    
