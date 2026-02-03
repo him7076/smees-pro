@@ -228,17 +228,38 @@ const cleanData = (obj) => {
 const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange, data, listFilter, listPaymentMode, categoryFilter, pushHistory, setViewDetail, setAdjustCashModal }) => {
     const [sort, setSort] = useState('DateDesc');
     const [filter, setFilter] = useState(listFilter);
-    const [visibleCount, setVisibleCount] = useState(50); 
-    
+    const [visibleCount, setVisibleCount] = useState(50);
+    // NEW: Selection States
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [isSelectionMode, setIsSelectionMode] = useState(false);
+    const longPressTimer = useRef(null);
+
     useEffect(() => { setFilter(listFilter); }, [listFilter]);
 
-    // 1. Create a Fast Lookup Map for Linked Amounts
+    // Handle Back Button Warning
+    useEffect(() => {
+        const handleBack = () => {
+            if (isSelectionMode) {
+                if(window.confirm("Selection will be lost. Exit selection mode?")) {
+                    setIsSelectionMode(false);
+                    setSelectedIds([]);
+                }
+                window.history.pushState(null, '', ''); 
+            }
+        };
+        if(isSelectionMode) {
+            window.history.pushState(null, '', ''); 
+            window.addEventListener('popstate', handleBack);
+        }
+        return () => window.removeEventListener('popstate', handleBack);
+    }, [isSelectionMode]);
+
     const linksMap = useMemo(() => {
         const map = {}; 
         data.transactions.forEach(tx => {
             if (tx.linkedBills && tx.status !== 'Cancelled') {
                 tx.linkedBills.forEach(link => {
-                    const targetId = String(link.billId); // Force String
+                    const targetId = String(link.billId);
                     if (!map[targetId]) map[targetId] = 0;
                     map[targetId] += parseFloat(link.amount || 0);
                 });
@@ -247,7 +268,6 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
         return map;
     }, [data.transactions]);
 
-    // 2. Optimized Filtering
     const filtered = useMemo(() => {
         return data.transactions.filter(tx => {
             if (filter !== 'all' && tx.type !== filter) return false;
@@ -255,7 +275,6 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             if (categoryFilter && tx.category !== categoryFilter) return false;
             if (dateRange.start && tx.date < dateRange.start) return false;
             if (dateRange.end && tx.date > dateRange.end) return false;
-            // CHANGE 3: Only show transactions with actual amount in Cash/Bank mode
             if (listPaymentMode) {
                 const amt = ['sales'].includes(tx.type) ? parseFloat(tx.received||0) : 
                            ['purchase','expense'].includes(tx.type) ? parseFloat(tx.paid||0) : parseFloat(tx.amount||0);
@@ -274,54 +293,94 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
         });
     }, [data.transactions, filter, listPaymentMode, categoryFilter, dateRange, searchQuery, data.parties]);
 
-    // 3. Optimized Totals (Fix: Added Direct Payment Logic)
     const statsData = useMemo(() => {
         return filtered.reduce((acc, tx) => {
             const amount = parseFloat(tx.amount || tx.finalTotal || 0);
             acc.total += amount;
-
-            // Only calculate DUE for bill types
             if(['sales', 'purchase', 'expense'].includes(tx.type)) {
-                // A. Linked Payment (Baad me jo pay hua)
                const linkedPaid = linksMap[String(tx.id)] || 0;
-                
-                // B. Direct Payment (Jo bill banate waqt pay hua)
                 const directPaid = parseFloat(tx.received || tx.paid || 0);
-                
                 const totalPaid = linkedPaid + directPaid;
                 const pending = Math.max(0, amount - totalPaid);
-                
                 acc.pending += pending;
             }
             return acc;
         }, { total: 0, pending: 0 });
     }, [filtered, linksMap]);
 
+    // Calculate Selected Total
+    const selectedTotal = useMemo(() => {
+        return filtered
+            .filter(t => selectedIds.includes(t.id))
+            .reduce((sum, t) => sum + parseFloat(t.amount || t.finalTotal || 0), 0);
+    }, [selectedIds, filtered]);
+
     const sortedData = useMemo(() => sortData(filtered, sort), [filtered, sort]);
     const visibleData = sortedData.slice(0, visibleCount);
 
+    // Interaction Handlers (Fixed for Mixed Mode)
+    const ignoreClick = useRef(false);
+
+    const handleHold = (id) => {
+        longPressTimer.current = setTimeout(() => {
+            ignoreClick.current = true; // Long press detected, ignore next click
+            setIsSelectionMode(true);
+            toggleSelect(id);
+            if (navigator.vibrate) navigator.vibrate(50);
+        }, 600);
+    };
+
+    const handleRelease = () => {
+        if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    };
+
+    const toggleSelect = (id) => {
+        setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+    };
+
+    const handleClick = (tx) => {
+        // If this click was triggered by the long press release, ignore it
+        if (ignoreClick.current) {
+            ignoreClick.current = false;
+            return;
+        }
+        // Otherwise, always open details (Checkbox handles selection separately)
+        pushHistory(); 
+        setViewDetail({ type: 'transaction', id: tx.id });
+    };
+
     return (
       <div className="space-y-4">
-        {/* Header & Filters */}
         <div className="flex flex-col gap-3">
-           <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                  <h1 className="text-xl font-bold">
-                    {listPaymentMode ? `${listPaymentMode} Book` : `Accounting ${categoryFilter ? `(${categoryFilter})` : ''}`}
-                  </h1>
-                  {listPaymentMode && (
-                      <button onClick={() => setAdjustCashModal({ type: listPaymentMode })} className="px-2 py-1 bg-gray-800 text-white text-[10px] rounded-lg font-bold">Adjust {listPaymentMode}</button>
-                  )}
-              </div>
-              <div className="flex gap-2 items-center">
-                  <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option><option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option></select>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-                <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} />
-                <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
-            </div>
+           {isSelectionMode ? (
+               <div className="bg-blue-600 p-4 rounded-xl text-white flex justify-between items-center animate-in slide-in-from-top sticky top-0 z-20 shadow-xl">
+                   <div>
+                       <p className="text-xs font-bold opacity-80">{selectedIds.length} Selected</p>
+                       <p className="text-2xl font-black">{formatCurrency(selectedTotal)}</p>
+                   </div>
+                   <button onClick={() => { setIsSelectionMode(false); setSelectedIds([]); }} className="p-2 bg-white/20 rounded-full"><X/></button>
+               </div>
+           ) : (
+               <>
+               <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                      <h1 className="text-xl font-bold">
+                        {listPaymentMode ? `${listPaymentMode} Book` : `Accounting ${categoryFilter ? `(${categoryFilter})` : ''}`}
+                      </h1>
+                      {listPaymentMode && (
+                          <button onClick={() => setAdjustCashModal({ type: listPaymentMode })} className="px-2 py-1 bg-gray-800 text-white text-[10px] rounded-lg font-bold">Adjust {listPaymentMode}</button>
+                      )}
+                  </div>
+                  <div className="flex gap-2 items-center">
+                      <select className="bg-gray-100 text-xs font-bold p-2 rounded-xl border-none outline-none" value={sort} onChange={e => setSort(e.target.value)}><option value="DateDesc">Newest</option><option value="DateAsc">Oldest</option><option value="AmtDesc">High Amt</option><option value="AmtAsc">Low Amt</option></select>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                    <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} />
+                    <input type="date" className="w-1/2 p-2 border rounded-xl text-xs bg-white" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
+                </div>
+                </>
+           )}
 
             <div className="relative">
                 <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
@@ -329,30 +388,29 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             </div>
         </div>
 
-        {/* Stats Card */}
-        <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex justify-between items-center shadow-sm">
-            <div className="flex gap-4">
-                <div><p className="text-[10px] font-bold text-blue-500 uppercase">Total Amount</p><p className="text-lg font-black text-blue-800">{formatCurrency(statsData.total)}</p></div>
-                <div><p className="text-[10px] font-bold text-red-500 uppercase">Total Due</p><p className="text-lg font-black text-red-800">{formatCurrency(statsData.pending)}</p></div>
+        {!isSelectionMode && (
+            <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex justify-between items-center shadow-sm">
+                <div className="flex gap-4">
+                    <div><p className="text-[10px] font-bold text-blue-500 uppercase">Total Amount</p><p className="text-lg font-black text-blue-800">{formatCurrency(statsData.total)}</p></div>
+                    <div><p className="text-[10px] font-bold text-red-500 uppercase">Total Due</p><p className="text-lg font-black text-red-800">{formatCurrency(statsData.pending)}</p></div>
+                </div>
+                <div className="bg-white px-3 py-1 rounded-lg text-xs font-bold text-blue-600 shadow-sm border border-blue-100">Count: {filtered.length}</div>
             </div>
-            <div className="bg-white px-3 py-1 rounded-lg text-xs font-bold text-blue-600 shadow-sm border border-blue-100">Count: {filtered.length}</div>
-        </div>
+        )}
 
-        {/* Type Filters */}
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
-                <button key={t} onClick={() => { setFilter(t); setSearchQuery(''); }} className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
-            ))}
-        </div>
+        {!isSelectionMode && (
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                {['all', 'sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
+                    <button key={t} onClick={() => { setFilter(t); setSearchQuery(''); }} className={`px-4 py-2 rounded-full text-xs font-bold capitalize whitespace-nowrap border ${filter === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
+                ))}
+            </div>
+        )}
 
-        {/* List Items */}
         <div className="space-y-3">
           {visibleData.map(tx => {
             const party = data.parties.find(p => p.id === tx.partyId);
             const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
             
-            // --- CALCULATION LOGIC ---
-            // CHANGE 3: Display Actual Paid/Received in Cash/Bank Mode
             let totalAmt = parseFloat(tx.amount || tx.finalTotal || 0);
             if (listPaymentMode) {
                  if (tx.type === 'sales') totalAmt = parseFloat(tx.received || 0);
@@ -377,12 +435,8 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             let typeLabel = tx.type;
             if(tx.type === 'payment') typeLabel = tx.subType === 'in' ? 'Payment IN' : 'Payment OUT';
 
-            // --- FIX: MISSING DEFINITIONS ADDED HERE ---
             const mode = tx.paymentMode || 'Cash';
-            // 1. Define Icon Component (Avoids 'Objects are not valid' error)
             const ModeIcon = (mode === 'Bank' || mode === 'UPI') ? Landmark : Banknote;
-            
-            // 2. Define showPayIcon Boolean (Fixes ReferenceError)
             const showPayIcon = (['sales','purchase','expense'].includes(tx.type) && (parseFloat(tx.received||0) > 0 || parseFloat(tx.paid||0) > 0));
 
             let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
@@ -391,36 +445,48 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             if (tx.type === 'payment') { Icon = ModeIcon; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
             
             const isCancelled = tx.status === 'Cancelled';
+            const isSelected = selectedIds.includes(tx.id);
             
             return (
-              <div key={tx.id} onClick={() => { pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className={`p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform ${isCancelled ? 'opacity-50 grayscale bg-gray-50' : ''}`}>
-                <div className="flex gap-4 items-center">
+              <div 
+                key={tx.id} 
+                onTouchStart={() => handleHold(tx.id)}
+                onTouchEnd={handleRelease}
+                onMouseDown={() => handleHold(tx.id)}
+                onMouseUp={handleRelease}
+                onMouseLeave={handleRelease}
+                onClick={() => handleClick(tx)}
+                className={`p-4 border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-all relative overflow-hidden ${isCancelled ? 'opacity-50 grayscale bg-gray-50' : 'bg-white'} ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : ''}`}
+              >
+                {isSelectionMode && (
+                    <div className="mr-3 p-2 -ml-2" onClick={(e) => { e.stopPropagation(); toggleSelect(tx.id); }}>
+                         <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
+                             {isSelected && <CheckCircle2 size={12} className="text-white"/>}
+                         </div>
+                    </div>
+                )}
+                <div className="flex gap-4 items-center flex-1">
                   <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                   <div>
                     <div className="flex items-center gap-2"><p className="font-bold text-gray-800">{party?.name || tx.category || 'N/A'}</p></div>
-
-{/* FIX: Changed 'p' to 'div' to fix DOM Nesting Error */}
-<div className="text-[10px] text-gray-400 uppercase font-bold mt-0.5">
-    {tx.type === 'payment' ? (
-        <div className="flex items-center gap-2">
-            <span className="text-gray-600">{typeLabel} #{tx.id.split(':')[1] || tx.id}</span>
-            <span className="text-gray-400"><ModeIcon size={12}/></span>
-            <span>{formatDate(tx.date)}</span>
-        </div>
-    ) : (
-        <span className="flex items-center gap-1">
-            {tx.id} 
-            {/* Safe Check for showPayIcon */}
-            {showPayIcon && <span className="text-green-600 ml-1" title={mode}><ModeIcon size={10}/></span>}
-            <span className="text-gray-300 mx-1">•</span> {formatDate(tx.date)}
-        </span>
-    )} 
-</div>
-                    
+                    <div className="text-[10px] text-gray-400 uppercase font-bold mt-0.5">
+                        {tx.type === 'payment' ? (
+                            <div className="flex items-center gap-2">
+                                <span className="text-gray-600">{typeLabel} #{tx.id.split(':')[1] || tx.id}</span>
+                                <span className="text-gray-400"><ModeIcon size={12}/></span>
+                                <span>{formatDate(tx.date)}</span>
+                            </div>
+                        ) : (
+                            <span className="flex items-center gap-1">
+                                {tx.id} 
+                                {showPayIcon && <span className="text-green-600 ml-1" title={mode}><ModeIcon size={10}/></span>}
+                                <span className="text-gray-300 mx-1">•</span> {formatDate(tx.date)}
+                            </span>
+                        )} 
+                    </div>
                     {(tx.type === 'payment' || (searchQuery && tx.description && tx.description.toLowerCase().includes(searchQuery.toLowerCase()))) && tx.description && ( 
                         <p className="text-[9px] text-gray-500 italic truncate max-w-[150px]">{tx.description}</p> 
                     )}
-                    
                     <div className="flex gap-1 mt-1">
                         {isCancelled ? (
                             <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span>
@@ -446,9 +512,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                 </div>
                 <div className="text-right">
                   <p className={`font-bold ${isCancelled ? 'text-gray-400 line-through' : isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totalAmt)}</p>
-                  
                   {['sales', 'purchase', 'expense'].includes(tx.type) && status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(pendingAmt)}</p>}
-                  
                   {tx.type === 'payment' && !isCancelled && paymentUnused > 0.1 && <p className="text-[10px] font-bold text-orange-600">Unused: {formatCurrency(paymentUnused)}</p>}
                 </div>
               </div>
@@ -2066,10 +2130,10 @@ const scrollPos = useRef({}); // Scroll position save karne ke liye
   // NEW: State for selected time log detail
   const [selectedTimeLog, setSelectedTimeLog] = useState(null);
   const [taskDraft, setTaskDraft] = useState(null);
+  const [txDraft, setTxDraft] = useState(null); // Fix for Transaction Restore
 
-  // REQ 2: Deep Linking (Open Task from URL)
+  // REQ 2: Deep Linking (Open Task from URL) - Fixed History
   useEffect(() => {
-      // Run logic only if data is loaded and tasks exist
       if (data.tasks && data.tasks.length > 0) {
           const params = new URLSearchParams(window.location.search);
           const taskId = params.get('taskId');
@@ -2077,10 +2141,12 @@ const scrollPos = useRef({}); // Scroll position save karne ke liye
           if (taskId) {
               const task = data.tasks.find(t => t.id === taskId);
               if (task) {
+                  // Fix: Push state so back button works instead of closing app
+                  window.history.pushState({ page: 'home' }, '', window.location.pathname); // Clear URL
+                  window.history.pushState({ modal: true }, '', ''); // Push Modal state
+                  
                   setActiveTab('tasks');
                   setViewDetail({ type: 'task', id: taskId });
-                  
-                  // NOTE: History replacement removed to ensure state persistence
               }
           }
       }
@@ -2637,6 +2703,11 @@ if (tx.type === 'payment') {
     if (collectionName === 'parties' && taskDraft) {
         setModal({ type: 'task', data: { ...taskDraft, partyId: finalId } });
         setTaskDraft(null);
+    }
+    // REQ 6: Restore Transaction Draft if coming back from Item Creation
+    if (collectionName === 'items' && txDraft) {
+        setModal({ type: txDraft.type, data: txDraft });
+        setTxDraft(null);
     }
     return finalId; 
   };
@@ -3852,11 +3923,6 @@ else pnl.goods += iProfit;
           <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between shadow-sm z-10">
             <div className="flex items-center gap-2">
                 <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={20}/></button>
-                {/* CHANGE 5: Header Info Added */}
-                <div>
-                    <h2 className="font-bold text-sm uppercase">{tx.type} #{tx.id}</h2>
-                    <p className="text-[10px] text-gray-500 font-bold">{formatDate(tx.date)}</p>
-                </div>
             </div>
             <div className="flex gap-2">
                {tx.status !== 'Cancelled' && 
@@ -3897,6 +3963,17 @@ else pnl.goods += iProfit;
             
           </div>
           <div className={`p-4 space-y-6 ${tx.status === 'Cancelled' ? 'opacity-60 grayscale' : ''}`}>
+            {/* NEW HEADER INSIDE CONTENT */}
+            <div className="bg-white p-4 rounded-2xl border mb-4 shadow-sm text-center relative overflow-hidden">
+                <div className={`absolute top-0 left-0 w-full h-1 ${['sales','payment'].includes(tx.type)?'bg-green-500':'bg-red-500'}`}></div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">{tx.type} VOUCHER</p>
+                <h1 className="text-3xl font-black text-gray-800">{formatCurrency(totals.final)}</h1>
+                <div className="flex justify-center gap-3 mt-2 text-xs font-bold text-gray-500">
+                    <span className="bg-gray-100 px-2 py-1 rounded">#{tx.id}</span>
+                    <span className="bg-gray-100 px-2 py-1 rounded">{formatDate(tx.date)}</span>
+                </div>
+            </div>
+
             {/* FIX 4: Description & Payment Info Block */}
             {tx.description && (
                 <div className="bg-yellow-50 p-3 rounded-xl border border-yellow-100 text-center">
@@ -4785,6 +4862,9 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         const PartyDetailInner = ({ record }) => {
             const [activeTab, setActiveTab] = useState('transactions');
             const [filter, setFilter] = useState('All');
+            // NEW: Task Filter State
+            const [taskStatusFilter, setTaskStatusFilter] = useState('To Do');
+            const [taskSearch, setTaskSearch] = useState('');
             // FIX: Open specific asset if passed in viewDetail
             const [selectedAsset, setSelectedAsset] = useState(
                 viewDetail.openAsset ? record.assets.find(a => a.name === viewDetail.openAsset) : null
@@ -4914,6 +4994,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                    <div className="flex bg-gray-100 p-1 rounded-xl">
                        <button onClick={() => setActiveTab('transactions')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'transactions' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Transactions</button>
                        <button onClick={() => setActiveTab('assets')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'assets' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>Assets / AMC</button>
+                       <button onClick={() => setActiveTab('tasks')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'tasks' ? 'bg-white shadow text-purple-600' : 'text-gray-500'}`}>Tasks</button>
                    </div>
 
                    {activeTab === 'transactions' && (
@@ -4937,31 +5018,34 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                            const totals = getBillStats(tx, data.transactions);
                            const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
                            const unusedAmount = tx.type === 'payment' ? (totals.amount - (totals.used || 0)) : 0;
-                           let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
+                           
+                           // --- UI STYLE MATCHING ACCOUNTS TAB ---
+                           let typeLabel = tx.type;
+                           if(tx.type === 'payment') typeLabel = tx.subType === 'in' ? 'Payment IN' : 'Payment OUT';
+
                            const mode = tx.paymentMode || 'Cash';
-                           const ModeIcon = mode === 'Bank' || mode === 'UPI' ? Landmark : Banknote;
+                           const ModeIcon = (mode === 'Bank' || mode === 'UPI') ? Landmark : Banknote;
+                           
+                           let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
                            if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
                            if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
                            if (tx.type === 'payment') { Icon = ModeIcon; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
-                           const showPayIcon = (['sales','purchase','expense'].includes(tx.type) && (parseFloat(tx.received||0) > 0 || parseFloat(tx.paid||0) > 0));
-                           let displayAmount = totals.amount;
+
+                           const displayAmount = totals.amount;
+                           
                            return (
-                             <div key={tx.id} onClick={() => { const el = document.getElementById('detail-scroller'); if(el) scrollPos.current[record.id] = el.scrollTop; setNavStack(prev => [...prev, viewDetail]); pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
+                             <div key={tx.id} onClick={() => { const el = document.getElementById('detail-scroller'); if(el) scrollPos.current[record.id] = el.scrollTop; setNavStack(prev => [...prev, viewDetail]); pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform mb-2">
                                <div className="flex gap-4 items-center">
                                  <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
                                  <div>
-                                   <p className="font-bold text-gray-800 uppercase text-xs">{tx.type} #{tx.id}</p>
+                                   <div className="flex items-center gap-2">
+                                        <p className="font-bold text-gray-800 text-xs uppercase">{typeLabel} #{tx.id.split(':')[1] || tx.id}</p>
+                                        {tx.type === 'payment' && <span className="text-[9px] bg-gray-100 px-1 rounded border">{mode}</span>}
+                                   </div>
                                    <p className="text-[10px] text-gray-400 font-bold">{formatDate(tx.date)}</p>
-{/* CHANGE: Show Linked Asset in List */}
-{tx.linkedAssets && tx.linkedAssets.length > 0 && (
-    <div className="flex flex-wrap gap-1 mt-1">
-        {tx.linkedAssets.map((a, ai) => (
-            <span key={ai} className="text-[9px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 font-bold flex items-center gap-1">
-                <Package size={8}/> {a.name}
-            </span>
-        ))}
-    </div>
-)}
+                                   {/* Show Description if any */}
+                                   {tx.description && <p className="text-[9px] text-gray-500 italic truncate max-w-[120px]">{tx.description}</p>}
+                                   
                                    <div className="flex gap-1 mt-1">
                                        {['sales', 'purchase', 'expense', 'payment'].includes(tx.type) && (
                                            <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${(totals.status === 'PAID' || totals.status === 'FULLY USED') ? 'bg-green-100 text-green-700' : (totals.status === 'PARTIAL' || totals.status === 'PARTIALLY USED') ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{totals.status}</span>
@@ -5021,6 +5105,9 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                        </div>
                    )}
 
+                   
+                   
+
                    {/* --- EDIT ASSET MODAL WITH PHOTO INPUT --- */}
                    {editingAsset && (
                        <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4">
@@ -5058,6 +5145,41 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                    <button onClick={handleUpdateAsset} className="p-3 bg-blue-600 text-white font-bold rounded-xl">Update</button>
                                </div>
                            </div>
+                       </div>
+                   )}
+                   {activeTab === 'tasks' && (
+                       <div className="space-y-3">
+                           {/* Task Search Bar */}
+                           <div className="relative">
+                                <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                                <input className="w-full pl-10 pr-4 py-2 bg-gray-50 border rounded-xl text-xs" placeholder="Search tasks..." value={taskSearch} onChange={(e) => setTaskSearch(e.target.value)} />
+                           </div>
+
+                           {/* Filter Buttons */}
+                           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                {["To Do", "In Progress", "Done", "Converted"].map(s => (
+                                    <button key={s} onClick={() => setTaskStatusFilter(s)} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap border transition-all ${taskStatusFilter === s ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{s}</button>
+                                ))}
+                           </div>
+                           
+                           {/* Task List (With Search Filter) */}
+                           {data.tasks
+                               .filter(t => t.partyId === record.id && t.status === taskStatusFilter && (!taskSearch || t.name.toLowerCase().includes(taskSearch.toLowerCase()) || (t.description||'').toLowerCase().includes(taskSearch.toLowerCase())))
+                               .map(task => (
+                                   <div key={task.id} onClick={() => setViewDetail({ type: 'task', id: task.id })} className="p-4 bg-white border rounded-2xl flex justify-between items-start cursor-pointer active:scale-95 transition-transform">
+                                      <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : 'bg-orange-500'}`} />
+                                            <p className="font-bold text-gray-800">{task.name}</p>
+                                        </div>
+                                        <p className="text-xs text-gray-500 line-clamp-1">{task.description}</p>
+                                        <div className="flex gap-3 mt-2 text-[10px] font-bold text-gray-400 uppercase"><span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(task.dueDate)}</span></div>
+                                      </div>
+                                      <div className="text-right"><p className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full font-bold">#{task.id}</p></div>
+                                   </div>
+                               ))
+                           }
+                           {data.tasks.filter(t => t.partyId === record.id && t.status === taskStatusFilter && (!taskSearch || t.name.toLowerCase().includes(taskSearch.toLowerCase()) || (t.description||'').toLowerCase().includes(taskSearch.toLowerCase()))).length === 0 && <p className="text-center text-gray-400 py-10">No tasks found in {taskStatusFilter}.</p>}
                        </div>
                    )}
                 </div>
@@ -5179,7 +5301,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
   };
 
   // 2. Forms
-  const TransactionForm = ({ type, record }) => {
+  const TransactionForm = ({ type, record, setModal, setTxDraft }) => {
     const [tx, setTx] = useState(record ? { 
         linkedBills: [], items: [], paymentMode: 'Cash', 
         discountType: '%', discountValue: 0, 
@@ -5402,7 +5524,17 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                         <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
                             <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
                     
-                            <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine(idx, 'itemId', v)} placeholder="Select Item"/>
+                            <SearchableSelect 
+    options={itemOptions} 
+    value={line.itemId} 
+    onChange={v => updateLine(idx, 'itemId', v)} 
+    placeholder="Select Item"
+    onAddNew={() => {
+        // Save Draft & Switch
+        if(setTxDraft) setTxDraft({ ...tx, type });
+        if(setModal) setModal({ type: 'item' });
+    }}
+/>
                             
                             {selectedItemMaster && ( 
                                 <SearchableSelect 
@@ -6512,7 +6644,7 @@ const removeMobile = (idx) => {
         {modal.type === 'item' && <ItemForm record={modal.data} />}
         {modal.type === 'staff' && <StaffForm record={modal.data} />}
         {modal.type === 'task' && <TaskForm record={modal.data} />}
-        {['sales', 'estimate', 'purchase', 'expense', 'payment'].includes(modal.type) && <TransactionForm type={modal.type} record={modal.data} />}
+        {['sales', 'estimate', 'purchase', 'expense', 'payment'].includes(modal.type) && <TransactionForm type={modal.type} record={modal.data} setModal={setModal} setTxDraft={setTxDraft} />}
       </Modal>
       {timerConflict && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"><div className="bg-white p-6 rounded-2xl w-full max-w-sm text-center"><AlertTriangle className="text-yellow-600 mx-auto mb-4" size={32}/><h3 className="font-bold">Timer Conflict</h3><p className="text-sm my-2">Another task is active.</p><button onClick={() => setTimerConflict(null)} className="p-2 bg-gray-100 rounded font-bold">Dismiss</button></div></div>}
       {showPnlReport && <PnlReportView />}
