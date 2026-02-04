@@ -274,8 +274,10 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             if (listPaymentMode && (tx.paymentMode || 'Cash') !== listPaymentMode) return false;
             if (categoryFilter && tx.category !== categoryFilter) return false;
             if (dateRange.start && tx.date < dateRange.start) return false;
-            if (dateRange.end && tx.date > dateRange.end) return false;
-            if (listPaymentMode) {
+            if (dateRange.end && tx.date > dateRange.end) return false;if (listPaymentMode) {
+                // REQ 1: Exclude Estimates from Cash/Bank Book
+                if (tx.type === 'estimate') return false;
+                
                 const amt = ['sales'].includes(tx.type) ? parseFloat(tx.received||0) : 
                            ['purchase','expense'].includes(tx.type) ? parseFloat(tx.paid||0) : parseFloat(tx.amount||0);
                 if (amt <= 0) return false;
@@ -529,7 +531,8 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
     const [sort, setSort] = useState(localStorage.getItem('smees_task_sort') || 'DateAsc');
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('To Do');
-    const [viewMode, setViewMode] = useState('tasks'); 
+    const [viewMode, setViewMode] = useState('tasks');
+    const [duplicateView, setDuplicateView] = useState(null); // REQ 4: Duplicate Check State 
     
     // NEW STATES (For AMC Search & Grouping)
     const [amcSearch, setAmcSearch] = useState('');
@@ -715,11 +718,66 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
                         <option value="A-Z">A-Z</option>
                     </select>
                 </div>
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide items-center">
                     {filterOptions.map(s => (
                         <button key={s} onClick={() => setStatusFilter(s)} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap border transition-all ${statusFilter === s ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-600 border-gray-200'}`}>{s}</button>
                     ))}
+
+                    {/* REQ 4: Duplicate Invoice Checker Button */}
+                    {statusFilter === 'Converted' && (
+                        <button onClick={() => {
+                            const duplicates = {};
+                            data.tasks.forEach(t => {
+                                if(t.generatedSaleId) {
+                                    duplicates[t.generatedSaleId] = (duplicates[t.generatedSaleId] || 0) + 1;
+                                }
+                            });
+                            const dupIds = Object.keys(duplicates).filter(id => duplicates[id] > 1);
+                            const dupTasks = data.tasks.filter(t => dupIds.includes(t.generatedSaleId));
+                            
+                            if(dupTasks.length === 0) alert("No duplicate invoice numbers found.");
+                            else setDuplicateView(dupTasks);
+                        }} className="px-3 py-2 bg-red-100 text-red-600 rounded-full border border-red-200 text-xs font-bold whitespace-nowrap flex items-center gap-1 shrink-0">
+                            <AlertTriangle size={12}/> Check Duplicates
+                        </button>
+                    )}
                 </div>
+
+                {/* REQ 4: Duplicate List Modal (Inline) */}
+                {duplicateView && (
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto shadow-2xl">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="font-bold text-lg text-red-600">Duplicate Invoices Found</h3>
+                                <button onClick={() => setDuplicateView(null)} className="p-2 bg-gray-100 rounded-full"><X size={18}/></button>
+                            </div>
+                            <div className="space-y-3">
+                                {duplicateView.map(t => (
+                                    <div key={t.id} className="p-3 border rounded-xl flex justify-between items-center bg-red-50">
+                                        <div>
+                                            <p className="font-bold text-sm">Task #{t.id}</p>
+                                            <p className="text-xs text-gray-600">Inv: <span className="font-bold">{t.generatedSaleId}</span></p>
+                                        </div>
+                                        <button onClick={async () => {
+                                            if(!window.confirm(`Clear Invoice ID from Task #${t.id}? This will allow re-conversion.`)) return;
+                                            const updatedTask = { ...t, generatedSaleId: null, status: 'Done' }; // Revert to Done
+                                            await setDoc(doc(db, "tasks", t.id), updatedTask);
+                                            
+                                            // Update Local Data immediately to reflect change
+                                            const newTasks = data.tasks.map(x => x.id === t.id ? updatedTask : x);
+                                            // Note: setData is passed as prop to TaskModule
+                                            // If setData is not available directly, we rely on Firebase onSnapshot updates.
+                                            // But for instant feedback in modal:
+                                            setDuplicateView(prev => prev.filter(x => x.id !== t.id));
+                                        }} className="px-3 py-1 bg-white border text-red-600 text-xs font-bold rounded-lg hover:bg-red-100">Clear & Fix</button>
+                                    </div>
+                                ))}
+                                {duplicateView.length === 0 && <p className="text-center text-green-600 font-bold">All duplicates resolved!</p>}
+                            </div>
+                        </div>
+                    </div>
+                )}
+                
                 <div className="space-y-2 pb-20">
                     {sortedKeys.map(groupKey => (
                         <div key={groupKey}>
@@ -910,11 +968,13 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
       }
   }
 
+  // REQ 5: Description initially blank
   const [form, setForm] = useState({ 
       date: new Date().toISOString().split('T')[0], 
       received: '', 
       mode: 'Cash',
-      linkedAssets: initialAssets 
+      linkedAssets: initialAssets,
+      description: '' // Manual description field
   });
 
   const handleAddAsset = (assetName) => {
@@ -956,7 +1016,15 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
       const workDoneBy = (record.timeLogs || []).map(l => `${l.staffName} (${l.duration}m)`).join(', ');
       const totalMins = (record.timeLogs || []).reduce((acc,l) => acc + (parseFloat(l.duration)||0), 0);
       const workSummary = totalMins > 0 ? `${workDoneBy} | Total: ${totalMins} mins` : '';
-
+     // REQ 7: Pre-check if next invoice number is already used
+      const currentCounter = data.counters?.sales || 0;
+      const nextIdToCheck = `Sales:${currentCounter + 1}`; // Assuming format is Sales:123
+      const isDuplicate = data.tasks.some(t => t.generatedSaleId === nextIdToCheck);
+      
+      if(isDuplicate) {
+          alert(`CRITICAL ERROR: The next Invoice Number (${nextIdToCheck}) is ALREADY assigned to another Task! Please check "Converted" tasks or fix counters.`);
+          return;
+      }
       const newSale = { 
           // FIX: Removed 'id' field so saveRecord treats it as NEW and increments counter
           // id: nextId, <--- REMOVED
@@ -972,7 +1040,7 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
           finalTotal: gross, 
           convertedFromTask: record.id, 
           workSummary: workSummary, 
-          description: `Converted from Task ${record.id}.\n${workSummary}`,
+          description: form.description, // REQ 5: Use manual description
           linkedAssets: form.linkedAssets 
       };
       
@@ -1033,7 +1101,15 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
                         <input type="number" className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm" placeholder="0.00" value={form.received} onChange={e => setForm({...form, received: e.target.value})}/>
                     </div>
                 </div>
-
+               <div className="mb-4">
+                  <label className="text-xs font-bold text-gray-400 block mb-1">Description (Optional)</label>
+                  <textarea 
+                    className="w-full p-3 border rounded-xl text-sm bg-gray-50 h-20" 
+                    placeholder="Enter invoice description..."
+                    value={form.description} 
+                    onChange={e => setForm({...form, description: e.target.value})}
+                  />
+              </div>
                 {/* --- NEW: Link Assets Section --- */}
                 {party?.assets?.length > 0 && (
                     <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 space-y-2">
@@ -2396,64 +2472,6 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
 
   }, [data.parties, user]); // Dependency on parties ensure it runs after sync
 
-  // --- STEP 2: NOTIFICATION LOGIC (Paste this inside App component) ---
-  useEffect(() => {
-    // 1. Check if User is Admin
-    if (!user || user.role !== 'admin') return;
-
-    // 2. Request Browser Permission
-    if (Notification.permission !== "granted") {
-      Notification.requestPermission();
-    }
-
-    // 3. Listen to Task Changes Real-time
-    // Note: 'tasks' collection par nazar rakhenge
-    const q = query(collection(db, "tasks"));
-    
-    let isFirstLoad = true;
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Ignore initial load (puraana data load hone par notification nahi bajna chahiye)
-      if (isFirstLoad) {
-        isFirstLoad = false;
-        return;
-      }
-
-      snapshot.docChanges().forEach((change) => {
-        // Sirf tab jab task 'modify' hua ho (add/remove par nahi)
-        if (change.type === "modified") {
-          const task = change.doc.data();
-          const logs = task.timeLogs || [];
-          
-          // Agar logs exist karte hain
-          if (logs.length > 0) {
-            const lastLog = logs[logs.length - 1];
-            
-            // Check karein ki ye abhi ka change hai (Comparison logic basic rakha hai)
-            const partyName = data.parties.find(p => p.id === task.partyId)?.name || "Client";
-            
-            // Agar 'end' time null hai to START hua, nahi to STOP hua
-            const action = lastLog.end ? "STOPPED" : "STARTED";
-            
-            // Toast Notification (Green/Red strip in app)
-            showToast(`Staff: ${lastLog.staffName} ${action} Task: ${task.name}`);
-
-            // System Notification (Browser/Windows Notification)
-            if (Notification.permission === "granted") {
-               const notifBody = `Client: ${partyName}\nTask: ${task.name}`;
-               new Notification(`SMEES: ${lastLog.staffName} ${action}`, {
-                 body: notifBody,
-                 // Aap chaho to koi icon ka URL yahan daal sakte ho
-                 // icon: "https://example.com/icon.png" 
-               });
-            }
-          }
-        }
-      });
-    });
-
-    return () => unsubscribe();
-  }, [user, data.parties]); // Jab user login kare ya parties load ho tab reset kare
 
   // REQ 2: Deep Linking (Open Task from URL) ke baad wala useEffect
   useEffect(() => {
@@ -4918,6 +4936,9 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                 // 1. Clean Data (Remove index field)
                 const { index, ...cleanAsset } = editingAsset;
                 
+                // REQ 2: Get Old Asset Name to find linked transactions
+                const oldAssetName = record.assets[index]?.name;
+                
                 const updatedAssets = record.assets.map((a, i) => i === index ? cleanAsset : a);
                 
                 // 2. Add Timestamp (CRITICAL for Sync)
@@ -4927,17 +4948,32 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     updatedAt: new Date().toISOString() 
                 };
 
-                // 3. Update Local State & Storage Immediately
+                // 3. Update Linked Transactions (If name changed)
+                let updatedTransactions = [...data.transactions];
+                if (oldAssetName && oldAssetName !== cleanAsset.name) {
+                    updatedTransactions = updatedTransactions.map(tx => {
+                        if (tx.partyId === record.id && tx.linkedAssets && tx.linkedAssets.some(a => a.name === oldAssetName)) {
+                            // Replace old name with new name in linkedAssets
+                            const newLinked = tx.linkedAssets.map(a => a.name === oldAssetName ? { ...a, name: cleanAsset.name } : a);
+                            const updatedTx = { ...tx, linkedAssets: newLinked, updatedAt: new Date().toISOString() };
+                            // Fire & Forget update
+                            setDoc(doc(db, "transactions", tx.id), updatedTx); 
+                            return updatedTx;
+                        }
+                        return tx;
+                    });
+                }
+
+                // 4. Update Local State & Storage Immediately
                 const newData = { 
                     ...data, 
-                    parties: data.parties.map(p => p.id === record.id ? updatedParty : p) 
+                    parties: data.parties.map(p => p.id === record.id ? updatedParty : p),
+                    transactions: updatedTransactions 
                 };
                 setData(newData);
                 localStorage.setItem('smees_data', JSON.stringify(newData)); // Persistence Fix
-
-                // 4. Update Firebase
-                await setDoc(doc(db, "parties", record.id), updatedParty);
                 
+                await setDoc(doc(db, "parties", record.id), updatedParty);
                 setEditingAsset(null);
             };
 
@@ -5197,11 +5233,14 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                            </div>
 
                            {/* Filter Buttons */}
-                           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                {["To Do", "In Progress", "Done", "Converted"].map(s => (
-                                    <button key={s} onClick={() => setTaskStatusFilter(s)} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap border transition-all ${taskStatusFilter === s ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{s}</button>
-                                ))}
-                           </div>
+                           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide items-center">
+                {["To Do", "In Progress", "Done", "Converted"].map(s => (
+                    <button key={s} onClick={() => setFilter(s)} className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap border ${filter === s ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>{s}</button>
+                ))}
+                
+            </div>
+
+    
                            
                            {/* Task List (With Search Filter) */}
                            {data.tasks
@@ -5633,7 +5672,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                             <label className="text-[10px] font-bold text-gray-400 uppercase">Brand Name</label>
                             <input id="new_brand_name" autoFocus className="w-full p-2 border rounded-lg font-bold text-sm" placeholder="e.g. Havells" />
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-2 gap-3 ">
                             <div>
                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Sell Price</label>
                                 <input id="new_brand_sell" type="number" className="w-full p-2 border rounded-lg" defaultValue={addBrandModal.item.sellPrice} />
@@ -5643,6 +5682,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                 <input id="new_brand_buy" type="number" className="w-full p-2 border rounded-lg bg-yellow-50" defaultValue={addBrandModal.item.buyPrice} />
                             </div>
                         </div>
+                       
                         
                         <button 
                             onClick={async () => {
