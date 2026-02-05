@@ -66,7 +66,8 @@ import {
   MoreHorizontal, 
   RefreshCw,
   Landmark,
-   ShieldCheck
+   ShieldCheck,
+   Copy
 } from 'lucide-react';
 
 // --- FIREBASE CONFIGURATION ---
@@ -219,6 +220,125 @@ const cleanData = (obj) => {
         if (newObj[key] === undefined) newObj[key] = "";
     });
     return newObj;
+};
+
+// --- NEW AI REPORT GENERATOR ---
+const generateAIReport = (data, startDate, endDate) => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    const tasks = data.tasks.filter(t => {
+        const d = new Date(t.dueDate || t.createdAt);
+        return d >= start && d <= end;
+    });
+
+    const txs = data.transactions.filter(t => {
+        const d = new Date(t.date);
+        return t.status !== 'Cancelled' && d >= start && d <= end;
+    });
+
+    const sales = txs.filter(t => t.type === 'sales');
+    const expenses = txs.filter(t => t.type === 'expense');
+
+    // 1. TASKS
+    const completedTasks = tasks.filter(t => t.status === 'Done');
+    const onTime = completedTasks.filter(t => t.dueDate && t.updatedAt && new Date(t.updatedAt) <= new Date(t.dueDate)).length;
+    
+    const staffTaskCount = {};
+    tasks.forEach(t => {
+        (t.assignedStaff || []).forEach(sid => {
+            const sName = data.staff.find(s => s.id === sid)?.name || 'Unknown';
+            staffTaskCount[sName] = (staffTaskCount[sName] || 0) + 1;
+        });
+    });
+
+    // 2. STAFF PERF & 3. PROFIT
+    const staffPerf = {};
+    data.staff.forEach(s => staffPerf[s.id] = { name: s.name, salary: s.salary || 0, hours: 0, revenue: 0 });
+
+    tasks.forEach(t => (t.timeLogs || []).forEach(log => {
+        if (staffPerf[log.staffId]) staffPerf[log.staffId].hours += parseFloat(log.duration || 0) / 60;
+    }));
+
+    let totalProfit = 0;
+    const itemProfits = {};
+    let totalDiscount = 0;
+    const highDiscInvoices = [];
+
+    sales.forEach(s => {
+        // Revenue Share
+        if (s.convertedFromTask) {
+            const task = data.tasks.find(t => t.id === s.convertedFromTask);
+            if (task && task.assignedStaff) {
+                const share = s.finalTotal / task.assignedStaff.length;
+                task.assignedStaff.forEach(sid => { if (staffPerf[sid]) staffPerf[sid].revenue += share; });
+            }
+        }
+        // Profit & Discount
+        const disc = parseFloat(s.discountValue || 0);
+        totalDiscount += disc;
+        if (s.grossTotal > 0 && (disc / s.grossTotal) > 0.10) highDiscInvoices.push(`${s.id} (${((disc/s.grossTotal)*100).toFixed(0)}%)`);
+
+        (s.items || []).forEach(i => {
+            const m = data.items.find(x => x.id === i.itemId);
+            const buy = parseFloat(i.buyPrice || m?.buyPrice || 0);
+            const sell = parseFloat(i.price || 0);
+            const profit = (sell - buy) * parseFloat(i.qty || 0);
+            const name = m?.name || i.itemName || 'Item';
+            itemProfits[name] = (itemProfits[name] || 0) + profit;
+            totalProfit += profit;
+        });
+        totalProfit -= disc;
+    });
+
+    // 5. PAYMENTS & RISK
+    let pending30 = 0, pending60 = 0, totalPending = 0;
+    const riskCustomers = [];
+    const allSales = data.transactions.filter(t => t.type === 'sales' && t.status !== 'Cancelled');
+    allSales.forEach(s => {
+        const stats = getTransactionTotals(s);
+        const due = stats.final - stats.paid;
+        if (due > 1) {
+            totalPending += due;
+            const days = (new Date() - new Date(s.date)) / (86400000);
+            if (days > 30) pending30 += due;
+            if (days > 60) {
+                pending60 += due;
+                const pName = data.parties.find(p => p.id === s.partyId)?.name;
+                if(pName && !riskCustomers.includes(pName)) riskCustomers.push(pName);
+            }
+        }
+    });
+
+    // 6. ASSETS & 7. EXPENSES
+    const upcomingAMC = [];
+    const today = new Date();
+    const next30 = new Date(); next30.setDate(today.getDate() + 30);
+    data.parties.forEach(p => (p.assets || []).forEach(a => {
+        if (a.nextServiceDate) {
+            const d = new Date(a.nextServiceDate);
+            if (d >= today && d <= next30) upcomingAMC.push(`${a.name} (${p.name})`);
+        }
+    }));
+
+    const expenseCats = {};
+    expenses.forEach(e => {
+        const cat = e.category || 'Uncategorized';
+        expenseCats[cat] = (expenseCats[cat] || 0) + parseFloat(e.amount || e.finalTotal || 0);
+    });
+
+    // BUILD REPORT
+    let r = `AI BUSINESS REPORT (${startDate} to ${endDate})\nGenerated: ${new Date().toLocaleString()}\n\n`;
+    r += `1. TASKS\n- Total: ${tasks.length}\n- On-Time: ${onTime}\n- Delayed: ${tasks.length - onTime}\n- Workload: ${Object.entries(staffTaskCount).map(([k,v])=>`${k}:${v}`).join(', ')}\n\n`;
+    r += `2. STAFF\n${Object.values(staffPerf).filter(s=>s.hours>0||s.revenue>0).map(s=>`- ${s.name}: ${s.hours.toFixed(1)}h | Rev: ${s.revenue.toFixed(0)}`).join('\n')}\n\n`;
+    r += `3. PROFIT & LOSS\n- Gross Profit: ${totalProfit.toFixed(0)}\n- Top Items: ${Object.entries(itemProfits).sort((a,b)=>b[1]-a[1]).slice(0,3).map(i=>`${i[0]}(${i[1].toFixed(0)})`).join(', ')}\n\n`;
+    r += `4. DISCOUNT\n- Total Given: ${totalDiscount.toFixed(0)}\n- High Disc Inv: ${highDiscInvoices.slice(0,3).join(', ')}\n\n`;
+    r += `5. RISK\n- Total Due: ${totalPending.toFixed(0)}\n- >60 Days: ${pending60.toFixed(0)}\n- Risk Clients: ${riskCustomers.slice(0,5).join(', ')}\n\n`;
+    r += `6. ASSETS\n- Upcoming AMC (30d): ${upcomingAMC.length}\n\n`;
+    r += `7. EXPENSES\n- Top: ${Object.entries(expenseCats).sort((a,b)=>b[1]-a[1]).slice(0,3).map(e=>`${e[0]}: ${e[1].toFixed(0)}`).join(', ')}`;
+    
+    return r;
 };
 
 
@@ -896,6 +1016,56 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, checkPer
     );
 };
 // --- EXTERNALIZED SUB-COMPONENTS END ---
+
+const ReportModal = ({ isOpen, onClose, data }) => {
+    const [range, setRange] = useState('This Month');
+    const [dates, setDates] = useState({ 
+        start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], 
+        end: new Date().toISOString().split('T')[0] 
+    });
+    const [reportText, setReportText] = useState('');
+
+    useEffect(() => {
+        if (!isOpen) { setReportText(''); return; }
+        const today = new Date();
+        let start = new Date();
+        let end = new Date();
+
+        if (range === 'This Month') { start = new Date(today.getFullYear(), today.getMonth(), 1); }
+        else if (range === 'Last Month') { start = new Date(today.getFullYear(), today.getMonth() - 1, 1); end = new Date(today.getFullYear(), today.getMonth(), 0); }
+        else if (range === 'This Week') { start.setDate(today.getDate() - today.getDay()); }
+
+        if (range !== 'Custom') setDates({ start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] });
+    }, [range, isOpen]);
+
+    const handleGenerate = () => setReportText(generateAIReport(data, dates.start, dates.end));
+    
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-xl text-purple-700 flex items-center gap-2">🤖 AI Business Report</h3>
+                    <button onClick={onClose} className="p-2 bg-gray-100 rounded-full"><X size={20}/></button>
+                </div>
+                <div className="space-y-3 mb-4">
+                    <div className="flex bg-gray-100 p-1 rounded-xl">
+                        {['This Month', 'Last Month', 'Custom'].map(r => <button key={r} onClick={() => setRange(r)} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${range === r ? 'bg-white shadow text-purple-600' : 'text-gray-500'}`}>{r}</button>)}
+                    </div>
+                    {range === 'Custom' && <div className="flex gap-2"><input type="date" className="w-1/2 p-2 border rounded-lg text-xs" value={dates.start} onChange={e => setDates({...dates, start: e.target.value})} /><input type="date" className="w-1/2 p-2 border rounded-lg text-xs" value={dates.end} onChange={e => setDates({...dates, end: e.target.value})} /></div>}
+                    <button onClick={handleGenerate} className="w-full py-3 bg-purple-600 text-white rounded-xl font-bold shadow-lg">Generate Report</button>
+                </div>
+                {reportText && (
+                    <div className="flex-1 flex flex-col overflow-hidden bg-gray-50 rounded-xl border relative">
+                        <textarea readOnly className="flex-1 w-full p-3 text-xs font-mono text-gray-700 bg-transparent resize-none focus:outline-none" value={reportText}/>
+                        <button onClick={() => { navigator.clipboard.writeText(reportText); alert("Copied!"); }} className="absolute top-2 right-2 p-2 bg-white shadow rounded-lg text-purple-600 font-bold text-xs flex items-center gap-1"><Copy size={12}/> Copy</button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
 
 const LoginScreen = ({ setUser }) => {
   const [id, setId] = useState('');
@@ -2181,6 +2351,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [reportView, setReportView] = useState(null);
   const [statementModal, setStatementModal] = useState(null);
+  const [reportModalOpen, setReportModalOpen] = useState(false); // REQ: AI Report State
 
 const [txSearchQuery, setTxSearchQuery] = useState(''); 
  const [txDateRange, setTxDateRange] = useState({ start: '', end: '' }); 
@@ -3312,6 +3483,8 @@ const StaffDetailView = ({ staff, data, setData, user, pushHistory, setManualAtt
           <div className="flex justify-between items-center">
             <div><h1 className="text-2xl font-bold text-gray-800">{data.company.name}</h1><p className="text-sm text-gray-500">FY {data.company.financialYear}</p></div>
             <div className="flex gap-2">
+                {/* NEW AI BUTTON */}
+                <button onClick={() => setReportModalOpen(true)} className="px-3 py-2 bg-purple-100 text-purple-700 rounded-xl font-bold text-xs flex items-center gap-1">🤖 AI Report</button>
                 <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 bg-gray-100 rounded-xl"><Settings className="text-gray-600" /></button>
             </div>
           </div>
@@ -6764,6 +6937,13 @@ const removeMobile = (idx) => {
             onClose={() => setStatementModal(null)} 
         />
       )}
+      
+      {/* REQ: AI Report Modal */}
+      <ReportModal 
+        isOpen={reportModalOpen} 
+        onClose={() => setReportModalOpen(false)} 
+        data={data} 
+      />
       
       {manualAttModal && (
         <ManualAttendanceModal 
