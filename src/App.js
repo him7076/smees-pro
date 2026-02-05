@@ -222,122 +222,267 @@ const cleanData = (obj) => {
     return newObj;
 };
 
-// --- NEW AI REPORT GENERATOR ---
+// --- HELPER: Date Diff in Days ---
+const getDaysDiff = (d1, d2) => Math.floor((new Date(d1) - new Date(d2)) / (1000 * 60 * 60 * 24));
+
+// --- PROFESSIONAL AI BUSINESS REPORT GENERATOR ---
 const generateAIReport = (data, startDate, endDate) => {
     const start = new Date(startDate);
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999);
+    const now = new Date();
 
-    const tasks = data.tasks.filter(t => {
-        const d = new Date(t.dueDate || t.createdAt);
+    // 1. PREPARE DATA POOLS
+    // A. Period Data (Strictly within selected range)
+    const periodTasks = data.tasks.filter(t => {
+        const d = new Date(t.createdAt); // Count based on Creation for volume analysis
+        return d >= start && d <= end;
+    });
+    
+    const periodCompletedTasks = data.tasks.filter(t => {
+        if (t.status !== 'Done' || !t.completedAt) return false;
+        const d = new Date(t.completedAt);
         return d >= start && d <= end;
     });
 
-    const txs = data.transactions.filter(t => {
+    const periodTx = data.transactions.filter(t => {
         const d = new Date(t.date);
         return t.status !== 'Cancelled' && d >= start && d <= end;
     });
 
-    const sales = txs.filter(t => t.type === 'sales');
-    const expenses = txs.filter(t => t.type === 'expense');
+    const periodSales = periodTx.filter(t => t.type === 'sales');
+    const periodExpenses = periodTx.filter(t => t.type === 'expense');
 
-    // 1. TASKS
-    const completedTasks = tasks.filter(t => t.status === 'Done');
-    const onTime = completedTasks.filter(t => t.dueDate && t.updatedAt && new Date(t.updatedAt) <= new Date(t.dueDate)).length;
-    
-    const staffTaskCount = {};
-    tasks.forEach(t => {
-        (t.assignedStaff || []).forEach(sid => {
-            const sName = data.staff.find(s => s.id === sid)?.name || 'Unknown';
-            staffTaskCount[sName] = (staffTaskCount[sName] || 0) + 1;
+    // ==========================================
+    // 1. TASKS & PRODUCTIVITY (Creation vs Completion)
+    // ==========================================
+    let taskStats = { 
+        created: periodTasks.length, 
+        completedOnTime: 0, 
+        completedLate: 0, 
+        pending: 0, 
+        overdue: 0 
+    };
+
+    // Analyze Completion Quality (on tasks completed in this period)
+    periodCompletedTasks.forEach(t => {
+        const due = t.dueDate ? new Date(t.dueDate) : null;
+        const done = new Date(t.completedAt);
+        // Buffer of 1 day allowed
+        if (due && done > new Date(due.getTime() + 86400000)) taskStats.completedLate++;
+        else taskStats.completedOnTime++;
+    });
+
+    // Analyze Pending Load (Snapshot of all active tasks, regardless of date)
+    const allActiveTasks = data.tasks.filter(t => t.status !== 'Done' && t.status !== 'Converted');
+    taskStats.pending = allActiveTasks.length;
+    taskStats.overdue = allActiveTasks.filter(t => t.dueDate && new Date(t.dueDate) < now).length;
+
+    // ==========================================
+    // 2. STAFF PERFORMANCE (Weighted Revenue)
+    // ==========================================
+    const staffMetrics = {};
+    data.staff.forEach(s => staffMetrics[s.id] = { name: s.name, hours: 0, revenue: 0, tasksDone: 0, salary: parseFloat(s.salary || 0) });
+
+    // A. Work Hours (From TimeLogs in period)
+    data.tasks.forEach(t => {
+        (t.timeLogs || []).forEach(log => {
+            const logDate = new Date(log.start);
+            if (logDate >= start && logDate <= end && staffMetrics[log.staffId]) {
+                staffMetrics[log.staffId].hours += (parseFloat(log.duration || 0) / 60);
+            }
         });
     });
 
-    // 2. STAFF PERF & 3. PROFIT
-    const staffPerf = {};
-    data.staff.forEach(s => staffPerf[s.id] = { name: s.name, salary: s.salary || 0, hours: 0, revenue: 0 });
+    // B. Revenue Attribution (Logic: Net Sales split by Work Effort)
+    periodSales.forEach(sale => {
+        if (sale.convertedFromTask) {
+            const task = data.tasks.find(t => t.id === sale.convertedFromTask);
+            if (task) {
+                const logs = task.timeLogs || [];
+                const totalDuration = logs.reduce((sum, l) => sum + parseFloat(l.duration || 0), 0);
+                const netSale = parseFloat(sale.finalTotal || 0); // Use Final (Net) not Gross
 
-    tasks.forEach(t => (t.timeLogs || []).forEach(log => {
-        if (staffPerf[log.staffId]) staffPerf[log.staffId].hours += parseFloat(log.duration || 0) / 60;
-    }));
-
-    let totalProfit = 0;
-    const itemProfits = {};
-    let totalDiscount = 0;
-    const highDiscInvoices = [];
-
-    sales.forEach(s => {
-        // Revenue Share
-        if (s.convertedFromTask) {
-            const task = data.tasks.find(t => t.id === s.convertedFromTask);
-            if (task && task.assignedStaff) {
-                const share = s.finalTotal / task.assignedStaff.length;
-                task.assignedStaff.forEach(sid => { if (staffPerf[sid]) staffPerf[sid].revenue += share; });
+                if (totalDuration > 0) {
+                    // Weighted Split based on Hours Worked
+                    logs.forEach(log => {
+                        if (staffMetrics[log.staffId]) {
+                            const share = (parseFloat(log.duration) / totalDuration) * netSale;
+                            staffMetrics[log.staffId].revenue += share;
+                        }
+                    });
+                } else {
+                    // Fallback: Equal Split
+                    const assigned = task.assignedStaff || [];
+                    if (assigned.length > 0) {
+                        const share = netSale / assigned.length;
+                        assigned.forEach(sid => {
+                            if (staffMetrics[sid]) staffMetrics[sid].revenue += share;
+                        });
+                    }
+                }
             }
         }
-        // Profit & Discount
-        const disc = parseFloat(s.discountValue || 0);
-        totalDiscount += disc;
-        if (s.grossTotal > 0 && (disc / s.grossTotal) > 0.10) highDiscInvoices.push(`${s.id} (${((disc/s.grossTotal)*100).toFixed(0)}%)`);
+    });
 
+    // ==========================================
+    // 3. PROFIT & LOSS (Accounting Standard)
+    // ==========================================
+    let financial = {
+        revenue: 0,      // Total Net Sales
+        cogs: 0,         // Cost of Goods Sold
+        grossProfit: 0,  // Revenue - COGS
+        operatingExp: 0, // Expenses
+        netProfit: 0,    // Gross - Exp
+        totalDiscount: 0,
+        grossSales: 0    // Before Discount
+    };
+
+    periodSales.forEach(s => {
+        const net = parseFloat(s.finalTotal || 0);
+        financial.revenue += net;
+        
+        // Calculate COGS
         (s.items || []).forEach(i => {
-            const m = data.items.find(x => x.id === i.itemId);
-            const buy = parseFloat(i.buyPrice || m?.buyPrice || 0);
-            const sell = parseFloat(i.price || 0);
-            const profit = (sell - buy) * parseFloat(i.qty || 0);
-            const name = m?.name || i.itemName || 'Item';
-            itemProfits[name] = (itemProfits[name] || 0) + profit;
-            totalProfit += profit;
+            const buyPrice = parseFloat(i.buyPrice || 0);
+            const qty = parseFloat(i.qty || 0);
+            financial.cogs += (buyPrice * qty);
         });
-        totalProfit -= disc;
+
+        // Discount Tracking
+        const disc = parseFloat(s.discountValue || 0);
+        financial.totalDiscount += disc;
+        financial.grossSales += (s.grossTotal || (net + disc));
     });
 
-    // 5. PAYMENTS & RISK
-    let pending30 = 0, pending60 = 0, totalPending = 0;
-    const riskCustomers = [];
-    const allSales = data.transactions.filter(t => t.type === 'sales' && t.status !== 'Cancelled');
-    allSales.forEach(s => {
-        const stats = getTransactionTotals(s);
+    // Operating Expenses
+    periodExpenses.forEach(e => {
+        financial.operatingExp += parseFloat(e.finalTotal || e.amount || 0);
+    });
+
+    // Final Calculations
+    financial.grossProfit = financial.revenue - financial.cogs;
+    financial.netProfit = financial.grossProfit - financial.operatingExp;
+    const profitMargin = financial.revenue > 0 ? ((financial.netProfit / financial.revenue) * 100).toFixed(1) : 0;
+
+    // ==========================================
+    // 4. PAYMENTS & AGING (Lifetime Risk)
+    // ==========================================
+    let aging = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0, totalDue: 0 };
+    let riskClients = [];
+
+    // Scan ALL Valid Sales (Lifetime) for Pending Balance
+    data.transactions.filter(t => t.type === 'sales' && t.status !== 'Cancelled').forEach(sale => {
+        const stats = getTransactionTotals(sale); // Uses existing helper
         const due = stats.final - stats.paid;
-        if (due > 1) {
-            totalPending += due;
-            const days = (new Date() - new Date(s.date)) / (86400000);
-            if (days > 30) pending30 += due;
-            if (days > 60) {
-                pending60 += due;
-                const pName = data.parties.find(p => p.id === s.partyId)?.name;
-                if(pName && !riskCustomers.includes(pName)) riskCustomers.push(pName);
+        
+        if (due > 1) { // Ignore rounding errors < 1
+            aging.totalDue += due;
+            const daysOld = getDaysDiff(now, sale.date);
+            
+            if (daysOld <= 30) aging['0-30'] += due;
+            else if (daysOld <= 60) aging['31-60'] += due;
+            else if (daysOld <= 90) aging['61-90'] += due;
+            else {
+                aging['90+'] += due;
+                // Add to Risk List
+                const pName = data.parties.find(p => p.id === sale.partyId)?.name;
+                if(pName && !riskClients.includes(pName)) riskClients.push(pName);
             }
         }
     });
 
-    // 6. ASSETS & 7. EXPENSES
-    const upcomingAMC = [];
-    const today = new Date();
-    const next30 = new Date(); next30.setDate(today.getDate() + 30);
-    data.parties.forEach(p => (p.assets || []).forEach(a => {
-        if (a.nextServiceDate) {
-            const d = new Date(a.nextServiceDate);
-            if (d >= today && d <= next30) upcomingAMC.push(`${a.name} (${p.name})`);
-        }
-    }));
+    // ==========================================
+    // 5. ASSETS & AMC PREDICTION
+    // ==========================================
+    let amc = { upcoming: 0, potentialRev: 0 };
+    const next30Days = new Date();
+    next30Days.setDate(now.getDate() + 30);
 
-    const expenseCats = {};
-    expenses.forEach(e => {
-        const cat = e.category || 'Uncategorized';
-        expenseCats[cat] = (expenseCats[cat] || 0) + parseFloat(e.amount || e.finalTotal || 0);
+    data.parties.forEach(p => {
+        (p.assets || []).forEach(a => {
+            if (a.nextServiceDate) {
+                const sDate = new Date(a.nextServiceDate);
+                if (sDate >= now && sDate <= next30Days) {
+                    amc.upcoming++;
+                    // Use specific price or fallback to 500
+                    amc.potentialRev += parseFloat(a.servicePrice || 500); 
+                }
+            }
+        });
     });
 
-    // BUILD REPORT
-    let r = `AI BUSINESS REPORT (${startDate} to ${endDate})\nGenerated: ${new Date().toLocaleString()}\n\n`;
-    r += `1. TASKS\n- Total: ${tasks.length}\n- On-Time: ${onTime}\n- Delayed: ${tasks.length - onTime}\n- Workload: ${Object.entries(staffTaskCount).map(([k,v])=>`${k}:${v}`).join(', ')}\n\n`;
-    r += `2. STAFF\n${Object.values(staffPerf).filter(s=>s.hours>0||s.revenue>0).map(s=>`- ${s.name}: ${s.hours.toFixed(1)}h | Rev: ${s.revenue.toFixed(0)}`).join('\n')}\n\n`;
-    r += `3. PROFIT & LOSS\n- Gross Profit: ${totalProfit.toFixed(0)}\n- Top Items: ${Object.entries(itemProfits).sort((a,b)=>b[1]-a[1]).slice(0,3).map(i=>`${i[0]}(${i[1].toFixed(0)})`).join(', ')}\n\n`;
-    r += `4. DISCOUNT\n- Total Given: ${totalDiscount.toFixed(0)}\n- High Disc Inv: ${highDiscInvoices.slice(0,3).join(', ')}\n\n`;
-    r += `5. RISK\n- Total Due: ${totalPending.toFixed(0)}\n- >60 Days: ${pending60.toFixed(0)}\n- Risk Clients: ${riskCustomers.slice(0,5).join(', ')}\n\n`;
-    r += `6. ASSETS\n- Upcoming AMC (30d): ${upcomingAMC.length}\n\n`;
-    r += `7. EXPENSES\n- Top: ${Object.entries(expenseCats).sort((a,b)=>b[1]-a[1]).slice(0,3).map(e=>`${e[0]}: ${e[1].toFixed(0)}`).join(', ')}`;
+    // ==========================================
+    // 6. EXPENSE ANALYSIS
+    // ==========================================
+    const expenseMap = {};
+    periodExpenses.forEach(e => {
+        const cat = e.category || 'Uncategorized';
+        expenseMap[cat] = (expenseMap[cat] || 0) + parseFloat(e.finalTotal || 0);
+    });
+    const topExpenses = Object.entries(expenseMap).sort((a,b) => b[1] - a[1]).slice(0, 3);
+
+    // ==========================================
+    // BUILD TEXT REPORT
+    // ==========================================
+    let r = `AI BUSINESS INTELLIGENCE REPORT\n`;
+    r += `Period: ${startDate} to ${endDate}\n`;
+    r += `Generated: ${now.toLocaleString()}\n\n`;
+
+    r += `================================\n`;
+    r += `1. FINANCIAL HEALTH\n`;
+    r += `================================\n`;
+    r += `• Net Revenue:     ${formatCurrency(financial.revenue)}\n`;
+    r += `• COGS (Material): ${formatCurrency(financial.cogs)}\n`;
+    r += `• Gross Profit:    ${formatCurrency(financial.grossProfit)} (Margin: ${((financial.grossProfit/financial.revenue)*100 || 0).toFixed(1)}%)\n`;
+    r += `• Op. Expenses:    ${formatCurrency(financial.operatingExp)}\n`;
+    r += `• NET PROFIT:      ${formatCurrency(financial.netProfit)} (${profitMargin}%)\n\n`;
+
+    r += `================================\n`;
+    r += `2. PAYMENTS & RISK (Lifetime)\n`;
+    r += `================================\n`;
+    r += `• Total Pending:   ${formatCurrency(aging.totalDue)}\n`;
+    r += `• 0-30 Days:       ${formatCurrency(aging['0-30'])}\n`;
+    r += `• 31-60 Days:      ${formatCurrency(aging['31-60'])}\n`;
+    r += `• CRITICAL (90+):  ${formatCurrency(aging['90+'])}\n`;
+    if(riskClients.length > 0) r += `⚠️ Risk Clients: ${riskClients.slice(0, 3).join(', ')}\n\n`;
+    else r += `\n`;
+
+    r += `================================\n`;
+    r += `3. WORKFORCE & PRODUCTIVITY\n`;
+    r += `================================\n`;
+    r += `• Tasks Created: ${taskStats.created} | Completed: ${taskStats.completedOnTime + taskStats.completedLate}\n`;
+    r += `• On-Time Rate:  ${((taskStats.completedOnTime / (taskStats.completedOnTime + taskStats.completedLate || 1))*100).toFixed(0)}%\n`;
+    r += `• Current Load:  ${taskStats.pending} Pending (${taskStats.overdue} Overdue)\n`;
+    r += `\nStaff Performance (Hours | Revenue):\n`;
     
+    Object.values(staffMetrics)
+        .filter(s => s.hours > 0 || s.revenue > 0)
+        .sort((a,b) => b.revenue - a.revenue)
+        .forEach(s => {
+            const costRatio = s.salary > 0 ? ((s.revenue / s.salary) * 100).toFixed(0) + '%' : 'N/A';
+            r += `- ${s.name.padEnd(10)}: ${s.hours.toFixed(1)} hrs | Gen: ${formatCurrency(s.revenue)}\n`;
+        });
+    r += `\n`;
+
+    r += `================================\n`;
+    r += `4. ASSETS & FUTURE\n`;
+    r += `================================\n`;
+    r += `• Upcoming AMC (30 Days): ${amc.upcoming}\n`;
+    r += `• Projected Revenue:      ${formatCurrency(amc.potentialRev)}\n`;
+    r += `• Top Expense:            ${topExpenses[0] ? `${topExpenses[0][0]} (${formatCurrency(topExpenses[0][1])})` : 'None'}\n\n`;
+
+    r += `================================\n`;
+    r += `💡 ACTION INSIGHTS\n`;
+    r += `================================\n`;
+    
+    if (financial.netProfit < 0) r += `! URGENT: Business is running at a LOSS. Review COGS and Expenses.\n`;
+    if (aging['90+'] > 10000) r += `! CASHFLOW: Collect ${formatCurrency(aging['90+'])} from old dues immediately.\n`;
+    if (taskStats.overdue > 5) r += `! OPERATIONS: ${taskStats.overdue} tasks are overdue. Re-assign staff.\n`;
+    if (financial.totalDiscount > (financial.revenue * 0.1)) r += `! PRICING: Discounts are high (${((financial.totalDiscount/financial.revenue)*100).toFixed(1)}% of sales). Control leaks.\n`;
+    
+    r += `\n[End of Report]`;
+
     return r;
 };
 
@@ -2864,6 +3009,15 @@ if (tx.type === 'payment') {
       finalId = id;
     }
     
+    // FIX: Track Completion Date for Reports (Required for On-Time analysis)
+    if (collectionName === 'tasks') {
+        if (record.status === 'Done' && !record.completedAt) {
+            record.completedAt = new Date().toISOString();
+        } else if (record.status !== 'Done') {
+            record.completedAt = null; 
+        }
+    }
+
     const safeRecord = cleanData(record);
     
     // ... (Baki ka code same rahega: setData, setDoc, Toast etc.) ...
