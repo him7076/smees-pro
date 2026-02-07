@@ -2455,7 +2455,9 @@ const uploadTaskPhoto = async (file, taskId, user) => {
     const downloadURL = await getDownloadURL(snapshot.ref);
     const photoRecord = {
       taskId, storagePath, downloadURL,
-      uploadedBy: user.name, uploadedById: user.id, uploadedAt: new Date().toISOString(),
+      uploadedBy: user.name || 'Staff', 
+      uploadedById: user.id || user.uid || 'unknown', // FIX: Fallback if id is missing
+      uploadedAt: new Date().toISOString(),
       synced: false, googlePhotosLink: ""
     };
     await setDoc(doc(collection(db, "taskPhotos")), photoRecord); // Create Doc
