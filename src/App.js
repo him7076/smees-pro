@@ -5,6 +5,12 @@ import {
   getFirestore, 
   collection, 
   getDocs, 
+  // Storage Imports
+  getStorage, 
+  ref, 
+  uploadBytes, 
+  getDownloadURL, 
+  deleteObject, 
   getDoc, 
   setDoc, 
   deleteDoc, 
@@ -17,6 +23,13 @@ import {
   enableIndexedDbPersistence, 
   startAfter
 } from "firebase/firestore";
+import { 
+  getStorage, 
+  ref, 
+  uploadBytes, 
+  getDownloadURL, 
+  deleteObject 
+} from "firebase/storage";
 import { 
   LayoutDashboard, 
   ReceiptText, 
@@ -84,6 +97,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app); // Init Storage
 
 const INITIAL_DATA = {
   company: { name: "My Enterprise", mobile: "", address: "", financialYear: "2024-25", currency: "₹" },
@@ -96,7 +110,8 @@ const INITIAL_DATA = {
   categories: {
     expense: ["Rent", "Electricity", "Marketing", "Salary"],
     item: ["Electronics", "Grocery", "General", "Furniture", "Pharmacy"],
-    taskStatus: ["To Do", "In Progress", "Done"]
+    taskStatus: ["To Do", "In Progress", "Done"],
+    amc: ["General", "Premium", "Comprehensive"] // FIX 2: Added AMC Category
   },
   counters: { 
       sales: 921, 
@@ -1390,6 +1405,27 @@ const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) =>
       
       if(onClose) onClose();
       if(setViewDetail) setViewDetail({ type: 'transaction', id: saleId });
+      // FIX 1: Update Linked Asset Service Date
+          if (form.linkedAssets && form.linkedAssets.length > 0 && party.assets) {
+              const updatedAssets = party.assets.map(asset => {
+                  const linked = form.linkedAssets.find(la => la.name === asset.name);
+                  if (linked) {
+                      // Calculate Next Date: Current Next Date + Interval (Default 3 months)
+                      const currentNext = new Date(asset.nextServiceDate || new Date());
+                      const interval = parseInt(asset.serviceInterval || 3);
+                      currentNext.setMonth(currentNext.getMonth() + interval);
+                      return { ...asset, nextServiceDate: currentNext.toISOString().split('T')[0] };
+                  }
+                  return asset;
+              });
+              
+              // Save updated assets to Party
+              await updateDoc(doc(db, "parties", party.id), { assets: updatedAssets });
+              
+              // Update Local Data
+              const updatedParty = { ...party, assets: updatedAssets };
+              data.parties = data.parties.map(p => p.id === party.id ? updatedParty : p);
+          };
   };
 
   return (
@@ -2412,6 +2448,123 @@ const formatDurationHrs = (minutes) => {
     const m = mins % 60;
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
 };
+// --- PHOTO SYNC SYSTEM COMPONENTS & HELPERS ---
+
+// 1. Upload Helper
+const uploadTaskPhoto = async (file, taskId, user) => {
+  if (!file) return false;
+  const storagePath = `task-photos/${taskId}/${Date.now()}_${file.name}`;
+  const storageRef = ref(storage, storagePath);
+  try {
+    const snapshot = await uploadBytes(storageRef, file);
+    const downloadURL = await getDownloadURL(snapshot.ref);
+    const photoRecord = {
+      taskId, storagePath, downloadURL,
+      uploadedBy: user.name, uploadedById: user.id, uploadedAt: new Date().toISOString(),
+      synced: false, googlePhotosLink: ""
+    };
+    await setDoc(doc(collection(db, "taskPhotos")), photoRecord); // Create Doc
+    return true;
+  } catch (e) { alert("Upload Failed: " + e.message); return false; }
+};
+
+// 2. Cleanup Helper (Auto-delete old synced photos)
+const cleanupPhotos = async (photos) => {
+    const limitDate = new Date(); limitDate.setDate(limitDate.getDate() - 15);
+    const toDelete = photos.filter(p => p.synced && new Date(p.syncedAt || p.uploadedAt) < limitDate);
+    if(toDelete.length > 0) console.log(`Cleaning ${toDelete.length} old photos...`);
+    for(const p of toDelete) {
+        try {
+            const r = ref(storage, p.storagePath);
+            await deleteObject(r).catch(() => {}); // Delete from Storage
+            await deleteDoc(doc(db, "taskPhotos", p.id)); // Delete from DB
+        } catch(e) {}
+    }
+};
+
+// 3. Components
+const TaskPhotoUpload = ({ taskId, user, photos }) => {
+    const [loading, setLoading] = useState(false);
+    return (
+        <div className="bg-white p-4 rounded-2xl border mt-4">
+            <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="text-xl">📷</span> Job Photos</h3>
+            {/* Gallery */}
+            <div className="grid grid-cols-4 gap-2 mb-3">
+                {photos.map(p => (
+                    <div key={p.id} onClick={() => window.open(p.downloadURL, '_blank')} className="aspect-square bg-gray-100 rounded-lg bg-cover bg-center border relative cursor-pointer" style={{backgroundImage: `url(${p.downloadURL})`}}>
+                        {p.synced && <div className="absolute top-0 right-0 bg-green-500 text-white p-0.5 rounded-bl text-[8px]">✓</div>}
+                    </div>
+                ))}
+            </div>
+            {/* Upload Button */}
+            <label className={`block w-full p-3 border-2 border-dashed rounded-xl text-center ${loading ? 'opacity-50' : 'cursor-pointer hover:bg-gray-50'}`}>
+                {loading ? <span className="text-xs font-bold text-blue-600">Uploading...</span> : <><span className="text-blue-600 font-bold text-sm">+ Add Photo</span><br/><span className="text-[10px] text-gray-400">Camera / Gallery</span></>}
+                <input type="file" accept="image/*" className="hidden" disabled={loading} onChange={async (e) => {
+                    setLoading(true); await uploadTaskPhoto(e.target.files[0], taskId, user); setLoading(false);
+                }}/>
+            </label>
+        </div>
+    );
+};
+
+const PhotoSyncDashboard = ({ data, onClose }) => {
+    const [tab, setTab] = useState('pending');
+    const [links, setLinks] = useState({});
+    
+    // Auto Cleanup on Open
+    useEffect(() => { cleanupPhotos(data.taskPhotos || []); }, []);
+
+    const filtered = (data.taskPhotos || []).filter(p => tab === 'pending' ? !p.synced : p.synced).sort((a,b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+
+    const handleSync = async (p) => {
+        if(!links[p.id]) return alert("Paste Google Photos Link!");
+        if(!window.confirm("Mark as Synced? Ensure photo is saved to Google Photos.")) return;
+        await setDoc(doc(db, "taskPhotos", p.id), { ...p, synced: true, googlePhotosLink: links[p.id], syncedAt: new Date().toISOString() });
+    };
+
+    const handleDelete = async (p) => {
+        if(!window.confirm("Permanently delete?")) return;
+        await deleteObject(ref(storage, p.storagePath)).catch(()=>{});
+        await deleteDoc(doc(db, "taskPhotos", p.id));
+    };
+
+    return (
+        <div className="fixed inset-0 z-[200] bg-white flex flex-col">
+            <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h2 className="font-bold text-lg">☁️ Photo Sync Manager</h2>
+                <button onClick={onClose} className="p-2 bg-gray-200 rounded-full"><X size={20}/></button>
+            </div>
+            <div className="p-2"><div className="flex bg-gray-100 p-1 rounded-xl">
+                {['pending', 'synced'].map(t => <button key={t} onClick={() => setTab(t)} className={`flex-1 py-2 text-xs font-bold capitalize rounded-lg ${tab===t?'bg-white shadow text-blue-600':'text-gray-500'}`}>{t} ({filtered.length})</button>)}
+            </div></div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {filtered.map(p => (
+                    <div key={p.id} className="border rounded-xl p-3 flex gap-3 shadow-sm">
+                        <div onClick={()=>window.open(p.downloadURL,'_blank')} className="w-20 h-20 bg-gray-200 rounded-lg bg-cover bg-center cursor-pointer" style={{backgroundImage: `url(${p.downloadURL})`}}/>
+                        <div className="flex-1 space-y-2">
+                            <div className="flex justify-between"><span className="text-xs font-bold">Task #{p.taskId}</span><span className="text-[10px] text-gray-400">{new Date(p.uploadedAt).toLocaleDateString()}</span></div>
+                            <p className="text-[10px] text-gray-500">By: {p.uploadedBy}</p>
+                            {tab === 'pending' ? (
+                                <div className="space-y-2">
+                                    <button onClick={()=>window.open(p.downloadURL,'_blank')} className="w-full py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded">1. Open & Save to G-Photos</button>
+                                    <div className="flex gap-1"><input placeholder="Paste Link..." className="flex-1 border rounded px-1 text-[10px]" value={links[p.id]||''} onChange={e=>setLinks({...links, [p.id]:e.target.value})}/><button onClick={()=>handleSync(p)} className="bg-green-600 text-white px-2 rounded text-[10px] font-bold">2. Sync</button></div>
+                                </div>
+                            ) : (
+                                <div className="space-y-1">
+                                    <a href={p.googlePhotosLink} target="_blank" className="text-[10px] text-blue-600 underline truncate block">{p.googlePhotosLink}</a>
+                                    <button onClick={()=>handleDelete(p)} className="w-full py-1 bg-red-50 text-red-600 text-[10px] font-bold rounded border border-red-100 flex items-center justify-center gap-1"><Trash2 size={10}/> Free Up Space</button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ))}
+                {filtered.length === 0 && <p className="text-center text-gray-400 mt-10">No photos here.</p>}
+            </div>
+        </div>
+    );
+};
+
+// --- MAIN COMPONENT ---
 export default function App() {
   // REQ 1: Persistent Data State (Fixed for Hydration / SSR)
   // Initialize with default values (null / INITIAL_DATA) to prevent Prop ID Mismatch
@@ -2571,7 +2724,8 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
          { name: 'attendance' },
          { name: 'parties' }, 
          { name: 'items' }, 
-         { name: 'transactions' }
+         { name: 'transactions' },
+         { name: 'taskPhotos' }
       ];
 
       // Admin check
@@ -3637,7 +3791,9 @@ const StaffDetailView = ({ staff, data, setData, user, pushHistory, setManualAtt
           <div className="flex justify-between items-center">
             <div><h1 className="text-2xl font-bold text-gray-800">{data.company.name}</h1><p className="text-sm text-gray-500">FY {data.company.financialYear}</p></div>
             <div className="flex gap-2">
-                {/* NEW AI BUTTON */}
+                {/* Photo Manager (Admin Only) */}
+                {user.role === 'admin' && <button onClick={() => setViewDetail({ type: 'photo_manager' })} className="p-2 bg-blue-100 text-blue-700 rounded-xl"><RefreshCw size={20} /></button>}
+                
                 <button onClick={() => setReportModalOpen(true)} className="px-3 py-2 bg-purple-100 text-purple-700 rounded-xl font-bold text-xs flex items-center gap-1">🤖 AI Report</button>
                 <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 bg-gray-100 rounded-xl"><Settings className="text-gray-600" /></button>
             </div>
@@ -4846,6 +5002,13 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                         )}
                     </div>
                     
+                    {/* NEW: PHOTO UPLOAD SECTION */}
+                    <TaskPhotoUpload 
+                        taskId={task.id} 
+                        user={user} 
+                        photos={(data.taskPhotos || []).filter(p => p.taskId === task.id)} 
+                    />
+
                     {/* Time Logs List with Summary & Toggle */}
                     <div className="bg-gray-50 rounded-xl border p-3 mb-4">
                         <div className="flex justify-between items-center mb-2">
@@ -5919,7 +6082,30 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         </div>
 
         {/* Items Section (Same as before) */}
-        {type === 'expense' && ( <SearchableSelect label="Expense Category" options={data.categories.expense} value={tx.category} onChange={v => setTx({...tx, category: v})} onAddNew={() => { const newCat = prompt("New Category:"); if(newCat) setData(prev => ({...prev, categories: {...prev.categories, expense: [...prev.categories.expense, newCat]}})); }} placeholder="Select Category..." /> )}
+        {type === 'expense' && ( <SearchableSelect 
+    label="Expense Category" 
+    options={(data.categories.expense || []).map(c => ({ id: c, name: c }))} 
+    value={tx.category} 
+    onChange={v => setTx({...tx, category: v})} 
+    placeholder="Select Category..."
+    onAddNew={async (newCat) => {
+        // FIX 3: Save New Expense Category to Firebase
+        if(!newCat) return;
+        const updatedCats = [...(data.categories.expense || []), newCat];
+        
+        // Update Local
+        const newCategories = { ...data.categories, expense: updatedCats };
+        setData(prev => ({ ...prev, categories: newCategories }));
+        
+        // Update Firebase (Assuming categories are stored in a settings doc)
+        try {
+            // Adjust "settings/categories" path if your DB structure is different
+            await setDoc(doc(db, "settings", "categories"), newCategories, { merge: true });
+        } catch(e) { console.log("Auto-save cat failed, works locally"); }
+        
+        setTx({ ...tx, category: newCat });
+    }}
+/> )}
         {type !== 'payment' && (
             <div className="space-y-3 pt-2 border-t">
                 <h4 className="text-xs font-bold text-gray-400 uppercase">Items / Services</h4>
@@ -6020,27 +6206,28 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                 if(!name) return alert("Brand Name is required");
                                 
                                 const item = addBrandModal.item;
-                                const newBrandObj = { name, sellPrice: sell, buyPrice: buy };
+                                const newBrandObj = { name, sellPrice: parseFloat(sell||0), buyPrice: parseFloat(buy||0) };
+                                
+                                // FIX 4: Ensure brands array exists and persist to Firebase
                                 const updatedItem = { ...item, brands: [...(item.brands || []), newBrandObj] };
                                 
                                 // 1. Save to Cloud
                                 await setDoc(doc(db, "items", item.id), updatedItem);
                                 
-                                // FIX 2 & 3: Direct Mutation (Prevents App Re-render/Form Reset)
-                                // Hum setData use nahi karenge taki TransactionForm unmount na ho
-                                const itemIdx = data.items.findIndex(i => i.id === item.id);
-                                if(itemIdx > -1) {
-                                    data.items[itemIdx] = updatedItem; // Update memory directly
-                                }
+                                // 2. Update Local Data Deeply (Critical for Sync)
+                                setData(prev => ({
+                                    ...prev,
+                                    items: prev.items.map(i => i.id === item.id ? updatedItem : i)
+                                }));
                                 
-                                // 3. Update Current Line Item (Triggers Local Render Only)
+                                // 3. Auto-select the new brand in the form line
                                 updateLine(addBrandModal.idx, 'brand', name);
-                                
+
                                 setAddBrandModal(null); 
                             }}
                             className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold mt-2"
                         >
-                            Save Brand
+                            Save Brand & Sync
                         </button>
                         <button onClick={() => setAddBrandModal(null)} className="w-full py-3 text-gray-500 font-bold text-xs">Cancel</button>
                     </div>
@@ -6611,7 +6798,14 @@ const removeMobile = (idx) => {
            {/* Add New Asset Inputs */}
                 <div className="bg-white p-2 rounded-xl border border-indigo-200 space-y-2">
                     <p className="text-[10px] font-bold text-gray-400 uppercase text-center">Add New Asset</p>
-                    <input id="new_asset_name" className="w-full p-2 border rounded-lg text-xs" placeholder="Asset Name (e.g. Bedroom AC)" />
+                    <div className="flex gap-2">
+                         <input id="new_asset_name" className="flex-1 p-2 border rounded-lg text-xs" placeholder="Asset Name (e.g. Bedroom AC)" />
+                         {/* FIX 2: AMC Category Select */}
+                         <select id="new_asset_category" className="w-1/3 p-2 border rounded-lg text-xs bg-white">
+                             <option value="">- Cat -</option>
+                             {(data.categories.amc || []).map(c => <option key={c} value={c}>{c}</option>)}
+                         </select>
+                    </div>
                     <div className="flex gap-2">
                         <input id="new_asset_brand" className="w-1/2 p-2 border rounded-lg text-xs" placeholder="Brand (e.g. Voltas)" />
                         <input id="new_asset_model" className="w-1/2 p-2 border rounded-lg text-xs" placeholder="Model No." />
@@ -7098,6 +7292,11 @@ const removeMobile = (idx) => {
         onClose={() => setReportModalOpen(false)} 
         data={data} 
       />
+      
+      {/* REQ: PHOTO SYNC DASHBOARD */}
+      {viewDetail?.type === 'photo_manager' && (
+          <PhotoSyncDashboard data={data} onClose={() => setViewDetail(null)} />
+      )}
       
       {manualAttModal && (
         <ManualAttendanceModal 
