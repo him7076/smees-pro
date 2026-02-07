@@ -5,8 +5,6 @@ import {
   getFirestore, 
   collection, 
   getDocs, 
-  // Storage Imports
-  getStorage, 
   ref, 
   uploadBytes, 
   getDownloadURL, 
