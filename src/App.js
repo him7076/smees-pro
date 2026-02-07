@@ -2445,47 +2445,45 @@ const formatDurationHrs = (minutes) => {
 };
 // --- PHOTO SYNC SYSTEM COMPONENTS & HELPERS ---
 
-// 1. Upload Helper
+// 1. Upload Helper (Returns Object for Real-time Update)
 const uploadTaskPhoto = async (file, taskId, user) => {
-  if (!file) return false;
+  if (!file) return null;
   const storagePath = `task-photos/${taskId}/${Date.now()}_${file.name}`;
   const storageRef = ref(storage, storagePath);
   try {
     const snapshot = await uploadBytes(storageRef, file);
     const downloadURL = await getDownloadURL(snapshot.ref);
     const photoRecord = {
+      id: doc(collection(db, "taskPhotos")).id, // Pre-generate ID
       taskId, storagePath, downloadURL,
-      uploadedBy: user.name || 'Staff', 
-      uploadedById: user.id || user.uid || 'unknown', // FIX: Fallback if id is missing
+      uploadedBy: user.name || 'Staff', uploadedById: user.id || user.uid || 'unknown', 
       uploadedAt: new Date().toISOString(),
       synced: false, googlePhotosLink: ""
     };
-    await setDoc(doc(collection(db, "taskPhotos")), photoRecord); // Create Doc
-    return true;
-  } catch (e) { alert("Upload Failed: " + e.message); return false; }
+    await setDoc(doc(db, "taskPhotos", photoRecord.id), photoRecord);
+    return photoRecord; // Return new photo object
+  } catch (e) { alert("Upload Failed: " + e.message); return null; }
 };
 
-// 2. Cleanup Helper (Auto-delete old synced photos)
+// 2. Cleanup Helper
 const cleanupPhotos = async (photos) => {
     const limitDate = new Date(); limitDate.setDate(limitDate.getDate() - 15);
     const toDelete = photos.filter(p => p.synced && new Date(p.syncedAt || p.uploadedAt) < limitDate);
     if(toDelete.length > 0) console.log(`Cleaning ${toDelete.length} old photos...`);
     for(const p of toDelete) {
         try {
-            const r = ref(storage, p.storagePath);
-            await deleteObject(r).catch(() => {}); // Delete from Storage
-            await deleteDoc(doc(db, "taskPhotos", p.id)); // Delete from DB
+            await deleteObject(ref(storage, p.storagePath)).catch(()=>{});
+            await deleteDoc(doc(db, "taskPhotos", p.id));
         } catch(e) {}
     }
 };
 
 // 3. Components
-const TaskPhotoUpload = ({ taskId, user, photos }) => {
+const TaskPhotoUpload = ({ taskId, user, photos, setData }) => {
     const [loading, setLoading] = useState(false);
     return (
         <div className="bg-white p-4 rounded-2xl border mt-4">
             <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="text-xl">📷</span> Job Photos</h3>
-            {/* Gallery */}
             <div className="grid grid-cols-4 gap-2 mb-3">
                 {photos.map(p => (
                     <div key={p.id} onClick={() => window.open(p.downloadURL, '_blank')} className="aspect-square bg-gray-100 rounded-lg bg-cover bg-center border relative cursor-pointer" style={{backgroundImage: `url(${p.downloadURL})`}}>
@@ -2493,11 +2491,16 @@ const TaskPhotoUpload = ({ taskId, user, photos }) => {
                     </div>
                 ))}
             </div>
-            {/* Upload Button */}
             <label className={`block w-full p-3 border-2 border-dashed rounded-xl text-center ${loading ? 'opacity-50' : 'cursor-pointer hover:bg-gray-50'}`}>
                 {loading ? <span className="text-xs font-bold text-blue-600">Uploading...</span> : <><span className="text-blue-600 font-bold text-sm">+ Add Photo</span><br/><span className="text-[10px] text-gray-400">Camera / Gallery</span></>}
                 <input type="file" accept="image/*" className="hidden" disabled={loading} onChange={async (e) => {
-                    setLoading(true); await uploadTaskPhoto(e.target.files[0], taskId, user); setLoading(false);
+                    setLoading(true); 
+                    const newPhoto = await uploadTaskPhoto(e.target.files[0], taskId, user);
+                    if (newPhoto && setData) {
+                        // Real-time Update without Refresh
+                        setData(prev => ({ ...prev, taskPhotos: [newPhoto, ...(prev.taskPhotos || [])] }));
+                    }
+                    setLoading(false);
                 }}/>
             </label>
         </div>
@@ -2508,14 +2511,33 @@ const PhotoSyncDashboard = ({ data, onClose }) => {
     const [tab, setTab] = useState('pending');
     const [links, setLinks] = useState({});
     
-    // Auto Cleanup on Open
     useEffect(() => { cleanupPhotos(data.taskPhotos || []); }, []);
 
     const filtered = (data.taskPhotos || []).filter(p => tab === 'pending' ? !p.synced : p.synced).sort((a,b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
 
+    // Feature: Share to Open in App
+    const handleShare = async (url) => {
+        try {
+            if (navigator.share) {
+                const blob = await fetch(url).then(r => r.blob());
+                const file = new File([blob], "photo.jpg", { type: blob.type });
+                await navigator.share({
+                    files: [file],
+                    title: 'Save Photo',
+                    text: 'Save to Google Photos'
+                });
+            } else {
+                window.open(url, '_blank');
+            }
+        } catch (e) {
+            console.error(e);
+            window.open(url, '_blank'); // Fallback
+        }
+    };
+
     const handleSync = async (p) => {
         if(!links[p.id]) return alert("Paste Google Photos Link!");
-        if(!window.confirm("Mark as Synced? Ensure photo is saved to Google Photos.")) return;
+        if(!window.confirm("Mark as Synced?")) return;
         await setDoc(doc(db, "taskPhotos", p.id), { ...p, synced: true, googlePhotosLink: links[p.id], syncedAt: new Date().toISOString() });
     };
 
@@ -2537,14 +2559,14 @@ const PhotoSyncDashboard = ({ data, onClose }) => {
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {filtered.map(p => (
                     <div key={p.id} className="border rounded-xl p-3 flex gap-3 shadow-sm">
-                        <div onClick={()=>window.open(p.downloadURL,'_blank')} className="w-20 h-20 bg-gray-200 rounded-lg bg-cover bg-center cursor-pointer" style={{backgroundImage: `url(${p.downloadURL})`}}/>
+                        <div onClick={()=>handleShare(p.downloadURL)} className="w-20 h-20 bg-gray-200 rounded-lg bg-cover bg-center cursor-pointer" style={{backgroundImage: `url(${p.downloadURL})`}}/>
                         <div className="flex-1 space-y-2">
                             <div className="flex justify-between"><span className="text-xs font-bold">Task #{p.taskId}</span><span className="text-[10px] text-gray-400">{new Date(p.uploadedAt).toLocaleDateString()}</span></div>
                             <p className="text-[10px] text-gray-500">By: {p.uploadedBy}</p>
                             {tab === 'pending' ? (
                                 <div className="space-y-2">
-                                    <button onClick={()=>window.open(p.downloadURL,'_blank')} className="w-full py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded">1. Open & Save to G-Photos</button>
-                                    <div className="flex gap-1"><input placeholder="Paste Link..." className="flex-1 border rounded px-1 text-[10px]" value={links[p.id]||''} onChange={e=>setLinks({...links, [p.id]:e.target.value})}/><button onClick={()=>handleSync(p)} className="bg-green-600 text-white px-2 rounded text-[10px] font-bold">2. Sync</button></div>
+                                    <button onClick={()=>handleShare(p.downloadURL)} className="w-full py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded flex items-center justify-center gap-1"><Share2 size={12}/> Share to Save (G-Photos)</button>
+                                    <div className="flex gap-1"><input placeholder="Paste Link..." className="flex-1 border rounded px-1 text-[10px]" value={links[p.id]||''} onChange={e=>setLinks({...links, [p.id]:e.target.value})}/><button onClick={()=>handleSync(p)} className="bg-green-600 text-white px-2 rounded text-[10px] font-bold">Sync</button></div>
                                 </div>
                             ) : (
                                 <div className="space-y-1">
@@ -5000,11 +5022,12 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     </div>
                     
                     {/* NEW: PHOTO UPLOAD SECTION */}
-                    <TaskPhotoUpload 
-                        taskId={task.id} 
-                        user={user} 
-                        photos={(data.taskPhotos || []).filter(p => p.taskId === task.id)} 
-                    />
+            <TaskPhotoUpload 
+                taskId={task.id} 
+                user={user} 
+                photos={(data.taskPhotos || []).filter(p => p.taskId === task.id)}
+                setData={setData} // <--- Added for instant update
+            />
 
                     {/* Time Logs List with Summary & Toggle */}
                     <div className="bg-gray-50 rounded-xl border p-3 mb-4">
