@@ -2443,135 +2443,67 @@ const formatDurationHrs = (minutes) => {
     const m = mins % 60;
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
 };
-// --- PHOTO SYNC SYSTEM COMPONENTS & HELPERS ---
+// --- SIMPLE PHOTO SYSTEM (WHATSAPP MODE) ---
 
-// 1. Upload Helper
-const uploadTaskPhoto = async (file, taskId, user) => {
-  if (!file) return null;
-  const storagePath = `task-photos/${taskId}/${Date.now()}_${file.name}`;
-  const storageRef = ref(storage, storagePath);
-  try {
-    const snapshot = await uploadBytes(storageRef, file);
-    const downloadURL = await getDownloadURL(snapshot.ref);
-    
-    const newDocRef = doc(collection(db, "taskPhotos"));
-    const photoRecord = {
-      id: newDocRef.id,
-      taskId, storagePath, downloadURL,
-      uploadedBy: user.name || 'Staff', 
-      uploadedById: user.id || user.uid || 'unknown',
-      uploadedAt: new Date().toISOString(),
-      synced: false, googlePhotosLink: ""
+const TaskPhotoWhatsApp = ({ task, party, companyMobile, saveRecord }) => {
+    // 1. WhatsApp Function
+    const sendPhotosToAdmin = () => {
+        // Admin Mobile Number (Default to Company Mobile)
+        const adminNumber = companyMobile || "919876543210"; // Apna number yahan hardcode bhi kar sakte hain
+        const text = `*📸 Photos for Task #${task.id}*\n\n*Client:* ${party?.name || 'Unknown'}\n*Task:* ${task.name}\n\n(Sending photos now...)`;
+        
+        window.open(`https://wa.me/${adminNumber}?text=${encodeURIComponent(text)}`, '_blank');
     };
-    
-    await setDoc(newDocRef, photoRecord);
-    return photoRecord; 
-  } catch (e) { alert("Upload Failed: " + e.message); return null; }
-};
 
-// 2. Components
-const TaskPhotoUpload = ({ taskId, user, photos, setData }) => {
-    const [loading, setLoading] = useState(false);
-    return (
-        <div className="bg-white p-4 rounded-2xl border mt-4">
-            <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><span className="text-xl">📷</span> Job Photos</h3>
-            <div className="grid grid-cols-4 gap-2 mb-3">
-                {(photos || []).map(p => (
-                    <div key={p.id} onClick={() => window.open(p.synced ? p.googlePhotosLink : p.downloadURL, '_blank')} className="aspect-square bg-gray-100 rounded-lg bg-cover bg-center border relative cursor-pointer" style={{backgroundImage: `url(${p.synced ? 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Google_Photos_icon_%282020%29.svg/1024px-Google_Photos_icon_%282020%29.svg.png' : p.downloadURL})`}}>
-                        {p.synced && <div className="absolute top-0 right-0 bg-green-500 text-white p-0.5 rounded-bl text-[8px]">✓ Synced</div>}
-                    </div>
-                ))}
-            </div>
-            <label className={`block w-full p-3 border-2 border-dashed rounded-xl text-center ${loading ? 'opacity-50' : 'cursor-pointer hover:bg-gray-50'}`}>
-                {loading ? <span className="text-xs font-bold text-blue-600">Uploading...</span> : <><span className="text-blue-600 font-bold text-sm">+ Add Photo</span><br/><span className="text-[10px] text-gray-400">Camera / Gallery</span></>}
-                <input type="file" accept="image/*" className="hidden" disabled={loading} onChange={async (e) => {
-                    setLoading(true); 
-                    const newPhoto = await uploadTaskPhoto(e.target.files[0], taskId, user);
-                    if (newPhoto && setData) setData(prev => ({ ...prev, taskPhotos: [newPhoto, ...(prev.taskPhotos || [])] }));
-                    setLoading(false);
-                }}/>
-            </label>
-        </div>
-    );
-};
-
-const PhotoSyncDashboard = ({ data, onClose }) => {
-    const [tab, setTab] = useState('pending');
-    const [links, setLinks] = useState({});
-    
-    // Auto Cleanup: Delete OLD Synced records (Optional, keep DB clean)
-    useEffect(() => { 
-        const old = (data.taskPhotos || []).filter(p => p.synced && new Date(p.syncedAt || p.uploadedAt) < new Date(Date.now() - 15*86400000));
-        old.forEach(p => deleteDoc(doc(db, "taskPhotos", p.id)).catch(()=>{}));
-    }, []);
-
-    const filtered = (data.taskPhotos || []).filter(p => tab === 'pending' ? !p.synced : p.synced).sort((a,b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
-
-    const handleSync = async (p) => {
-        const link = links[p.id];
-        if(!link) return alert("Please paste the Google Photos (or any) Link first!");
+    // 2. Save Link Function
+    const saveLink = async () => {
+        const link = document.getElementById('gphotos_link').value;
+        if (!link) return alert("Please paste a link first");
         
-        if(!window.confirm("Confirm Sync?\n\n1. Photo will be DELETED from Firebase (Free Space).\n2. Link will be saved for Task.")) return;
-
-        // 1. Delete File from Storage (Free up space immediately)
-        await deleteObject(ref(storage, p.storagePath)).catch(e => console.log("File cleanup warning:", e));
-        
-        // 2. Update Firestore (Mark synced & save link)
-        await updateDoc(doc(db, "taskPhotos", p.id), { 
-            synced: true, 
-            googlePhotosLink: link, 
-            syncedAt: new Date().toISOString(),
-            storagePath: null, // Clear path reference
-            downloadURL: null  // Clear direct URL
-        });
-        
-        alert("Synced & Storage Freed! 🚀");
+        const updatedTask = { ...task, photosLink: link };
+        await saveRecord('tasks', updatedTask, 'task');
+        alert("Link Updated!");
     };
 
     return (
-        <div className="fixed inset-0 z-[200] bg-white flex flex-col">
-            <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-                <h2 className="font-bold text-lg">☁️ Photo Manager</h2>
-                <button onClick={onClose} className="p-2 bg-gray-200 rounded-full"><X size={20}/></button>
+        <div className="bg-white p-4 rounded-2xl border mt-4 space-y-4">
+            <h3 className="font-bold text-gray-800 flex items-center gap-2">📸 Task Photos</h3>
+            
+            {/* Step 1: Send to Admin */}
+            <div className="bg-green-50 p-3 rounded-xl border border-green-100">
+                <p className="text-[10px] font-bold text-green-700 uppercase mb-2">Step 1: Send Photos to Office</p>
+                <button 
+                    onClick={sendPhotosToAdmin}
+                    className="w-full py-3 bg-green-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-200 active:scale-95 transition-transform"
+                >
+                    <MessageCircle size={20} /> Send Photos on WhatsApp
+                </button>
+                <p className="text-[10px] text-center text-green-600 mt-2">Photos will be saved directly to Admin's Phone.</p>
             </div>
-            <div className="p-2"><div className="flex bg-gray-100 p-1 rounded-xl">
-                {['pending', 'synced'].map(t => <button key={t} onClick={() => setTab(t)} className={`flex-1 py-2 text-xs font-bold capitalize rounded-lg ${tab===t?'bg-white shadow text-blue-600':'text-gray-500'}`}>{t} ({filtered.length})</button>)}
-            </div></div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {filtered.map(p => (
-                    <div key={p.id} className="border rounded-xl p-3 flex gap-3 shadow-sm">
-                        {/* Thumbnail or Google Icon */}
-                        <div onClick={()=> window.open(p.synced ? p.googlePhotosLink : p.downloadURL,'_blank')} className="w-20 h-20 bg-gray-200 rounded-lg bg-cover bg-center cursor-pointer flex items-center justify-center border" style={!p.synced ? {backgroundImage: `url(${p.downloadURL})`} : {}}>
-                            {p.synced && <span className="text-2xl">📷</span>}
-                        </div>
-                        
-                        <div className="flex-1 space-y-2">
-                            <div className="flex justify-between"><span className="text-xs font-bold">Task #{p.taskId}</span><span className="text-[10px] text-gray-400">{new Date(p.uploadedAt).toLocaleDateString()}</span></div>
-                            <p className="text-[10px] text-gray-500">By: {p.uploadedBy}</p>
-                            
-                            {tab === 'pending' ? (
-                                <div className="space-y-2">
-                                    <button onClick={()=>window.open(p.downloadURL,'_blank')} className="w-full py-1.5 bg-blue-50 text-blue-600 text-[10px] font-bold rounded flex items-center justify-center gap-1 border border-blue-100">
-                                        <Share2 size={12}/> 1. Download / Open
-                                    </button>
-                                    <div className="flex gap-1">
-                                        <input placeholder="Paste Link here..." className="flex-1 border rounded px-2 text-[10px] h-8" value={links[p.id]||''} onChange={e=>setLinks({...links, [p.id]:e.target.value})}/>
-                                        <button onClick={()=>handleSync(p)} className="bg-green-600 text-white px-3 rounded text-[10px] font-bold h-8">2. Sync</button>
-                                    </div>
-                                    <p className="text-[9px] text-gray-400 text-center">Syncing deletes photo from Firebase to save space.</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-1">
-                                    <a href={p.googlePhotosLink} target="_blank" rel="noreferrer" className="text-[10px] text-blue-600 underline truncate block p-1 bg-gray-50 rounded">
-                                        🔗 {p.googlePhotosLink}
-                                    </a>
-                                    <button onClick={async ()=>{ if(window.confirm("Remove history?")) await deleteDoc(doc(db, "taskPhotos", p.id)); }} className="w-full py-1 text-red-400 text-[10px]">Remove Record</button>
-                                </div>
-                            )}
-                        </div>
+
+            {/* Step 2: Paste Link (Admin/Staff) */}
+            <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                <p className="text-[10px] font-bold text-blue-700 uppercase mb-2">Step 2: Link Google Photos Album</p>
+                
+                {task.photosLink ? (
+                    <div className="space-y-2">
+                        <a href={task.photosLink} target="_blank" rel="noreferrer" className="block w-full p-2 bg-white border border-blue-200 rounded-lg text-blue-600 text-xs font-bold text-center truncate">
+                            🔗 Open Attached Album
+                        </a>
+                        <button onClick={() => {
+                             if(window.confirm("Remove link?")) saveRecord('tasks', { ...task, photosLink: '' }, 'task');
+                        }} className="w-full text-[10px] text-red-500 font-bold">Remove Link</button>
                     </div>
-                ))}
-                {filtered.length === 0 && <p className="text-center text-gray-400 mt-10">No photos.</p>}
+                ) : (
+                    <div className="flex gap-2">
+                        <input 
+                            id="gphotos_link" 
+                            className="flex-1 p-2 border rounded-lg text-xs" 
+                            placeholder="Paste Link here..." 
+                        />
+                        <button onClick={saveLink} className="bg-blue-600 text-white px-3 rounded-lg font-bold text-xs">Save</button>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -5015,12 +4947,12 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                         )}
                     </div>
                     
-                    {/* NEW: PHOTO UPLOAD SECTION */}
-            <TaskPhotoUpload 
-                taskId={task.id} 
-                user={user} 
-                photos={(data.taskPhotos || []).filter(p => p.taskId === task.id)}
-                setData={setData} // <--- Added for instant update
+                    {/* SIMPLE WHATSAPP PHOTO SECTION */}
+            <TaskPhotoWhatsApp 
+                task={task}
+                party={party}
+                companyMobile={data.company.mobile}
+                saveRecord={saveRecord}
             />
 
                     {/* Time Logs List with Summary & Toggle */}
@@ -7307,10 +7239,7 @@ const removeMobile = (idx) => {
         data={data} 
       />
       
-      {/* REQ: PHOTO SYNC DASHBOARD */}
-      {viewDetail?.type === 'photo_manager' && (
-          <PhotoSyncDashboard data={data} onClose={() => setViewDetail(null)} />
-      )}
+     
       
       {manualAttModal && (
         <ManualAttendanceModal 
