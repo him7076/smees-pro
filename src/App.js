@@ -7,6 +7,7 @@ import {
   getDocs, 
   getDoc, 
   setDoc, 
+  updateDoc, // <--- Added this
   deleteDoc, 
   doc, 
   query, 
@@ -91,6 +92,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app); // <--- Added this
 
 const INITIAL_DATA = {
   company: { name: "My Enterprise", mobile: "", address: "", financialYear: "2024-25", currency: "₹" },
