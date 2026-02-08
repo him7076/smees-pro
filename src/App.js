@@ -102,6 +102,8 @@ const INITIAL_DATA = {
   attendance: [],
   transactions: [],
   tasks: [],
+  personalTasks: [],        // NEW: Personal tasks
+  personalTransactions: [], // NEW: Personal finance
   categories: {
     expense: ["Rent", "Electricity", "Marketing", "Salary"],
     item: ["Electronics", "Grocery", "General", "Furniture", "Pharmacy"],
@@ -1274,6 +1276,873 @@ const LoginScreen = ({ setUser }) => {
       </div>
   );
 };
+
+// ==========================================
+// PERSONAL MODE COMPONENTS
+// ==========================================
+
+const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToast }) => {
+  const today = new Date().toISOString().split('T')[0];
+  
+  // Personal Finance Stats
+  const personalTx = data.personalTransactions || [];
+  const income = personalTx.filter(t => t.type === 'income' && t.date >= today.substring(0,7)).reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+  const expense = personalTx.filter(t => t.type === 'expense' && t.date >= today.substring(0,7)).reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+  const balance = income - expense;
+  
+  // Personal Tasks Stats
+  const personalTasks = data.personalTasks || [];
+  const pending = personalTasks.filter(t => t.status !== 'Done').length;
+  const todayTasks = personalTasks.filter(t => t.dueDate === today).length;
+  
+  return (
+    <div className="p-4 space-y-6">
+      {/* Header */}
+      <div className="text-center py-6">
+        <h1 className="text-3xl font-black text-blue-600">Personal Space</h1>
+        <p className="text-sm text-gray-500 mt-1">Your personal tasks & finances</p>
+      </div>
+      
+      {/* Finance Cards */}
+      <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-3xl p-6 border border-blue-200">
+        <h2 className="font-bold text-blue-900 mb-4 flex items-center gap-2">
+          <Banknote size={20} /> This Month
+        </h2>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
+            <div className="text-xs text-gray-500 mb-1">Income</div>
+            <div className="text-lg font-black text-green-600">{formatCurrency(income)}</div>
+          </div>
+          <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
+            <div className="text-xs text-gray-500 mb-1">Expense</div>
+            <div className="text-lg font-black text-red-600">{formatCurrency(expense)}</div>
+          </div>
+          <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
+            <div className="text-xs text-gray-500 mb-1">Balance</div>
+            <div className={`text-lg font-black ${balance >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
+              {formatCurrency(balance)}
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Quick Actions */}
+      <div className="grid grid-cols-2 gap-4">
+        <button 
+          onClick={() => pushHistory() || setViewDetail({ type: 'personalFinance' })}
+          className="bg-green-50 border-2 border-green-200 rounded-2xl p-6 flex flex-col items-center gap-3 hover:bg-green-100 active:scale-95 transition-all"
+        >
+          <Banknote size={32} className="text-green-600" />
+          <span className="font-bold text-green-800">Money Manager</span>
+          <span className="text-xs text-green-600">{personalTx.length} Transactions</span>
+        </button>
+        
+        <button 
+          onClick={() => pushHistory() || setViewDetail({ type: 'personalTasks' })}
+          className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-6 flex flex-col items-center gap-3 hover:bg-purple-100 active:scale-95 transition-all"
+        >
+          <CheckSquare size={32} className="text-purple-600" />
+          <span className="font-bold text-purple-800">My Tasks</span>
+          <span className="text-xs text-purple-600">{pending} Pending</span>
+        </button>
+      </div>
+      
+      {/* Today's Tasks */}
+      {todayTasks > 0 && (
+        <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
+          <div className="flex items-center gap-2 text-orange-800 font-bold mb-2">
+            <Clock size={18} />
+            <span>Today's Tasks: {todayTasks}</span>
+          </div>
+          <div className="space-y-2">
+            {personalTasks.filter(t => t.dueDate === today).slice(0,3).map(task => (
+              <div key={task.id} className="bg-white rounded-lg p-3 border flex justify-between items-center">
+                <span className="text-sm font-medium">{task.title}</span>
+                <span className="text-xs text-gray-500">{task.time || '--:--'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==========================================
+// 💰 ENHANCED PERSONAL FINANCE COMPONENT
+// Features: Udhar Management, Credit Card Tracking
+// ==========================================
+
+// YE CODE Line 1276 ke baad PersonalFinanceView को REPLACE kar dega
+
+const PersonalFinanceView = ({ data, setData, onBack, showToast }) => {
+  const [filter, setFilter] = useState('all'); // all, income, expense, udhar, credit
+  const [showForm, setShowForm] = useState(false);
+  const [editingTx, setEditingTx] = useState(null);
+  const [form, setForm] = useState({ 
+    type: 'expense', 
+    amount: '', 
+    category: '', 
+    note: '', 
+    date: new Date().toISOString().split('T')[0],
+    paymentMode: 'Cash',
+    // NEW: For Udhar
+    personName: '',
+    udharType: 'given', // given or taken
+    // NEW: For Credit Card
+    creditCardName: '',
+    dueDate: ''
+  });
+  
+  const transactions = data.personalTransactions || [];
+  
+  // Filter Logic - Enhanced
+  const filteredTx = filter === 'all' 
+    ? transactions 
+    : filter === 'udhar'
+      ? transactions.filter(t => t.category === 'Udhar Given' || t.category === 'Udhar Taken' || t.category === 'Udhar Return')
+      : filter === 'credit'
+        ? transactions.filter(t => t.paymentMode === 'Credit Card')
+        : transactions.filter(t => t.type === filter);
+  
+  // Enhanced Categories
+  const expenseCategories = [
+    'Food & Dining', 
+    'Transport', 
+    'Shopping', 
+    'Bills & Utilities', 
+    'Health & Medical', 
+    'Entertainment', 
+    'Education',
+    'Groceries',
+    'Fuel',
+    'Credit Card Bill',
+    'Other'
+  ];
+  
+  const incomeCategories = [
+    'Salary', 
+    'Freelance', 
+    'Investment Returns', 
+    'Gift Received', 
+    'Bonus',
+    'Side Income',
+    'Other'
+  ];
+  
+  const udharCategories = [
+    'Udhar Given',
+    'Udhar Taken', 
+    'Udhar Return'
+  ];
+  
+  const handleSave = () => {
+    if (!form.amount) {
+      showToast('Please enter amount', 'error');
+      return;
+    }
+    
+    // Validation for Udhar
+    if ((form.category === 'Udhar Given' || form.category === 'Udhar Taken' || form.category === 'Udhar Return') && !form.personName) {
+      showToast('Please enter person name', 'error');
+      return;
+    }
+    
+    // Validation for Credit Card
+    if (form.paymentMode === 'Credit Card' && !form.creditCardName) {
+      showToast('Please enter credit card name', 'error');
+      return;
+    }
+    
+    if (!form.category) {
+      showToast('Please select category', 'error');
+      return;
+    }
+    
+    const newTx = {
+      id: editingTx?.id || `PTX-${Date.now()}`,
+      ...form,
+      amount: parseFloat(form.amount),
+      createdAt: new Date().toISOString()
+    };
+    
+    const updated = editingTx 
+      ? transactions.map(t => t.id === editingTx.id ? newTx : t)
+      : [...transactions, newTx];
+    
+    setData({ ...data, personalTransactions: updated });
+    localStorage.setItem('smees_data', JSON.stringify({ ...data, personalTransactions: updated }));
+    
+    showToast(editingTx ? 'Updated!' : 'Added!', 'success');
+    setShowForm(false);
+    setEditingTx(null);
+    resetForm();
+  };
+  
+  const resetForm = () => {
+    setForm({ 
+      type: 'expense', 
+      amount: '', 
+      category: '', 
+      note: '', 
+      date: new Date().toISOString().split('T')[0], 
+      paymentMode: 'Cash',
+      personName: '',
+      udharType: 'given',
+      creditCardName: '',
+      dueDate: ''
+    });
+  };
+  
+  const handleDelete = (id) => {
+    if (!window.confirm('Delete this transaction?')) return;
+    const updated = transactions.filter(t => t.id !== id);
+    setData({ ...data, personalTransactions: updated });
+    localStorage.setItem('smees_data', JSON.stringify({ ...data, personalTransactions: updated }));
+    showToast('Deleted!', 'success');
+  };
+  
+  // Stats - Enhanced
+  const totalIncome = transactions.filter(t => t.type === 'income').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+  const totalExpense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+  
+  // NEW: Udhar Stats
+  const udharGiven = transactions
+    .filter(t => t.category === 'Udhar Given')
+    .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+  const udharTaken = transactions
+    .filter(t => t.category === 'Udhar Taken')
+    .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+  const udharReturned = transactions
+    .filter(t => t.category === 'Udhar Return')
+    .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+  
+  const netUdharReceivable = udharGiven - udharReturned; // Kitna milna hai
+  const netUdharPayable = udharTaken - udharReturned; // Kitna dena hai
+  
+  // NEW: Credit Card Stats
+  const creditCardExpenses = transactions
+    .filter(t => t.paymentMode === 'Credit Card')
+    .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+  
+  return (
+    <div className="h-full flex flex-col">
+      {/* Header */}
+      <div className="sticky top-0 bg-white border-b p-4 z-10">
+        <div className="flex items-center gap-3 mb-4">
+          <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full">
+            <ArrowLeft size={20} />
+          </button>
+          <h2 className="font-bold text-lg flex-1">💰 Money Manager</h2>
+          <button 
+            onClick={() => { setShowForm(true); setEditingTx(null); }}
+            className="p-2 bg-blue-600 text-white rounded-full"
+          >
+            <Plus size={20} />
+          </button>
+        </div>
+        
+        {/* Summary Cards - Enhanced */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div className="bg-green-50 rounded-xl p-3 border border-green-200">
+            <div className="text-xs text-green-600 mb-1">💵 Income</div>
+            <div className="font-black text-green-700">{formatCurrency(totalIncome)}</div>
+          </div>
+          <div className="bg-red-50 rounded-xl p-3 border border-red-200">
+            <div className="text-xs text-red-600 mb-1">💸 Expense</div>
+            <div className="font-black text-red-700">{formatCurrency(totalExpense)}</div>
+          </div>
+          <div className="bg-blue-50 rounded-xl p-3 border border-blue-200">
+            <div className="text-xs text-blue-600 mb-1">📥 To Receive</div>
+            <div className="font-black text-blue-700">{formatCurrency(netUdharReceivable)}</div>
+          </div>
+          <div className="bg-orange-50 rounded-xl p-3 border border-orange-200">
+            <div className="text-xs text-orange-600 mb-1">📤 To Pay</div>
+            <div className="font-black text-orange-700">{formatCurrency(netUdharPayable)}</div>
+          </div>
+          {creditCardExpenses > 0 && (
+            <div className="col-span-2 bg-purple-50 rounded-xl p-3 border border-purple-200">
+              <div className="text-xs text-purple-600 mb-1">💳 Credit Card</div>
+              <div className="font-black text-purple-700">{formatCurrency(creditCardExpenses)}</div>
+            </div>
+          )}
+        </div>
+        
+        {/* Filter Tabs - Enhanced */}
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {[
+            { key: 'all', label: 'All', icon: '📊' },
+            { key: 'income', label: 'Income', icon: '💰' },
+            { key: 'expense', label: 'Expense', icon: '💸' },
+            { key: 'udhar', label: 'Udhar', icon: '🤝' },
+            { key: 'credit', label: 'Credit', icon: '💳' }
+          ].map(f => (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              className={`flex-shrink-0 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-1 ${
+                filter === f.key 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              <span>{f.icon}</span>
+              <span>{f.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      
+      {/* Transaction List */}
+      <div className="flex-1 overflow-auto p-4 space-y-2">
+        {filteredTx.length === 0 ? (
+          <div className="text-center py-12">
+            <Banknote size={48} className="text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-400">No transactions yet</p>
+          </div>
+        ) : (
+          filteredTx.sort((a, b) => new Date(b.date) - new Date(a.date)).map(tx => {
+            const isUdhar = tx.category === 'Udhar Given' || tx.category === 'Udhar Taken' || tx.category === 'Udhar Return';
+            const isCreditCard = tx.paymentMode === 'Credit Card';
+            
+            return (
+              <div 
+                key={tx.id}
+                className="bg-white rounded-xl p-4 border flex items-center gap-3 active:bg-gray-50"
+              >
+                {/* Icon */}
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  isUdhar 
+                    ? 'bg-blue-100' 
+                    : isCreditCard 
+                      ? 'bg-purple-100'
+                      : tx.type === 'income' 
+                        ? 'bg-green-100' 
+                        : 'bg-red-100'
+                }`}>
+                  {isUdhar ? (
+                    <span className="text-xl">🤝</span>
+                  ) : isCreditCard ? (
+                    <span className="text-xl">💳</span>
+                  ) : tx.type === 'income' ? (
+                    <TrendingUp size={20} className="text-green-600" />
+                  ) : (
+                    <ShoppingCart size={20} className="text-red-600" />
+                  )}
+                </div>
+                
+                {/* Content */}
+                <div className="flex-1">
+                  <div className="font-bold text-gray-800">
+                    {tx.category}
+                    {tx.personName && <span className="text-blue-600"> • {tx.personName}</span>}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {formatDate(tx.date)} • {tx.paymentMode}
+                    {tx.creditCardName && <span className="text-purple-600"> ({tx.creditCardName})</span>}
+                  </div>
+                  {tx.note && <div className="text-xs text-gray-400 mt-1">{tx.note}</div>}
+                </div>
+                
+                {/* Amount & Actions */}
+                <div className="text-right">
+                  <div className={`font-black ${
+                    isUdhar 
+                      ? tx.category === 'Udhar Given' || tx.category === 'Udhar Return'
+                        ? 'text-blue-600' 
+                        : 'text-orange-600'
+                      : tx.type === 'income' 
+                        ? 'text-green-600' 
+                        : 'text-red-600'
+                  }`}>
+                    {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
+                  </div>
+                  <div className="flex gap-1 mt-1">
+                    <button
+                      onClick={() => { setEditingTx(tx); setForm(tx); setShowForm(true); }}
+                      className="p-1 hover:bg-gray-100 rounded"
+                    >
+                      <Edit2 size={14} className="text-blue-600" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(tx.id)}
+                      className="p-1 hover:bg-gray-100 rounded"
+                    >
+                      <Trash2 size={14} className="text-red-600" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+      
+      {/* Add/Edit Form Modal - ENHANCED */}
+      {showForm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
+          <div className="bg-white w-full rounded-t-3xl p-6 space-y-4 max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-lg">
+                {editingTx ? 'Edit Transaction' : 'Add Transaction'}
+              </h3>
+              <button onClick={() => { setShowForm(false); setEditingTx(null); resetForm(); }}>
+                <X size={24} />
+              </button>
+            </div>
+            
+            {/* Type Selection */}
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { key: 'expense', label: 'Expense', color: 'red' },
+                { key: 'income', label: 'Income', color: 'green' },
+                { key: 'udhar', label: 'Udhar', color: 'blue' }
+              ].map(type => (
+                <button
+                  key={type.key}
+                  onClick={() => {
+                    if (type.key === 'udhar') {
+                      setForm({ ...form, type: 'expense', category: 'Udhar Given' });
+                    } else {
+                      setForm({ ...form, type: type.key, category: '' });
+                    }
+                  }}
+                  className={`py-3 rounded-xl font-bold capitalize ${
+                    (form.type === type.key && type.key !== 'udhar') || 
+                    (type.key === 'udhar' && (form.category === 'Udhar Given' || form.category === 'Udhar Taken' || form.category === 'Udhar Return'))
+                      ? type.color === 'green' 
+                        ? 'bg-green-600 text-white' 
+                        : type.color === 'blue'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-red-600 text-white'
+                      : 'bg-gray-100 text-gray-600'
+                  }`}
+                >
+                  {type.label}
+                </button>
+              ))}
+            </div>
+            
+            {/* Amount */}
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Amount</label>
+              <input
+                type="number"
+                className="w-full p-3 bg-gray-50 border rounded-xl text-lg font-bold"
+                placeholder="0"
+                value={form.amount}
+                onChange={e => setForm({ ...form, amount: e.target.value })}
+              />
+            </div>
+            
+            {/* Category - Dynamic based on type */}
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Category</label>
+              <select
+                className="w-full p-3 bg-gray-50 border rounded-xl"
+                value={form.category}
+                onChange={e => setForm({ ...form, category: e.target.value })}
+              >
+                <option value="">Select Category</option>
+                {(form.category === 'Udhar Given' || form.category === 'Udhar Taken' || form.category === 'Udhar Return'
+                  ? udharCategories
+                  : form.type === 'expense' 
+                    ? expenseCategories 
+                    : incomeCategories
+                ).map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Person Name - Show only for Udhar */}
+            {(form.category === 'Udhar Given' || form.category === 'Udhar Taken' || form.category === 'Udhar Return') && (
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase block mb-2">
+                  Person Name
+                </label>
+                <input
+                  type="text"
+                  className="w-full p-3 bg-gray-50 border rounded-xl"
+                  placeholder="Friend/Family name"
+                  value={form.personName}
+                  onChange={e => setForm({ ...form, personName: e.target.value })}
+                />
+              </div>
+            )}
+            
+            {/* Date */}
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Date</label>
+              <input
+                type="date"
+                className="w-full p-3 bg-gray-50 border rounded-xl"
+                value={form.date}
+                onChange={e => setForm({ ...form, date: e.target.value })}
+              />
+            </div>
+            
+            {/* Payment Mode */}
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Payment Mode</label>
+              <div className="grid grid-cols-4 gap-2">
+                {['Cash', 'Bank', 'UPI', 'Credit Card'].map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setForm({ ...form, paymentMode: mode })}
+                    className={`py-2 rounded-lg font-bold text-xs ${
+                      form.paymentMode === mode
+                        ? mode === 'Credit Card'
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {/* Credit Card Name - Show only if payment mode is Credit Card */}
+            {form.paymentMode === 'Credit Card' && (
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase block mb-2">
+                  Credit Card Name
+                </label>
+                <input
+                  type="text"
+                  className="w-full p-3 bg-gray-50 border rounded-xl"
+                  placeholder="e.g., HDFC Regalia"
+                  value={form.creditCardName}
+                  onChange={e => setForm({ ...form, creditCardName: e.target.value })}
+                />
+              </div>
+            )}
+            
+            {/* Note */}
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Note (Optional)</label>
+              <textarea
+                className="w-full p-3 bg-gray-50 border rounded-xl"
+                rows="2"
+                placeholder="Add a note..."
+                value={form.note}
+                onChange={e => setForm({ ...form, note: e.target.value })}
+              />
+            </div>
+            
+            {/* Save Button */}
+            <button
+              onClick={handleSave}
+              className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold"
+            >
+              {editingTx ? 'Update' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const PersonalTasksView = ({ data, setData, onBack, showToast }) => {
+  const [showForm, setShowForm] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+  const [form, setForm] = useState({
+    title: '',
+    description: '',
+    dueDate: new Date().toISOString().split('T')[0],
+    time: '',
+    priority: 'medium',
+    status: 'pending'
+  });
+  
+  const tasks = data.personalTasks || [];
+  const pending = tasks.filter(t => t.status === 'pending');
+  const completed = tasks.filter(t => t.status === 'Done');
+  
+  const handleSave = () => {
+    if (!form.title) {
+      showToast('Please enter task title', 'error');
+      return;
+    }
+    
+    const newTask = {
+      id: editingTask?.id || `PT-${Date.now()}`,
+      ...form,
+      createdAt: new Date().toISOString()
+    };
+    
+    const updated = editingTask
+      ? tasks.map(t => t.id === editingTask.id ? newTask : t)
+      : [...tasks, newTask];
+    
+    setData({ ...data, personalTasks: updated });
+    localStorage.setItem('smees_data', JSON.stringify({ ...data, personalTasks: updated }));
+    
+    showToast(editingTask ? 'Updated!' : 'Added!', 'success');
+    setShowForm(false);
+    setEditingTask(null);
+    setForm({ title: '', description: '', dueDate: new Date().toISOString().split('T')[0], time: '', priority: 'medium', status: 'pending' });
+  };
+  
+  const handleToggleStatus = (task) => {
+    const updated = tasks.map(t => 
+      t.id === task.id 
+        ? { ...t, status: t.status === 'Done' ? 'pending' : 'Done' }
+        : t
+    );
+    setData({ ...data, personalTasks: updated });
+    localStorage.setItem('smees_data', JSON.stringify({ ...data, personalTasks: updated }));
+    showToast('Status updated!', 'success');
+  };
+  
+  const handleDelete = (id) => {
+    if (!window.confirm('Delete this task?')) return;
+    const updated = tasks.filter(t => t.id !== id);
+    setData({ ...data, personalTasks: updated });
+    localStorage.setItem('smees_data', JSON.stringify({ ...data, personalTasks: updated }));
+    showToast('Deleted!', 'success');
+  };
+  
+  return (
+    <div className="h-full flex flex-col">
+      {/* Header */}
+      <div className="sticky top-0 bg-white border-b p-4 z-10">
+        <div className="flex items-center gap-3 mb-4">
+          <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full">
+            <ArrowLeft size={20} />
+          </button>
+          <h2 className="font-bold text-lg flex-1">Personal Tasks</h2>
+          <button 
+            onClick={() => { setShowForm(true); setEditingTask(null); }}
+            className="p-2 bg-purple-600 text-white rounded-full"
+          >
+            <Plus size={20} />
+          </button>
+        </div>
+        
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-orange-50 rounded-xl p-3 border border-orange-200">
+            <div className="text-xs text-orange-600 mb-1">Pending</div>
+            <div className="font-black text-orange-700">{pending.length}</div>
+          </div>
+          <div className="bg-green-50 rounded-xl p-3 border border-green-200">
+            <div className="text-xs text-green-600 mb-1">Completed</div>
+            <div className="font-black text-green-700">{completed.length}</div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Task List */}
+      <div className="flex-1 overflow-auto p-4 space-y-3">
+        {tasks.length === 0 ? (
+          <div className="text-center py-12">
+            <CheckSquare size={48} className="text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-400">No tasks yet</p>
+          </div>
+        ) : (
+          <>
+            {/* Pending Tasks */}
+            {pending.length > 0 && (
+              <div>
+                <h3 className="font-bold text-gray-500 text-xs uppercase mb-2">Pending</h3>
+                {pending.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate)).map(task => (
+                  <TaskCard 
+                    key={task.id} 
+                    task={task} 
+                    onToggle={handleToggleStatus}
+                    onEdit={() => { setEditingTask(task); setForm(task); setShowForm(true); }}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+            )}
+            
+            {/* Completed Tasks */}
+            {completed.length > 0 && (
+              <div className="mt-6">
+                <h3 className="font-bold text-gray-500 text-xs uppercase mb-2">Completed</h3>
+                {completed.sort((a, b) => new Date(b.dueDate) - new Date(a.dueDate)).map(task => (
+                  <TaskCard 
+                    key={task.id} 
+                    task={task} 
+                    onToggle={handleToggleStatus}
+                    onEdit={() => { setEditingTask(task); setForm(task); setShowForm(true); }}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      
+      {/* Add/Edit Form Modal */}
+      {showForm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
+          <div className="bg-white w-full rounded-t-3xl p-6 space-y-4 max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-lg">
+                {editingTask ? 'Edit Task' : 'New Task'}
+              </h3>
+              <button onClick={() => { setShowForm(false); setEditingTask(null); }}>
+                <X size={24} />
+              </button>
+            </div>
+            
+            {/* Title */}
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Task Title</label>
+              <input
+                type="text"
+                className="w-full p-3 bg-gray-50 border rounded-xl"
+                placeholder="e.g., Complete project report"
+                value={form.title}
+                onChange={e => setForm({ ...form, title: e.target.value })}
+              />
+            </div>
+            
+            {/* Description */}
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Description (Optional)</label>
+              <textarea
+                className="w-full p-3 bg-gray-50 border rounded-xl"
+                rows="3"
+                placeholder="Add details..."
+                value={form.description}
+                onChange={e => setForm({ ...form, description: e.target.value })}
+              />
+            </div>
+            
+            {/* Date & Time */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Due Date</label>
+                <input
+                  type="date"
+                  className="w-full p-3 bg-gray-50 border rounded-xl"
+                  value={form.dueDate}
+                  onChange={e => setForm({ ...form, dueDate: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Time (Optional)</label>
+                <input
+                  type="time"
+                  className="w-full p-3 bg-gray-50 border rounded-xl"
+                  value={form.time}
+                  onChange={e => setForm({ ...form, time: e.target.value })}
+                />
+              </div>
+            </div>
+            
+            {/* Priority */}
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Priority</label>
+              <div className="grid grid-cols-3 gap-2">
+                {['low', 'medium', 'high'].map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setForm({ ...form, priority: p })}
+                    className={`py-2 rounded-lg font-bold text-sm capitalize ${
+                      form.priority === p
+                        ? p === 'high' ? 'bg-red-600 text-white' :
+                          p === 'medium' ? 'bg-orange-600 text-white' :
+                          'bg-green-600 text-white'
+                        : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {/* Save Button */}
+            <button
+              onClick={handleSave}
+              className="w-full bg-purple-600 text-white py-4 rounded-xl font-bold"
+            >
+              {editingTask ? 'Update' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Helper Component for Task Card
+const TaskCard = ({ task, onToggle, onEdit, onDelete }) => {
+  const isOverdue = task.status !== 'Done' && new Date(task.dueDate) < new Date();
+  const priorityColors = {
+    high: 'border-red-200 bg-red-50',
+    medium: 'border-orange-200 bg-orange-50',
+    low: 'border-green-200 bg-green-50'
+  };
+  
+  return (
+    <div className={`rounded-xl p-4 border mb-2 ${task.status === 'Done' ? 'bg-gray-50 opacity-60' : priorityColors[task.priority] || 'bg-white'}`}>
+      <div className="flex gap-3">
+        {/* Checkbox */}
+        <button
+          onClick={() => onToggle(task)}
+          className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+            task.status === 'Done' 
+              ? 'bg-green-600 border-green-600' 
+              : 'border-gray-300 hover:border-green-600'
+          }`}
+        >
+          {task.status === 'Done' && <CheckCircle2 size={16} className="text-white" />}
+        </button>
+        
+        {/* Content */}
+        <div className="flex-1">
+          <div className={`font-bold ${task.status === 'Done' ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+            {task.title}
+          </div>
+          {task.description && (
+            <div className="text-sm text-gray-600 mt-1">{task.description}</div>
+          )}
+          <div className="flex items-center gap-3 mt-2 text-xs">
+            <span className={isOverdue ? 'text-red-600 font-bold' : 'text-gray-500'}>
+              📅 {formatDate(task.dueDate)}
+              {task.time && ` • ${task.time}`}
+            </span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+              task.priority === 'high' ? 'bg-red-200 text-red-700' :
+              task.priority === 'medium' ? 'bg-orange-200 text-orange-700' :
+              'bg-green-200 text-green-700'
+            }`}>
+              {task.priority}
+            </span>
+          </div>
+        </div>
+        
+        {/* Actions */}
+        <div className="flex flex-col gap-1">
+          <button
+            onClick={onEdit}
+            className="p-1.5 hover:bg-white rounded"
+          >
+            <Edit2 size={16} className="text-blue-600" />
+          </button>
+          <button
+            onClick={() => onDelete(task.id)}
+            className="p-1.5 hover:bg-white rounded"
+          >
+            <Trash2 size={16} className="text-red-600" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
 
 const ConvertTaskModal = ({ task, data, onClose, saveRecord, setViewDetail }) => {
   const record = task || data;
@@ -2585,6 +3454,7 @@ export default function App() {
   }, []);
 
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [appMode, setAppMode] = useState('business'); // NEW: Business/Personal Toggle
   const [mastersView, setMastersView] = useState(null);
   const [convertModal, setConvertModal] = useState(null);
   const [modal, setModal] = useState({ type: null, data: null });
@@ -5706,6 +6576,34 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         return <PartyDetailInner record={record} />;
     }
     
+    // ==========================================
+    // PERSONAL FINANCE VIEW
+    // ==========================================
+    if (viewDetail.type === 'personalFinance') {
+      return (
+        <PersonalFinanceView 
+          data={data}
+          setData={setData}
+          onBack={handleCloseUI}
+          showToast={showToast}
+        />
+      );
+    }
+    
+    // ==========================================
+    // PERSONAL TASKS VIEW
+    // ==========================================
+    if (viewDetail.type === 'personalTasks') {
+      return (
+        <PersonalTasksView 
+          data={data}
+          setData={setData}
+          onBack={handleCloseUI}
+          showToast={showToast}
+        />
+      );
+    }
+    
     return null;
 };
 
@@ -6996,7 +7894,36 @@ const removeMobile = (idx) => {
       
       {/* REQ 4: Header with Manual Sync Button */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md px-4 py-3 border-b flex justify-between items-center">
-        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black italic">S</div><span className="font-black text-gray-800 tracking-tight">SMEES Pro</span></div>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black italic">S</div>
+          <span className="font-black text-gray-800 tracking-tight">SMEES Pro</span>
+          
+          {/* PERSONAL MODE TOGGLE - Only for him23 */}
+          {user.role === 'admin' && (
+            <div className="ml-3 flex gap-1 bg-gray-100 p-1 rounded-lg">
+              <button
+                onClick={() => setAppMode('business')}
+                className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                  appMode === 'business' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                Business
+              </button>
+              <button
+                onClick={() => setAppMode('personal')}
+                className={`px-3 py-1 rounded text-xs font-bold transition-all ${
+                  appMode === 'personal' 
+                    ? 'bg-purple-600 text-white shadow-sm' 
+                    : 'text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                Personal
+              </button>
+            </div>
+          )}
+        </div>
        <div className="flex gap-3">
             <button onClick={() => syncData(false)} className={`p-2 hover:bg-gray-100 rounded-full ${loading ? 'animate-spin' : ''}`}><RefreshCw size={20} className="text-blue-600" /></button>
             <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 hover:bg-gray-100 rounded-full"><Settings size={20} className="text-gray-500" /></button>
@@ -7014,7 +7941,19 @@ const removeMobile = (idx) => {
       <main className="max-w-xl mx-auto p-4">
         {loading ? <div className="flex flex-col items-center justify-center h-64 text-gray-400"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div><p className="text-sm font-bold">Syncing Data...</p></div> : (
           <>
-            {activeTab === 'dashboard' && checkPermission(user, 'canViewDashboard') && <Dashboard />}
+            {/* PERSONAL MODE - Show Personal Dashboard */}
+            {appMode === 'personal' && user.role === 'admin' && activeTab === 'dashboard' && (
+              <PersonalDashboard 
+                data={data}
+                setData={setData}
+                pushHistory={pushHistory}
+                setViewDetail={setViewDetail}
+                showToast={showToast}
+              />
+            )}
+            
+            {/* BUSINESS MODE - Show Business Dashboard */}
+            {appMode === 'business' && activeTab === 'dashboard' && checkPermission(user, 'canViewDashboard') && <Dashboard />}
             
             {activeTab === 'accounting' && checkPermission(user, 'canViewAccounts') && (
                 <TransactionList 
@@ -7179,12 +8118,14 @@ const removeMobile = (idx) => {
           </>
         )}
       </main>
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t px-2 py-2 flex justify-around items-center z-50 safe-area-bottom shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
+      {/* Bottom Navigation - Hide in Personal Mode */}
+      {appMode === 'business' && (
+        <nav className="fixed bottom-0 left-0 right-0 bg-white border-t px-2 py-2 flex justify-around items-center z-50 safe-area-bottom shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
         {[{ id: 'dashboard', icon: <LayoutDashboard />, label: 'Home', perm: 'canViewDashboard' }, { id: 'accounting', icon: <ReceiptText />, label: 'Accounts', perm: 'canViewAccounts' }, { id: 'tasks', icon: <CheckSquare />, label: 'Tasks', perm: 'canViewTasks' }, { id: 'masters', icon: <Package />, label: 'Masters', perm: 'canViewMasters' }, { id: 'staff', icon: <Users />, label: 'Staff' }].map(tab => {
             if (tab.perm && !checkPermission(user, tab.perm)) return null;
             return <button key={tab.id} onClick={() => { setActiveTab(tab.id); setMastersView(null); setListFilter('all'); }} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${activeTab === tab.id ? 'text-blue-600 bg-blue-50' : 'text-gray-400'}`}>{tab.icon}<span className="text-[10px] font-bold uppercase tracking-wider">{tab.label}</span></button>;
         })}
-      </nav>
+      </nav>)}
       {/* CHANGE: Added check to ignore 'convertTask' */}
 <Modal isOpen={!!modal.type && modal.type !== 'convertTask'} onClose={handleCloseUI} title={modal.type ? (modal.data ? `Edit ${modal.type}` : `New ${modal.type}`) : ''}>
         {modal.type === 'company' && <CompanyForm />}
