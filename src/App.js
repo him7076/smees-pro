@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics"; // <--- YE LINE MISSING THI, ISE ADD KAREIN
 import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "firebase/auth";
 import { 
   getFirestore, 
@@ -88,12 +89,28 @@ const firebaseConfig = {
   appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
   measurementId: "G-BQ6NW6D84Z"
 };
+// 2. PERSONAL CONFIG (New)
+const personalConfig = {
+  apiKey: "AIzaSyCILMKJfFSOdyKA9wTh6zzXsPMc0wt_Wtc",
+  authDomain: "personal-data-a2bce.firebaseapp.com",
+  projectId: "personal-data-a2bce",
+  storageBucket: "personal-data-a2bce.firebasestorage.app",
+  messagingSenderId: "680628699537",
+  appId: "1:680628699537:web:2cd444a4eaea83df945a30",
+  measurementId: "G-DTQH641PS3"
+};
+// Initialize BOTH Apps
+const app = initializeApp(firebaseConfig, "business"); // Business App
+const personalApp = initializeApp(personalConfig, "personal"); // Personal App
+const analytics = getAnalytics(app);
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
+// Business Services
 const db = getFirestore(app);
-const storage = getStorage(app); // <--- Added this
+const auth = getAuth(app);
+const storage = getStorage(app);
 
+// Personal Services (New Variable)
+const personalDb = getFirestore(personalApp);
 const INITIAL_DATA = {
   company: { name: "My Enterprise", mobile: "", address: "", financialYear: "2024-25", currency: "₹" },
   parties: [],
@@ -1278,94 +1295,415 @@ const LoginScreen = ({ setUser }) => {
 };
 
 // ==========================================
-// PERSONAL MODE COMPONENTS
+// PERSONAL MODE COMPONENTS (Refactored)
 // ==========================================
 
 const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToast }) => {
-  const today = new Date().toISOString().split('T')[0];
-  
-  // Personal Finance Stats
-  const personalTx = data.personalTransactions || [];
-  const income = personalTx.filter(t => t.type === 'income' && t.date >= today.substring(0,7)).reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-  const expense = personalTx.filter(t => t.type === 'expense' && t.date >= today.substring(0,7)).reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-  const balance = income - expense;
-  
-  // Personal Tasks Stats
-  const personalTasks = data.personalTasks || [];
-  const pending = personalTasks.filter(t => t.status !== 'Done').length;
-  const todayTasks = personalTasks.filter(t => t.dueDate === today).length;
-  
-  return (
-    <div className="p-4 space-y-6">
-      {/* Header */}
-      <div className="text-center py-6">
-        <h1 className="text-3xl font-black text-blue-600">Personal Space</h1>
-        <p className="text-sm text-gray-500 mt-1">Your personal tasks & finances</p>
-      </div>
-      
-      {/* Finance Cards */}
-      <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-3xl p-6 border border-blue-200">
-        <h2 className="font-bold text-blue-900 mb-4 flex items-center gap-2">
-          <Banknote size={20} /> This Month
-        </h2>
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
-            <div className="text-xs text-gray-500 mb-1">Income</div>
-            <div className="text-lg font-black text-green-600">{formatCurrency(income)}</div>
-          </div>
-          <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
-            <div className="text-xs text-gray-500 mb-1">Expense</div>
-            <div className="text-lg font-black text-red-600">{formatCurrency(expense)}</div>
-          </div>
-          <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
-            <div className="text-xs text-gray-500 mb-1">Balance</div>
-            <div className={`text-lg font-black ${balance >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
-              {formatCurrency(balance)}
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      {/* Quick Actions */}
-      <div className="grid grid-cols-2 gap-4">
-        <button 
-          onClick={() => pushHistory() || setViewDetail({ type: 'personalFinance' })}
-          className="bg-green-50 border-2 border-green-200 rounded-2xl p-6 flex flex-col items-center gap-3 hover:bg-green-100 active:scale-95 transition-all"
-        >
-          <Banknote size={32} className="text-green-600" />
-          <span className="font-bold text-green-800">Money Manager</span>
-          <span className="text-xs text-green-600">{personalTx.length} Transactions</span>
-        </button>
+    const [mainTab, setMainTab] = useState('finance'); // 'tasks' | 'finance'
+    const [financeView, setFinanceView] = useState('transactions'); // 'transactions' | 'stats' | 'accounts'
+    
+    // --- FINANCE STATE ---
+    const [showAddForm, setShowAddForm] = useState(false);
+    const [filterType, setFilterType] = useState('Month'); // Month, Week, Date
+    const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+    
+    // --- TASK STATE ---
+    const [taskSearch, setTaskSearch] = useState('');
+    const [newTask, setNewTask] = useState('');
+
+    // --- DATA HELPERS ---
+    const transactions = data.personalTransactions || [];
+    const accounts = data.personalAccounts || [{ id: 'cash', name: 'Cash', type: 'Cash', balance: 0 }, { id: 'bank', name: 'Bank Account', type: 'Bank', balance: 0 }];
+    const categories = data.personalCategories || { 
+        income: ['Salary', 'Business Profit', 'Interest'], 
+        expense: ['Food', 'Travel', 'Shopping', 'Bills', 'Rent'],
+        transfer: ['Self Transfer']
+    };
+
+    // --- CALCULATIONS ---
+    // 1. Calculate Account Balances based on Transactions
+    const accountBalances = useMemo(() => {
+        const bals = {};
+        accounts.forEach(a => bals[a.name] = a.initialBalance || 0);
         
-        <button 
-          onClick={() => pushHistory() || setViewDetail({ type: 'personalTasks' })}
-          className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-6 flex flex-col items-center gap-3 hover:bg-purple-100 active:scale-95 transition-all"
-        >
-          <CheckSquare size={32} className="text-purple-600" />
-          <span className="font-bold text-purple-800">My Tasks</span>
-          <span className="text-xs text-purple-600">{pending} Pending</span>
-        </button>
-      </div>
-      
-      {/* Today's Tasks */}
-      {todayTasks > 0 && (
-        <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
-          <div className="flex items-center gap-2 text-orange-800 font-bold mb-2">
-            <Clock size={18} />
-            <span>Today's Tasks: {todayTasks}</span>
-          </div>
-          <div className="space-y-2">
-            {personalTasks.filter(t => t.dueDate === today).slice(0,3).map(task => (
-              <div key={task.id} className="bg-white rounded-lg p-3 border flex justify-between items-center">
-                <span className="text-sm font-medium">{task.title}</span>
-                <span className="text-xs text-gray-500">{task.time || '--:--'}</span>
-              </div>
-            ))}
-          </div>
+        transactions.forEach(t => {
+            const amt = parseFloat(t.amount || 0);
+            if (t.type === 'income') {
+                bals[t.account] = (bals[t.account] || 0) + amt;
+            } else if (t.type === 'expense') {
+                bals[t.account] = (bals[t.account] || 0) - amt;
+            } else if (t.type === 'transfer') {
+                bals[t.fromAccount] = (bals[t.fromAccount] || 0) - amt;
+                bals[t.toAccount] = (bals[t.toAccount] || 0) + amt;
+            }
+        });
+        return bals;
+    }, [transactions, accounts]);
+
+    // 2. Filter Transactions
+    const filteredTxs = useMemo(() => {
+        return transactions.filter(t => {
+            const tDate = new Date(t.date);
+            const fDate = new Date(filterDate);
+            
+            if (filterType === 'Date') return t.date === filterDate;
+            if (filterType === 'Month') return tDate.getMonth() === fDate.getMonth() && tDate.getFullYear() === fDate.getFullYear();
+            // Simple Week Implementation (Current Week)
+            if (filterType === 'Week') {
+                const oneJan = new Date(tDate.getFullYear(), 0, 1);
+                const numberOfDays = Math.floor((tDate - oneJan) / (24 * 60 * 60 * 1000));
+                const result = Math.ceil((tDate.getDay() + 1 + numberOfDays) / 7);
+                
+                const fOneJan = new Date(fDate.getFullYear(), 0, 1);
+                const fNumberOfDays = Math.floor((fDate - fOneJan) / (24 * 60 * 60 * 1000));
+                const fResult = Math.ceil((fDate.getDay() + 1 + fNumberOfDays) / 7);
+                return result === fResult && tDate.getFullYear() === fDate.getFullYear();
+            }
+            return true;
+        }).sort((a,b) => new Date(b.date) - new Date(a.date));
+    }, [transactions, filterDate, filterType]);
+
+    // --- ACTIONS ---
+    const handleSaveTransaction = async (entry, reset) => {
+        // 1. FIX: Undefined Error (Sanitize Data)
+        const newTx = { 
+            id: Date.now().toString(), 
+            createdAt: new Date().toISOString(),
+            date: entry.date || new Date().toISOString().split('T')[0],
+            type: entry.type || 'expense',
+            amount: entry.amount || 0,          // Fix undefined
+            account: entry.account || '',       // Fix undefined
+            toAccount: entry.toAccount || '',   // Fix undefined
+            category: entry.category || '',     // Fix undefined
+            note: entry.note || '',             // Fix undefined
+            desc: entry.desc || ''              // Fix undefined
+        };
+        
+        // Optimistic Update (Local UI)
+        const updatedTxs = [newTx, ...transactions];
+        
+        // Update Accounts locally
+        let updatedAccounts = [...accounts];
+        if (newTx.account && !accounts.some(a => a.name === newTx.account)) {
+            updatedAccounts.push({ id: Date.now().toString(), name: newTx.account, type: 'General' });
+        }
+        
+        // Update Categories locally
+        let updatedCats = { ...categories };
+        if (newTx.category && !categories[newTx.type]?.includes(newTx.category)) {
+            updatedCats[newTx.type] = [...(categories[newTx.type] || []), newTx.category];
+        }
+
+        // Update Local State
+        const newData = { 
+            ...data, 
+            personalTransactions: updatedTxs,
+            personalAccounts: updatedAccounts,
+            personalCategories: updatedCats
+        };
+        setData(newData);
+
+        // 2. SAVE TO NEW PERSONAL FIREBASE
+        try {
+            // Hum pura personal data ek document me save kar rahe hain
+            const personalPayload = {
+                personalTransactions: updatedTxs,
+                personalAccounts: updatedAccounts,
+                personalCategories: updatedCats,
+                personalTasks: data.personalTasks || []
+            };
+            
+            // Note: Collection name "my_vault" use kar rahe hain naye DB me
+            await setDoc(doc(personalDb, "my_vault", "main_data"), personalPayload, { merge: true });
+        } catch (error) {
+            console.error("Personal DB Save Error:", error);
+            alert("Error saving to Personal DB: " + error.message);
+        }
+
+        if (reset) return true;
+        setShowAddForm(false);
+    };
+
+    const handleTaskToggle = async (taskId) => {
+        const updatedTasks = (data.personalTasks || []).map(t => t.id === taskId ? { ...t, done: !t.done } : t);
+        setData({ ...data, personalTasks: updatedTasks });
+        // Save to Personal DB
+        await setDoc(doc(personalDb, "my_vault", "main_data"), { personalTasks: updatedTasks }, { merge: true });
+    };
+
+    const handleAddTask = async () => {
+        if (!newTask.trim()) return;
+        const newTaskObj = { id: Date.now(), text: newTask, done: false, date: new Date().toISOString() };
+        const updatedTasks = [newTaskObj, ...(data.personalTasks || [])];
+        setData({ ...data, personalTasks: updatedTasks });
+        // Save to Personal DB
+        await setDoc(doc(personalDb, "my_vault", "main_data"), { personalTasks: updatedTasks }, { merge: true });
+        setNewTask('');
+    };
+
+    // --- RENDERERS ---
+
+    // 1. Transaction Form Component
+    const TransactionForm = ({ onSave, onCancel }) => {
+        const [type, setType] = useState('expense'); // income, expense, transfer
+        const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], amount: '', account: '', toAccount: '', category: '', note: '', desc: '' });
+        
+        const save = (reset = false) => {
+            if (!form.amount || !form.account) return alert("Amount and Account are required!");
+            onSave({ ...form, type }, reset);
+            if (reset) setForm({ ...form, amount: '', note: '', desc: '' });
+        };
+
+        return (
+            <div className="fixed inset-0 z-[110] bg-white flex flex-col animate-in slide-in-from-bottom">
+                <div className="p-4 border-b flex items-center justify-between bg-gray-50">
+                    <button onClick={onCancel} className="p-2"><X size={24} /></button>
+                    <h2 className="font-bold text-lg">Add {type.charAt(0).toUpperCase() + type.slice(1)}</h2>
+                    <div className="w-8"></div>
+                </div>
+                
+                {/* Tabs */}
+                <div className="flex p-2 gap-2 bg-white">
+                    {['income', 'expense', 'transfer'].map(t => (
+                        <button key={t} onClick={() => setType(t)} className={`flex-1 py-2 rounded-xl font-bold capitalize text-sm border ${type === t ? (t === 'income' ? 'bg-green-100 text-green-700 border-green-200' : t === 'expense' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-blue-100 text-blue-700 border-blue-200') : 'bg-gray-50 border-transparent'}`}>
+                            {t}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {/* Amount & Date */}
+                    <div className="flex gap-3">
+                        <div className="flex-1">
+                            <label className="text-[10px] font-bold text-gray-400 uppercase">Date</label>
+                            <input type="date" className="w-full p-3 bg-gray-50 border rounded-xl font-bold" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+                        </div>
+                        <div className="flex-1">
+                            <label className="text-[10px] font-bold text-gray-400 uppercase">Amount</label>
+                            <input type="number" className="w-full p-3 bg-gray-50 border rounded-xl font-bold text-lg" placeholder="0.00" autoFocus value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} />
+                        </div>
+                    </div>
+
+                    {/* Account */}
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">From Account</label>
+                        <SearchableSelect 
+                            options={accounts.map(a => ({ id: a.name, name: a.name }))} 
+                            value={form.account} 
+                            onChange={v => setForm({...form, account: v})} 
+                            onAddNew={v => setForm({...form, account: v})} 
+                            placeholder="Select Account" 
+                        />
+                    </div>
+
+                    {type === 'transfer' && (
+                        <div>
+                            <label className="text-[10px] font-bold text-gray-400 uppercase">To Account</label>
+                            <SearchableSelect 
+                                options={accounts.map(a => ({ id: a.name, name: a.name }))} 
+                                value={form.toAccount} 
+                                onChange={v => setForm({...form, toAccount: v})} 
+                                onAddNew={v => setForm({...form, toAccount: v})} 
+                                placeholder="Select Destination Account" 
+                            />
+                        </div>
+                    )}
+
+                    {/* Category (Not for transfer) */}
+                    {type !== 'transfer' && (
+                        <div>
+                            <label className="text-[10px] font-bold text-gray-400 uppercase">Category</label>
+                            <SearchableSelect 
+                                options={(categories[type] || []).map(c => ({ id: c, name: c }))} 
+                                value={form.category} 
+                                onChange={v => setForm({...form, category: v})} 
+                                onAddNew={v => setForm({...form, category: v})} 
+                                placeholder="Select Category" 
+                            />
+                        </div>
+                    )}
+
+                    {/* Note (Creatable) */}
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">Note / Tag</label>
+                        <SearchableSelect 
+                            options={[...new Set(transactions.map(t => t.note).filter(Boolean))].map(n => ({ id: n, name: n }))} 
+                            value={form.note} 
+                            onChange={v => setForm({...form, note: v})} 
+                            onAddNew={v => setForm({...form, note: v})} 
+                            placeholder="e.g. Fuel, Dinner" 
+                        />
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">Description</label>
+                        <textarea className="w-full p-3 bg-gray-50 border rounded-xl" rows="3" placeholder="Additional details..." value={form.desc} onChange={e => setForm({...form, desc: e.target.value})} />
+                    </div>
+                </div>
+
+                <div className="p-4 border-t bg-white flex gap-3">
+                    <button onClick={() => save(false)} className="flex-1 py-3 border border-gray-300 rounded-xl font-bold text-gray-700">Save</button>
+                    <button onClick={() => save(true)} className={`flex-1 py-3 rounded-xl font-bold text-white shadow-lg ${type === 'income' ? 'bg-green-600' : type === 'expense' ? 'bg-red-600' : 'bg-blue-600'}`}>Save & Continue</button>
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div className="fixed inset-0 z-[100] bg-white flex flex-col overflow-hidden">
+            {/* 1. Header with Main Tabs */}
+            <div className="bg-slate-900 text-white pt-4 pb-0 px-4 shadow-lg shrink-0">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold flex items-center gap-2">🔐 My Vault</h2>
+                    <button onClick={() => setViewDetail(null)} className="p-2 bg-slate-800 rounded-full"><X size={20}/></button>
+                </div>
+                <div className="flex">
+                    <button onClick={() => setMainTab('finance')} className={`flex-1 py-3 font-bold border-b-4 transition-colors ${mainTab === 'finance' ? 'border-blue-500 text-white' : 'border-transparent text-slate-400'}`}>FINANCE</button>
+                    <button onClick={() => setMainTab('tasks')} className={`flex-1 py-3 font-bold border-b-4 transition-colors ${mainTab === 'tasks' ? 'border-purple-500 text-white' : 'border-transparent text-slate-400'}`}>TASKS</button>
+                </div>
+            </div>
+
+            {/* 2. Content Area */}
+            <div className="flex-1 overflow-y-auto bg-gray-50 relative">
+                
+                {/* --- TASKS VIEW --- */}
+                {mainTab === 'tasks' && (
+                    <div className="p-4 space-y-4">
+                        <div className="flex gap-2">
+                            <input className="flex-1 p-3 bg-white border rounded-xl shadow-sm" placeholder="Search Tasks..." value={taskSearch} onChange={e => setTaskSearch(e.target.value)} />
+                            <div className="bg-purple-100 p-3 rounded-xl text-purple-700 font-bold">{((data.personalTasks || []).filter(t => !t.done).length)}</div>
+                        </div>
+                        
+                        <div className="flex gap-2">
+                            <input className="flex-1 p-3 border rounded-xl" placeholder="Add New Task..." value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddTask()} />
+                            <button onClick={handleAddTask} className="bg-purple-600 text-white px-4 rounded-xl font-bold"><Plus/></button>
+                        </div>
+
+                        <div className="space-y-2 pb-20">
+                            {(data.personalTasks || []).filter(t => t.text.toLowerCase().includes(taskSearch.toLowerCase())).map(t => (
+                                <div key={t.id} className={`p-4 bg-white rounded-xl border flex items-center gap-3 shadow-sm ${t.done ? 'opacity-60' : ''}`}>
+                                    <button onClick={() => handleTaskToggle(t.id)} className={`p-1 rounded-full border ${t.done ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'}`}>
+                                        <CheckCircle2 size={18} className={t.done ? 'opacity-100' : 'opacity-0'} />
+                                    </button>
+                                    <span className={`flex-1 font-medium ${t.done ? 'line-through text-gray-400' : 'text-gray-800'}`}>{t.text}</span>
+                                    <span className="text-[10px] text-gray-400">{new Date(t.date).toLocaleDateString()}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* --- FINANCE VIEW --- */}
+                {mainTab === 'finance' && (
+                    <div className="flex flex-col h-full">
+                        {/* Filters & Summary (Only for Transactions view) */}
+                        {financeView === 'transactions' && (
+                            <div className="p-4 bg-white border-b space-y-4">
+                                <div className="flex gap-2">
+                                    <select className="bg-gray-100 p-2 rounded-lg text-xs font-bold" value={filterType} onChange={e => setFilterType(e.target.value)}><option>Month</option><option>Week</option><option>Date</option></select>
+                                    <input type={filterType === 'Month' ? 'month' : 'date'} className="flex-1 bg-gray-100 p-2 rounded-lg text-xs font-bold" value={filterDate} onChange={e => setFilterDate(e.target.value)} />
+                                </div>
+                                <div className="grid grid-cols-3 gap-2 text-center">
+                                    <div className="bg-green-50 p-2 rounded-lg border border-green-100"><p className="text-[10px] text-green-600 uppercase font-bold">Income</p><p className="font-bold text-green-700">{formatCurrency(filteredTxs.filter(t => t.type === 'income').reduce((s, t) => s + parseFloat(t.amount), 0))}</p></div>
+                                    <div className="bg-red-50 p-2 rounded-lg border border-red-100"><p className="text-[10px] text-red-600 uppercase font-bold">Expense</p><p className="font-bold text-red-700">{formatCurrency(filteredTxs.filter(t => t.type === 'expense').reduce((s, t) => s + parseFloat(t.amount), 0))}</p></div>
+                                    <div className="bg-blue-50 p-2 rounded-lg border border-blue-100"><p className="text-[10px] text-blue-600 uppercase font-bold">Balance</p><p className="font-bold text-blue-700">{formatCurrency((accountBalances['Cash'] || 0) + (accountBalances['Bank'] || 0))}</p></div>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-3">
+                            {/* SUB VIEW: TRANSACTIONS */}
+                            {financeView === 'transactions' && filteredTxs.map(t => (
+                                <div key={t.id} className="bg-white p-3 rounded-xl border shadow-sm flex justify-between items-center">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`p-2 rounded-full ${t.type === 'income' ? 'bg-green-100 text-green-600' : t.type === 'expense' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                                            {t.type === 'income' ? <TrendingUp size={16}/> : t.type === 'expense' ? <ShoppingCart size={16}/> : <Share2 size={16}/>}
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-sm text-gray-800">{t.category || t.note || 'Transfer'}</p>
+                                            <p className="text-[10px] text-gray-500">{t.desc || t.account} {t.toAccount ? `→ ${t.toAccount}` : ''}</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className={`font-bold ${t.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>{t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount)}</p>
+                                        <p className="text-[10px] text-gray-400">{new Date(t.date).toLocaleDateString()}</p>
+                                    </div>
+                                </div>
+                            ))}
+
+                            {/* SUB VIEW: STATS */}
+                            {financeView === 'stats' && (
+                                <div className="space-y-6">
+                                    {['income', 'expense'].map(statType => {
+                                        const total = filteredTxs.filter(t => t.type === statType).reduce((s, t) => s + parseFloat(t.amount), 0);
+                                        const catBreakdown = {};
+                                        filteredTxs.filter(t => t.type === statType).forEach(t => { catBreakdown[t.category] = (catBreakdown[t.category] || 0) + parseFloat(t.amount); });
+                                        
+                                        return (
+                                            <div key={statType} className="bg-white p-4 rounded-2xl border shadow-sm">
+                                                <h3 className="font-bold text-gray-700 capitalize mb-4 flex justify-between">{statType} Analysis <span>{formatCurrency(total)}</span></h3>
+                                                <div className="space-y-3">
+                                                    {Object.entries(catBreakdown).sort((a,b) => b[1] - a[1]).map(([cat, amt]) => (
+                                                        <div key={cat}>
+                                                            <div className="flex justify-between text-xs mb-1"><span className="font-medium">{cat}</span><span>{Math.round((amt/total)*100)}%</span></div>
+                                                            <div className="w-full bg-gray-100 rounded-full h-2"><div className={`h-2 rounded-full ${statType==='income'?'bg-green-500':'bg-red-500'}`} style={{width: `${(amt/total)*100}%`}}></div></div>
+                                                        </div>
+                                                    ))}
+                                                    {Object.keys(catBreakdown).length === 0 && <p className="text-center text-xs text-gray-400">No Data</p>}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            {/* SUB VIEW: ACCOUNTS */}
+                            {financeView === 'accounts' && (
+                                <div className="space-y-3">
+                                    {Object.entries(accountBalances).map(([name, bal]) => (
+                                        <div key={name} className="bg-white p-4 rounded-xl border shadow-sm flex justify-between items-center">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-600">{name.charAt(0)}</div>
+                                                <div><p className="font-bold text-gray-800">{name}</p><p className="text-[10px] text-gray-500">Account</p></div>
+                                            </div>
+                                            <span className={`font-bold ${bal >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(bal)}</span>
+                                        </div>
+                                    ))}
+                                    <button onClick={() => {
+                                        const n = prompt("New Account Name:"); 
+                                        if(n) { 
+                                            const newAccs = [...accounts, {id: Date.now().toString(), name: n, type: 'General'}];
+                                            setData({...data, personalAccounts: newAccs});
+                                            // Save to Personal DB
+                                            setDoc(doc(personalDb, "my_vault", "main_data"), { personalAccounts: newAccs }, { merge: true });
+                                        }
+                                    }} className="w-full py-3 border-2 border-dashed rounded-xl font-bold text-gray-400 hover:bg-gray-50">+ Add Account</button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Floating Add Button (Only on Transactions) */}
+                        {financeView === 'transactions' && (
+                            <button onClick={() => setShowAddForm(true)} className="fixed bottom-24 right-6 w-14 h-14 bg-slate-900 text-white rounded-full shadow-2xl flex items-center justify-center z-[105] hover:scale-110 transition-transform">
+                                <Plus size={28} />
+                            </button>
+                        )}
+
+                        {/* Bottom Navigation for Finance */}
+                        <div className="bg-white border-t p-2 flex justify-around shrink-0 pb-6">
+                            <button onClick={() => setFinanceView('transactions')} className={`flex flex-col items-center p-2 rounded-lg ${financeView==='transactions'?'text-blue-600 bg-blue-50':'text-gray-400'}`}><ReceiptText size={20}/><span className="text-[10px] font-bold mt-1">Trans</span></button>
+                            <button onClick={() => setFinanceView('stats')} className={`flex flex-col items-center p-2 rounded-lg ${financeView==='stats'?'text-purple-600 bg-purple-50':'text-gray-400'}`}><TrendingUp size={20}/><span className="text-[10px] font-bold mt-1">Stats</span></button>
+                            <button onClick={() => setFinanceView('accounts')} className={`flex flex-col items-center p-2 rounded-lg ${financeView==='accounts'?'text-orange-600 bg-orange-50':'text-gray-400'}`}><Banknote size={20}/><span className="text-[10px] font-bold mt-1">Accounts</span></button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Add Transaction Form Modal */}
+            {showAddForm && <TransactionForm onSave={handleSaveTransaction} onCancel={() => setShowAddForm(false)} />}
         </div>
-      )}
-    </div>
-  );
+    );
 };
 
 // ==========================================
@@ -7855,30 +8193,45 @@ const removeMobile = (idx) => {
 
          </div>
 
-         {/* Brands Section */}
-         <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl space-y-2">
-             <div className="flex justify-between items-center">
-                 <label className="text-xs font-bold text-blue-700 uppercase">Brands & Pricing</label>
-                 <button onClick={addBrandRow} className="text-[10px] bg-blue-600 text-white px-2 py-1 rounded">+ Add Brand</button>
-             </div>
-             
-             {/* Default/Base Price Row */}
-             <div className="flex gap-2 items-center">
-                 <div className="w-1/3 text-xs font-bold text-gray-500 pl-1">Base / Default</div>
-                 <input type="number" className="flex-1 p-2 border rounded text-xs" placeholder="Sell Price" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} />
-                 <input type="number" className="flex-1 p-2 border rounded text-xs" placeholder="Buy Price" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} />
-                 <div className="w-6"></div> 
-             </div>
+         <div className="space-y-2">
+            <h4 className="text-xs font-bold text-gray-500 uppercase">Brands & Pricing</h4>
+            
+            {/* Base Price */}
+            <div className="flex gap-2 mb-2">
+                <div className="w-1/3 pt-2 text-xs font-bold text-gray-400">Base Price</div>
+                <input type="number" className="flex-1 p-2 border rounded-lg text-sm" placeholder="Sell" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} />
+                <input type="number" className="flex-1 p-2 border rounded-lg text-sm bg-yellow-50" placeholder="Buy" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} />
+            </div>
 
-             {/* Dynamic Brands */}
-             {form.brands && form.brands.map((brand, idx) => (
-                 <div key={idx} className="flex gap-2 items-center">
-                     <input className="w-1/3 p-2 border rounded text-xs font-bold" placeholder="Brand Name" value={brand.name} onChange={e => updateBrand(idx, 'name', e.target.value)} />
-                     <input type="number" className="flex-1 p-2 border rounded text-xs" placeholder="Sell" value={brand.sellPrice} onChange={e => updateBrand(idx, 'sellPrice', e.target.value)} />
-                     <input type="number" className="flex-1 p-2 border rounded text-xs" placeholder="Buy" value={brand.buyPrice} onChange={e => updateBrand(idx, 'buyPrice', e.target.value)} />
-                     <button onClick={() => removeBrandRow(idx)} className="text-red-500"><Trash2 size={14}/></button>
-                 </div>
-             ))}
+            {/* Brands List */}
+            {form.brands && form.brands.map((brand, idx) => (
+                <div key={idx} className="p-2 border rounded-xl bg-gray-50 mb-2 relative animate-in slide-in-from-left-2">
+                    {/* Delete Button (Top Right) */}
+                    <button onClick={() => removeBrandRow(idx)} className="absolute top-2 right-2 text-red-400 p-1 hover:bg-red-50 rounded-full"><Trash2 size={14}/></button>
+                    
+                    {/* Brand Name (Full Width) */}
+                    <input 
+                        className="w-full p-2 border rounded-lg text-sm font-bold mb-2 pr-8" 
+                        placeholder="Brand Name (e.g. Havells)" 
+                        value={brand.name} 
+                        onChange={e => updateBrand(idx, 'name', e.target.value)} 
+                    />
+                    
+                    {/* Prices (Side by Side) */}
+                    <div className="flex gap-2">
+                        <div className="flex-1">
+                            <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Sell Price</label>
+                            <input type="number" className="w-full p-2 border rounded-lg text-sm bg-white" placeholder="0" value={brand.sellPrice} onChange={e => updateBrand(idx, 'sellPrice', e.target.value)} />
+                        </div>
+                        <div className="flex-1">
+                            <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Buy Price</label>
+                            <input type="number" className="w-full p-2 border rounded-lg text-sm bg-yellow-50" placeholder="0" value={brand.buyPrice} onChange={e => updateBrand(idx, 'buyPrice', e.target.value)} />
+                        </div>
+                    </div>
+                </div>
+            ))}
+            
+            <button onClick={addBrandRow} className="text-xs font-bold text-blue-600 flex items-center gap-1 mt-1">+ Add Another Brand</button>
          </div>
 
          <button onClick={async () => {
