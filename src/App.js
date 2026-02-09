@@ -6787,7 +6787,73 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
             return false;
         });
     }, [tx.partyId, data.transactions, tx.linkedBills, type, tx.subType]);
-    const updateLine = (idx, field, val) => { const newItems = [...tx.items]; newItems[idx][field] = val; if (field === 'itemId') { const item = data.items.find(i => i.id === val); if (item) { newItems[idx].price = type === 'purchase' ? item.buyPrice : item.sellPrice; newItems[idx].buyPrice = item.buyPrice; newItems[idx].description = item.description || ''; newItems[idx].brand = ''; } } if (field === 'brand') { const item = data.items.find(i => i.id === newItems[idx].itemId); if (item && item.brands) { const brandData = item.brands.find(b => b.name === val); if (brandData) { newItems[idx].price = type === 'purchase' ? brandData.buyPrice : brandData.sellPrice; newItems[idx].buyPrice = brandData.buyPrice; } else if (!val) { newItems[idx].price = type === 'purchase' ? item.buyPrice : item.sellPrice; newItems[idx].buyPrice = item.buyPrice; } } } setTx({ ...tx, items: newItems }); };
+    const updateLine = (idx, field, val) => { 
+        const newItems = [...tx.items]; 
+        newItems[idx][field] = val; 
+        
+        if (field === 'itemId') { 
+            const item = data.items.find(i => i.id === val); 
+            if (item) { 
+                newItems[idx].price = type === 'purchase' ? item.buyPrice : item.sellPrice; 
+                newItems[idx].buyPrice = item.buyPrice; 
+                newItems[idx].description = item.description || ''; 
+                newItems[idx].brand = '';
+                newItems[idx].linkedItem = item.linkedItem || null; // Carry link info
+            } 
+        } 
+        
+        if (field === 'brand') { 
+            const item = data.items.find(i => i.id === newItems[idx].itemId); 
+            if (item && item.brands) { 
+                const brandData = item.brands.find(b => b.name === val); 
+                if (brandData) { 
+                    newItems[idx].price = type === 'purchase' ? brandData.buyPrice : brandData.sellPrice; 
+                    newItems[idx].buyPrice = brandData.buyPrice; 
+                } 
+            } 
+        } 
+        setTx({ ...tx, items: newItems }); 
+    };
+
+    // Helper: Add Linked Item (Auto Qty Sync)
+    const addLinkedItem = (parentIdx) => {
+        const parentLine = tx.items[parentIdx];
+        const linkInfo = parentLine.linkedItem;
+        
+        if(!linkInfo) return;
+        
+        const linkedData = data.items.find(i => i.name === linkInfo.name);
+        if(!linkedData) return;
+
+        let finalPrice = linkInfo.price || linkedData.sellPrice;
+        let finalBuyPrice = linkedData.buyPrice;
+
+        if(linkInfo.brand) {
+             const bData = linkedData.brands?.find(b => b.name === linkInfo.brand);
+             if(bData) {
+                 finalPrice = linkInfo.price || bData.sellPrice; 
+                 finalBuyPrice = bData.buyPrice;
+             }
+        }
+
+        // Calculate Qty based on Parent
+        const parentQty = parseFloat(parentLine.qty || 1);
+        const ratioQty = parseFloat(linkInfo.qty || 1);
+        const finalQty = parentQty * ratioQty;
+
+        const newLine = { 
+            itemId: linkedData.id, 
+            qty: finalQty,                   // <--- UPDATED
+            brand: linkInfo.brand || '', 
+            price: parseFloat(finalPrice), 
+            buyPrice: parseFloat(finalBuyPrice), 
+            description: linkedData.description || 'Service Charge' 
+        };
+        
+        const newItems = [...tx.items];
+        newItems.splice(parentIdx + 1, 0, newLine); 
+        setTx({ ...tx, items: newItems });
+    };
     // FIX: Show Last Prices (Master Prices) & Stock
 // FIX: Clean Qty & Subtitle for Prices
     const itemOptions = data.items.map(i => ({ 
@@ -6958,20 +7024,29 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     const specificBrandOptions = selectedItemMaster?.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}`, subColor: 'text-green-600' })) || [];
                     
                     return (
-                        <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
+                        <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2 animate-in slide-in-from-left-2">
                             <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
                     
                             <SearchableSelect 
-    options={itemOptions} 
-    value={line.itemId} 
-    onChange={v => updateLine(idx, 'itemId', v)} 
-    placeholder="Select Item"
-    onAddNew={() => {
-        // Save Draft & Switch
-        if(setTxDraft) setTxDraft({ ...tx, type });
-        if(setModal) setModal({ type: 'item' });
-    }}
-/>
+                                options={itemOptions} 
+                                value={line.itemId} 
+                                onChange={v => updateLine(idx, 'itemId', v)} 
+                                placeholder="Select Item"
+                                onAddNew={() => {
+                                    if(setTxDraft) setTxDraft({ ...tx, type });
+                                    if(setModal) setModal({ type: 'item' });
+                                }}
+                            />
+
+                            {/* SHOW LINKED ITEM BUTTON */}
+                            {line.linkedItem && (
+                                <button 
+                                    onClick={() => addLinkedItem(idx)}
+                                    className="text-[10px] bg-orange-100 text-orange-700 py-1 px-2 rounded-lg flex items-center gap-1 font-bold w-full justify-center border border-orange-200"
+                                >
+                                    <Plus size={10}/> Add Linked: {line.linkedItem.name} (₹{line.linkedItem.price})
+                                </button>
+                            )}
                             
                             {selectedItemMaster && ( 
                                 <SearchableSelect 
@@ -7052,21 +7127,18 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                 const item = addBrandModal.item;
                                 const newBrandObj = { name, sellPrice: parseFloat(sell||0), buyPrice: parseFloat(buy||0) };
                                 
-                                // FIX 4: Ensure brands array exists and persist to Firebase
+                                // 1. Firebase Save
                                 const updatedItem = { ...item, brands: [...(item.brands || []), newBrandObj] };
-                                
-                                // 1. Save to Cloud
                                 await setDoc(doc(db, "items", item.id), updatedItem);
                                 
-                                // 2. Update Local Data Deeply (Critical for Sync)
-                                setData(prev => ({
-                                    ...prev,
-                                    items: prev.items.map(i => i.id === item.id ? updatedItem : i)
-                                }));
-                                
-                                // 3. Auto-select the new brand in the form line
-                                updateLine(addBrandModal.idx, 'brand', name);
+                                // 2. Update Local Data (Without Resetting Form)
+                                const newData = { ...data };
+                                const itemIdx = newData.items.findIndex(i => i.id === item.id);
+                                if(itemIdx > -1) newData.items[itemIdx] = updatedItem;
+                                setData(newData); 
 
+                                // 3. Update Line Item
+                                updateLine(addBrandModal.idx, 'brand', name);
                                 setAddBrandModal(null); 
                             }}
                             className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold mt-2"
@@ -7148,17 +7220,18 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
         selectedContacts: []
     });
     const [showLocPicker, setShowLocPicker] = useState(false);
-    const [addBrandModal, setAddBrandModal] = useState(null); // FIX 1: Brand Modal State
+    const [addBrandModal, setAddBrandModal] = useState(null); 
     
-    // FIX: Clean Qty & Subtitle for Prices
+    // FIX: Show Last Prices (Master Prices) & Stock
     const itemOptions = data.items.map(i => ({ 
         ...i, 
         subText: `Stk: ${itemStock[i.id] || 0}`, 
-        subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-green-600',
+        subColor: (itemStock[i.id] || 0) < 0 ? 'text-red-500' : 'text-blue-600',
         subtitle: `Buy: ${i.buyPrice || 0} | Sell: ${i.sellPrice || 0}`
     }));
     const selectedParty = data.parties.find(p => p.id === form.partyId);
     
+    // --- UPDATED ITEM LOGIC (With Linked Item Support) ---
     const updateItem = (idx, field, val) => {
         const n = [...form.itemsUsed];
         n[idx][field] = val;
@@ -7168,7 +7241,8 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
             n[idx].price = item.sellPrice || 0;
             n[idx].buyPrice = item.buyPrice || 0;
             n[idx].description = item.description || '';
-            n[idx].brand = ''; // Reset brand on item change
+            n[idx].brand = ''; 
+            n[idx].linkedItem = item.linkedItem || null; // Carry Linked Info
         }
 
         if (field === 'brand' && item && item.brands) {
@@ -7183,6 +7257,49 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
         }
         setForm({ ...form, itemsUsed: n });
     };
+
+    // --- NEW: ADD LINKED ITEM HELPER (AUTO QTY SYNC) ---
+    const addLinkedItem = (parentIdx) => {
+        const parentLine = form.itemsUsed[parentIdx];
+        const linkInfo = parentLine.linkedItem; 
+        
+        if(!linkInfo) return;
+        
+        const linkedData = data.items.find(i => i.name === linkInfo.name);
+        if(!linkedData) return alert("Linked Item not found in Master!");
+
+        // 1. Calculate Price based on Saved Brand
+        let finalPrice = linkInfo.price || linkedData.sellPrice;
+        let finalBuyPrice = linkedData.buyPrice;
+        
+        if(linkInfo.brand) {
+             const bData = linkedData.brands?.find(b => b.name === linkInfo.brand);
+             if(bData) {
+                 finalPrice = linkInfo.price || bData.sellPrice; 
+                 finalBuyPrice = bData.buyPrice;
+             }
+        }
+
+        // 2. Calculate Qty (Parent Qty * Master Config Qty)
+        // Example: Parent Qty 3 hai, aur Master me set hai ki 1 item ke sath 1 service charge lagta hai.
+        // To Total Qty = 3 * 1 = 3.
+        const parentQty = parseFloat(parentLine.qty || 1);
+        const ratioQty = parseFloat(linkInfo.qty || 1);
+        const finalQty = parentQty * ratioQty;
+
+        const newLine = { 
+            itemId: linkedData.id, 
+            qty: finalQty,                     // <--- UPDATED: Dynamic Qty
+            brand: linkInfo.brand || '',       
+            price: parseFloat(finalPrice), 
+            buyPrice: parseFloat(finalBuyPrice), 
+            description: linkedData.description || 'Service Charge' 
+        };
+        
+        const newItems = [...form.itemsUsed];
+        newItems.splice(parentIdx + 1, 0, newLine); 
+        setForm({ ...form, itemsUsed: newItems });
+    };
     
     const handleLocationSelect = (loc) => {
         setForm({ ...form, address: loc.address, mobile: loc.mobile || selectedParty?.mobile || '', lat: loc.lat || '', lng: loc.lng || '', locationLabel: loc.label });
@@ -7191,7 +7308,6 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
 
     return (
       <div className="space-y-4">
-        {/* REQ 6: Status Dropdown Returned */}
         <div className="flex gap-2">
             <input className="flex-1 p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Task Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
             <select className="w-1/3 p-3 bg-gray-50 border rounded-xl font-bold text-sm" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
@@ -7202,150 +7318,32 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
         <div className="p-3 bg-gray-50 rounded-xl border"><label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Assigned Staff</label><div className="flex flex-wrap gap-2 mb-2">{form.assignedStaff.map(sid => { const s = data.staff.find(st => st.id === sid); return (<span key={sid} className="bg-white border px-2 py-1 rounded-full text-xs flex items-center gap-1">{s?.name} <button onClick={() => setForm({...form, assignedStaff: form.assignedStaff.filter(id => id !== sid)})}><X size={12}/></button></span>); })}</div><select className="w-full p-2 border rounded-lg text-sm bg-white" onChange={e => { if(e.target.value && !form.assignedStaff.includes(e.target.value)) setForm({...form, assignedStaff: [...form.assignedStaff, e.target.value]}); }}><option value="">+ Add Staff</option>{data.staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
         
         <div>
-            {/* REQ 5: New Party Option */}
-            <SearchableSelect 
-                label="Client" 
-                options={data.parties} 
-                value={form.partyId} 
-                onChange={v => setForm({...form, partyId: v, locationLabel: '', address: ''})} 
-                />
-{/* CHANGE: Added Multiple Mobile Selection Back */}
-{(selectedParty?.locations?.length > 0 || selectedParty?.mobileNumbers?.length > 0) && (
-    <div className="relative mt-1 mb-2">
-        <div className="flex justify-between items-center bg-blue-50 p-2 rounded-lg border border-blue-100">
-                <div className="text-xs text-blue-800 overflow-hidden">
-                    <span className="font-bold">Contacts: </span> 
-                    <div className="text-gray-600 mt-0.5 font-bold">
-                        {/* Show selected contacts or Primary */}
-                        {(form.selectedContacts && form.selectedContacts.length > 0) 
-                            ? form.selectedContacts.map(c => c.number).join(', ') 
-                            : (form.mobile || selectedParty.mobile)}
-                    </div>
-                </div>
-                <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[10px] font-bold bg-white border px-3 py-2 rounded-lg shadow-sm text-blue-600 whitespace-nowrap">Select No.</button>
-        </div>
-        {showLocPicker && (
-            <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1 max-h-60 overflow-y-auto">
-                {/* Default Primary */}
-                <div onClick={() => {
-                    // Reset to Primary
-                    setForm({ ...form, mobile: selectedParty.mobile, selectedContacts: [] });
-                }} className="p-2 hover:bg-gray-50 border-b cursor-pointer bg-gray-50 rounded mb-1">
-                    <span className="font-bold text-xs text-gray-600">Primary Mobile</span>
-                    <div className="text-[10px]">{selectedParty.mobile}</div>
-                </div>
-                {/* FIX 1: Brand Add Modal for TaskForm */}
-            {addBrandModal && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="bg-white p-5 rounded-2xl w-full max-w-xs shadow-2xl">
-                        <h3 className="font-bold text-lg mb-2">Add Brand</h3>
-                        <input id="task_brand_name" autoFocus className="w-full p-2 border rounded-lg font-bold text-sm mb-3" placeholder="Brand Name" />
-                        <button 
-                            onClick={async () => {
-                                const name = document.getElementById('task_brand_name').value;
-                                if(!name) return alert("Required");
-                                
-                                const item = addBrandModal.item;
-                                const updatedItem = { ...item, brands: [...(item.brands || []), { name, sellPrice: item.sellPrice || 0, buyPrice: item.buyPrice || 0 }] };
-                                
-                                // 1. Cloud Save
-                                await setDoc(doc(db, "items", item.id), updatedItem);
-                                
-                                // 2. Local Mutation (Prevent Reset)
-                                const itemIdx = data.items.findIndex(i => i.id === item.id);
-                                if(itemIdx > -1) data.items[itemIdx] = updatedItem;
-
-                                // 3. Update Form
-                                const newItems = [...form.itemsUsed];
-                                newItems[addBrandModal.idx].brand = name;
-                                setForm({ ...form, itemsUsed: newItems });
-                                
-                                setAddBrandModal(null);
-                            }}
-                            className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold"
-                        >
-                            Save Brand
-                        </button>
-                        <button onClick={() => setAddBrandModal(null)} className="w-full py-3 text-gray-500 font-bold text-xs mt-1">Cancel</button>
-                    </div>
-                </div>
-            )}
-                {/* Multiple Numbers List */}
-                {selectedParty.mobileNumbers?.length > 0 && (
-                    <div className="mb-2 border-b pb-2">
-                        <div className="flex justify-between items-center mb-1">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase">Select Numbers to Call</p>
-                        </div>
-                        {selectedParty.mobileNumbers.map((mob, idx) => {
-                            const isSelected = form.selectedContacts?.some(c => c.number === mob.number);
-                            return (
-                                <div key={`mob-${idx}`} onClick={(e) => {
-                                    e.stopPropagation();
-                                    let current = form.selectedContacts ? [...form.selectedContacts] : [];
-                                    if (isSelected) {
-                                        current = current.filter(c => c.number !== mob.number);
-                                    } else {
-                                        current.push(mob);
-                                    }
-                                    setForm({ ...form, selectedContacts: current });
-                                }} className={`p-2 cursor-pointer border-b flex justify-between items-center transition-colors ${isSelected ? 'bg-green-50 border-green-200' : 'hover:bg-gray-50'}`}>
-                                    <span className={`text-xs font-bold flex items-center gap-1 ${isSelected ? 'text-green-700' : 'text-gray-600'}`}><Phone size={10}/> {mob.label}</span>
-                                    <div className="flex items-center gap-2">
-                                        <span className={`text-xs font-mono ${isSelected ? 'font-bold text-black' : 'text-gray-500'}`}>{mob.number}</span>
-                                        {isSelected && <CheckCircle2 size={14} className="text-green-600"/>}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
-        )}
-    </div>
-)}
-            
+            <SearchableSelect label="Client" options={data.parties} value={form.partyId} onChange={v => setForm({...form, partyId: v, locationLabel: '', address: ''})} />
             {(selectedParty?.locations?.length > 0 || selectedParty?.mobileNumbers?.length > 0) && (
                 <div className="relative mt-1 mb-2">
                     <div className="flex justify-between items-center bg-blue-50 p-2 rounded-lg border border-blue-100">
-                         <div className="text-xs text-blue-800 overflow-hidden"><span className="font-bold">Selected: </span> <span className="font-bold bg-white px-1 rounded ml-1">{form.locationLabel || 'Default'}</span><div className="truncate max-w-[200px] text-gray-600 mt-0.5">{form.address || selectedParty.address}</div></div>
+                         <div className="text-xs text-blue-800 overflow-hidden">
+                             <span className="font-bold">Contacts: </span> 
+                             <div className="text-gray-600 mt-0.5 font-bold">
+                                {(form.selectedContacts && form.selectedContacts.length > 0) ? form.selectedContacts.map(c => c.number).join(', ') : (form.mobile || selectedParty.mobile)}
+                             </div>
+                         </div>
                          <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[10px] font-bold bg-white border px-3 py-2 rounded-lg shadow-sm text-blue-600 whitespace-nowrap">Change</button>
                     </div>
                     {showLocPicker && (
                         <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl p-2 space-y-1 max-h-60 overflow-y-auto">
-                            <div onClick={() => handleLocationSelect({ label: '', address: selectedParty.address, mobile: selectedParty.mobile, lat: selectedParty.lat, lng: selectedParty.lng })} className="p-2 hover:bg-gray-50 border-b cursor-pointer bg-gray-50 rounded mb-1"><span className="font-bold text-xs text-gray-600">Default Details</span></div>
+                            <div onClick={() => { setForm({ ...form, mobile: selectedParty.mobile, selectedContacts: [] }); }} className="p-2 hover:bg-gray-50 border-b cursor-pointer bg-gray-50 rounded mb-1"><span className="font-bold text-xs text-gray-600">Primary Mobile</span><div className="text-[10px]">{selectedParty.mobile}</div></div>
+                            {selectedParty.mobileNumbers?.map((mob, idx) => {
+                                const isSelected = form.selectedContacts?.some(c => c.number === mob.number);
+                                return (
+                                    <div key={`mob-${idx}`} onClick={(e) => { e.stopPropagation(); let current = form.selectedContacts ? [...form.selectedContacts] : []; if (isSelected) { current = current.filter(c => c.number !== mob.number); } else { current.push(mob); } setForm({ ...form, selectedContacts: current }); }} className={`p-2 cursor-pointer border-b flex justify-between items-center ${isSelected ? 'bg-green-50' : ''}`}><span className="text-xs font-bold">{mob.label}</span><span>{mob.number} {isSelected && '✓'}</span></div>
+                                );
+                            })}
                             {selectedParty.locations?.map((loc, idx) => (<div key={`loc-${idx}`} onClick={() => handleLocationSelect(loc)} className="p-2 hover:bg-blue-50 cursor-pointer border-b"><span className="text-xs font-bold text-blue-600 flex items-center gap-1"><MapPin size={10}/> {loc.label}</span><div className="text-[10px] truncate text-gray-500">{loc.address}</div></div>))}
                         </div>
                     )}
                 </div>
             )}
-            {/* REQ 4: Multiple Mobile Selection Logic Restored */}
-{selectedParty?.mobileNumbers?.length > 0 && (
-    <div className="mt-2 mb-2 p-2 bg-green-50 rounded-xl border border-green-100">
-        <p className="text-[10px] font-bold text-green-700 uppercase mb-1">Select Contacts for Task</p>
-        <div className="flex flex-wrap gap-2">
-            {selectedParty.mobileNumbers.map((mob, idx) => {
-                const isSelected = form.selectedContacts?.some(c => c.number === mob.number);
-                return (
-                    <button 
-                        key={idx}
-                        onClick={() => {
-                            let newContacts = form.selectedContacts || [];
-                            if (isSelected) {
-                                newContacts = newContacts.filter(c => c.number !== mob.number);
-                            } else {
-                                newContacts.push(mob);
-                            }
-                            setForm({ ...form, selectedContacts: newContacts });
-                        }}
-                        className={`text-[10px] px-2 py-1 rounded-lg border font-bold transition-colors ${isSelected ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200'}`}
-                    >
-                        {mob.label}: {mob.number} {isSelected && '✓'}
-                    </button>
-                );
-            })}
-        </div>
-    </div>
-)}
         </div>
 
         <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-20" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
@@ -7359,89 +7357,91 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
                     const selectedItemMaster = data.items.find(i => i.id === line.itemId);
                     const specificBrandOptions = selectedItemMaster?.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}`, subColor: 'text-green-600' })) || [];
                     
-                    const updateLine = (field, val) => {
-                        const newItems = [...form.itemsUsed];
-                        newItems[idx] = { ...newItems[idx], [field]: val };
-                        if(field === 'itemId') {
-                           const master = data.items.find(i => i.id === val);
-                           if(master) { newItems[idx].itemName = master.name; newItems[idx].price = master.sellPrice; newItems[idx].buyPrice = master.buyPrice; newItems[idx].brand = ''; }
-                        }
-                        setForm({ ...form, itemsUsed: newItems });
-                    };
-
                     return (
-                        <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2">
-                            <button onClick={() => {
-                                const newItems = form.itemsUsed.filter((_, i) => i !== idx);
-                                setForm({ ...form, itemsUsed: newItems });
-                            }} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
+                        <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2 animate-in slide-in-from-left-2">
+                            <button onClick={() => { const newItems = form.itemsUsed.filter((_, i) => i !== idx); setForm({ ...form, itemsUsed: newItems }); }} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
                     
-                            <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLine('itemId', v)} placeholder="Select Item"/>
+                            <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} placeholder="Select Item"/>
                             
+                            {/* --- NEW: LINKED ITEM BUTTON --- */}
+                            {line.linkedItem && (
+                                <button 
+                                    onClick={() => addLinkedItem(idx)}
+                                    className="text-[10px] bg-orange-100 text-orange-700 py-1 px-2 rounded-lg flex items-center gap-1 font-bold w-full justify-center border border-orange-200 hover:bg-orange-200"
+                                >
+                                    <Plus size={10}/> Add Linked: {line.linkedItem.name} {line.linkedItem.brand ? `(${line.linkedItem.brand})` : ''} - ₹{line.linkedItem.price} (Qty: {line.linkedItem.qty || 1})
+                                </button>
+                            )}
+
                             {selectedItemMaster && ( 
                                 <SearchableSelect 
                                     placeholder={specificBrandOptions.length > 0 ? "Select Brand" : "No Brands (Add New)"} 
                                     options={specificBrandOptions} 
                                     value={line.brand || ''} 
-                                    onChange={v => updateLine('brand', v)} 
+                                    onChange={v => updateItem(idx, 'brand', v)} 
                                     onAddNew={() => setAddBrandModal({ item: selectedItemMaster, idx })}
                                 /> 
                             )}
 
-                            <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateLine('description', e.target.value)} />
+                            <input className="w-full text-xs p-2 border rounded-lg" placeholder="Description" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} />
                             
-                            {/* FIX: Warranty Field Added */}
                             <div className="flex gap-2 items-center bg-blue-100 p-1.5 rounded-lg border border-blue-200">
                                 <ShieldCheck size={14} className="text-blue-600"/>
                                 <span className="text-[10px] font-bold text-blue-700 uppercase">Till:</span>
-                                <input type="date" className="p-1 border rounded text-[10px] bg-white w-24" value={line.warrantyDate || ''} onChange={(e) => updateLine('warrantyDate', e.target.value)} />
+                                <input type="date" className="p-1 border rounded text-[10px] bg-white w-24" value={line.warrantyDate || ''} onChange={(e) => updateItem(idx, 'warrantyDate', e.target.value)} />
                                 <select className="p-1 border rounded text-[10px] bg-white flex-1" onChange={(e) => {
                                     if(!e.target.value) return;
-                                    const d = new Date(); 
-                                    d.setMonth(d.getMonth() + parseInt(e.target.value));
-                                    updateLine('warrantyDate', d.toISOString().split('T')[0]);
+                                    const d = new Date(); d.setMonth(d.getMonth() + parseInt(e.target.value));
+                                    updateItem(idx, 'warrantyDate', d.toISOString().split('T')[0]);
                                 }}>
-                                    <option value="">Duration...</option>
-                                    <option value="1">1 Month</option>
-                                    <option value="3">3 Months</option>
-                                    <option value="6">6 Months</option>
-                                    <option value="12">1 Year</option>
+                                    <option value="">Duration...</option><option value="1">1 Mo</option><option value="3">3 Mo</option><option value="6">6 Mo</option><option value="12">1 Yr</option>
                                 </select>
                             </div>
                             
                             <div className="flex gap-2">
-                                <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateLine('qty', e.target.value)} />
-                                <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateLine('price', e.target.value)} />
-                                <input type="number" className="w-20 p-1 border rounded text-xs bg-yellow-50 text-gray-600" placeholder="Buy" value={line.buyPrice} onChange={e => updateLine('buyPrice', e.target.value)} />
-                                <div className="flex-1 text-right self-end text-xs font-bold text-gray-500 pb-2">
-                                    {formatCurrency((parseFloat(line.qty)||0) * (parseFloat(line.price)||0))}
-                                </div>
+                                <input type="number" className="w-16 p-1 border rounded text-xs" placeholder="Qty" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
+                                <input type="number" className="w-20 p-1 border rounded text-xs" placeholder="Sale" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
+                                <input type="number" className="w-20 p-1 border rounded text-xs bg-yellow-50 text-gray-600" placeholder="Buy" value={line.buyPrice} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} />
+                                <div className="flex-1 text-right self-end text-xs font-bold text-gray-500 pb-2">{formatCurrency((parseFloat(line.qty)||0) * (parseFloat(line.price)||0))}</div>
                             </div>
                         </div>
                     );
                   })}
 
-{/* Final Summary Section - Just before "Add Item" button */}
 {form.itemsUsed.length > 0 && (
     <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 space-y-1">
-        <div className="flex justify-between items-center">
-            <span className="text-xs font-bold text-gray-500 uppercase">Total Amount</span>
-            <span className="text-lg font-black text-gray-800">
-                {formatCurrency(form.itemsUsed.reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.price || 0)), 0))}
-            </span>
-        </div>
-        <div className="flex justify-between items-center border-t border-blue-200 pt-1">
-            <span className="text-xs font-bold text-blue-600 uppercase">Net Profit (P&L)</span>
-            <span className={`text-sm font-black ${(form.itemsUsed.reduce((sum, item) => sum + ((parseFloat(item.price || 0) - parseFloat(item.buyPrice || 0)) * parseFloat(item.qty || 0)), 0)) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {formatCurrency(form.itemsUsed.reduce((sum, item) => sum + ((parseFloat(item.price || 0) - parseFloat(item.buyPrice || 0)) * parseFloat(item.qty || 0)), 0))}
-            </span>
-        </div>
+        <div className="flex justify-between items-center"><span className="text-xs font-bold text-gray-500 uppercase">Total Amount</span><span className="text-lg font-black text-gray-800">{formatCurrency(form.itemsUsed.reduce((sum, item) => sum + (parseFloat(item.qty || 0) * parseFloat(item.price || 0)), 0))}</span></div>
     </div>
 )}
                     <button onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="w-full py-3 border-2 border-dashed border-blue-200 text-blue-600 rounded-xl font-bold text-sm">+ Add Item</button>
                 </div>
             )}
         </div>
+
+        {/* Brand Modal */}
+        {addBrandModal && (
+            <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                <div className="bg-white p-5 rounded-2xl w-full max-w-xs shadow-2xl">
+                    <h3 className="font-bold text-lg mb-2">Add Brand</h3>
+                    <input id="task_brand_name" autoFocus className="w-full p-2 border rounded-lg font-bold text-sm mb-3" placeholder="Brand Name" />
+                    <button onClick={async () => {
+                            const name = document.getElementById('task_brand_name').value;
+                            if(!name) return alert("Required");
+                            const item = addBrandModal.item;
+                            const updatedItem = { ...item, brands: [...(item.brands || []), { name, sellPrice: item.sellPrice || 0, buyPrice: item.buyPrice || 0 }] };
+                            await setDoc(doc(db, "items", item.id), updatedItem);
+                            const itemIdx = data.items.findIndex(i => i.id === item.id);
+                            if(itemIdx > -1) data.items[itemIdx] = updatedItem;
+                            
+                            const newItems = [...form.itemsUsed];
+                            newItems[addBrandModal.idx].brand = name;
+                            setForm({ ...form, itemsUsed: newItems });
+                            setAddBrandModal(null);
+                        }} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold">Save Brand</button>
+                    <button onClick={() => setAddBrandModal(null)} className="w-full py-3 text-gray-500 font-bold text-xs mt-1">Cancel</button>
+                </div>
+            </div>
+        )}
 
         <div className="grid grid-cols-2 gap-4">
             <div><label className="text-[10px] font-bold text-gray-400 uppercase">Due Date</label><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /></div>
@@ -7454,26 +7454,11 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
             </div>
         </div>
         <button onClick={() => { 
-    // FIX 2: Save in Background (No Await) for Instant Close
-    const isEdit = !!form.id;
-    
-    // 1. Close UI Immediately
-    if(isEdit) {
-         setModal({ type: null }); 
-         handleCloseUI();
-         // Edit ke case me hum wahi id use kar rhe h, to navigation turant kar sakte h
-         setViewDetail({ type: 'task', id: form.id }); 
-    } else {
-         handleCloseUI();
-    }
-
-    // 2. Run Sync/Save in Background
-    saveRecord('tasks', form, 'task').then((savedId) => {
-        // Optional: Toast dikha sakte ho jab actual me save ho jaye
-        // console.log("Saved in background", savedId);
-    });
-
-}} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
+            const isEdit = !!form.id;
+            if(isEdit) { setModal({ type: null }); handleCloseUI(); setViewDetail({ type: 'task', id: form.id }); } 
+            else { handleCloseUI(); }
+            saveRecord('tasks', form, 'task');
+        }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold">Save Task</button>
       </div>
     );
   };
@@ -7730,6 +7715,7 @@ const removeMobile = (idx) => {
         buyPrice: '',  // Base Price (Default)
         brands: [], // [{ name: 'Anchor', sellPrice: 20, buyPrice: 15 }]
         category: '',
+        linkedItem: null, // { name, brand, price, qty }
         ...(record || {}) 
     });
 
@@ -7761,7 +7747,6 @@ const removeMobile = (idx) => {
              <label className="text-xs font-bold text-gray-400 uppercase">Basic Details</label>
              <input className="w-full p-2 bg-white border rounded-lg" placeholder="Item Name (e.g. 6Amp Switch)" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
     
-             {/* CHANGE 4: Category Select with PERMANENT SAVE */}
              <SearchableSelect 
                 label="Category"
                 options={data.categories.item || []}
@@ -7779,66 +7764,130 @@ const removeMobile = (idx) => {
                     // 2. Update Local State (Instant UI update)
                     const updatedList = [...(data.categories.item || []), newCat];
                     const newCats = { ...data.categories, item: updatedList };
-                    setData(prev => ({...prev, categories: newCats}));
+                    setData(prev => ({ ...prev, categories: newCats }));
 
-                    // 3. Update Firebase (Permanent Save)
-                    try {
-                        await setDoc(doc(db, "settings", "categories"), newCats);
-                        // Agar toast function available h to: showToast("Category Created");
-                    } catch(e) {
-                        console.error(e);
-                        alert("Error saving category to cloud");
-                    }
+                    // 3. Save to Firebase
+                    await setDoc(doc(db, "categories", "lists"), newCats);
+                    
+                    setForm({...form, category: newCat});
                 }}
-                placeholder="Select Category"
              />
-             <div className="grid grid-cols-2 gap-2">
-                 <select className="p-2 bg-white border rounded-lg text-sm" value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option>Goods</option><option>Service</option></select>
-                 <input className="p-2 bg-white border rounded-lg text-sm" placeholder="Unit (pcs/mtr)" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} />
+
+             {/* FIXED: Removed Duplicate "Link Service Item" block that was here */}
+
+             <div className="grid grid-cols-2 gap-3">
+                <div>
+                     <label className="text-[10px] font-bold text-gray-400 uppercase">Type</label>
+                     <select className="w-full p-2 bg-white border rounded-lg" value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option>Goods</option><option>Service</option></select>
+                </div>
+                <div>
+                     <label className="text-[10px] font-bold text-gray-400 uppercase">Unit</label>
+                     <select className="w-full p-2 bg-white border rounded-lg" value={form.unit} onChange={e => setForm({...form, unit: e.target.value})}><option>pcs</option><option>mtr</option><option>kg</option><option>liter</option><option>set</option><option>box</option></select>
+                </div>
              </div>
-             <div className="grid grid-cols-2 gap-2">
-                 <div>
-                    <label className="text-[10px] text-gray-500">Default Sell Price</label>
-                    <input type="number" className="w-full p-2 bg-white border rounded-lg" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} />
-                 </div>
-                 <div>
-                    <label className="text-[10px] text-gray-500">Default Buy Price</label>
-                    <input type="number" className="w-full p-2 bg-white border rounded-lg" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} />
-                 </div>
-             </div>
+             
              <input type="number" className="w-full p-2 bg-white border rounded-lg text-sm" placeholder="Opening Stock" value={form.openingStock} onChange={e => setForm({...form, openingStock: e.target.value})} />
-{/* FIX 8: Warranty Field */}
-<div className="flex items-center gap-2 mt-2">
-    <ShieldCheck size={16} className="text-blue-500" />
-    <span className="text-xs font-bold text-gray-500">Warranty Till:</span>
-    <input type="date" className="flex-1 p-2 bg-white border rounded-lg text-xs" value={form.warrantyDate || ''} onChange={e => setForm({...form, warrantyDate: e.target.value})} />
-</div>
+             
+             {/* Warranty Field */}
+            <div className="flex items-center gap-2 mt-2">
+                <ShieldCheck size={16} className="text-blue-500" />
+                <span className="text-xs font-bold text-gray-500">Warranty Till:</span>
+                <input type="date" className="flex-1 p-2 bg-white border rounded-lg text-xs" value={form.warrantyDate || ''} onChange={e => setForm({...form, warrantyDate: e.target.value})} />
+            </div>
+
+            {/* NEW: LINKED SERVICE ITEM (With Qty Support) */}
+            <div className="bg-orange-50 p-2 rounded-lg border border-orange-100 mt-2">
+                <p className="text-[10px] font-bold text-orange-700 uppercase mb-1">Link Service Item (e.g. Fitting Charge)</p>
+                <div className="flex flex-col gap-2">
+                    <SearchableSelect 
+                        options={data.items.filter(i=>i.id !== form.id).map(i=>({id:i.name, name:i.name}))} 
+                        value={form.linkedItem?.name} 
+                        onChange={v => {
+                            const i = data.items.find(x=>x.name===v);
+                            // Auto-set Price & Qty
+                            setForm({...form, linkedItem: { name: v, brand: '', price: i?.sellPrice || 0, qty: 1 }})
+                        }} 
+                        placeholder="Select Service Item..."
+                    />
+                    
+                    <div className="flex gap-2">
+                        {/* Brand Select */}
+                        <div className="flex-1">
+                            <select 
+                                className="w-full p-2 border rounded-lg text-xs bg-white h-[34px]"
+                                value={form.linkedItem?.brand || ''}
+                                onChange={e => {
+                                    const brandName = e.target.value;
+                                    const linkedMaster = data.items.find(i => i.name === form.linkedItem?.name);
+                                    const brandData = linkedMaster?.brands?.find(b => b.name === brandName);
+                                    const newPrice = brandData ? brandData.sellPrice : (linkedMaster?.sellPrice || 0);
+                                    
+                                    setForm({...form, linkedItem: { ...form.linkedItem, brand: brandName, price: newPrice }});
+                                }}
+                            >
+                                <option value="">- Default Brand -</option>
+                                {data.items.find(i => i.name === form.linkedItem?.name)?.brands?.map(b => (
+                                    <option key={b.name} value={b.name}>{b.name}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* NEW: Qty Input */}
+                        <input 
+                            type="number" 
+                            placeholder="Qty" 
+                            className="w-12 p-2 border rounded-lg text-xs h-[34px] bg-yellow-50 text-center font-bold"
+                            value={form.linkedItem?.qty || 1}
+                            onChange={e=>setForm({...form, linkedItem: {...form.linkedItem, qty: e.target.value}})}
+                        />
+
+                        {/* Price Input */}
+                        <input 
+                            type="number" 
+                            placeholder="Price" 
+                            className="w-20 p-2 border rounded-lg text-xs h-[34px] font-bold text-gray-700"
+                            value={form.linkedItem?.price || ''}
+                            onChange={e=>setForm({...form, linkedItem: {...form.linkedItem, price: e.target.value}})}
+                        />
+                    </div>
+                </div>
+            </div>
+
          </div>
 
-         {/* --- BRAND / VARIANT MANAGER --- */}
+         {/* Brands Section */}
          <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl space-y-2">
              <div className="flex justify-between items-center">
                  <label className="text-xs font-bold text-blue-700 uppercase">Brands & Pricing</label>
-                 <button onClick={addBrandRow} className="text-[10px] bg-blue-600 text-white px-2 py-1 rounded font-bold">+ Add Brand</button>
+                 <button onClick={addBrandRow} className="text-[10px] bg-blue-600 text-white px-2 py-1 rounded">+ Add Brand</button>
              </div>
              
-             {(form.brands || []).length === 0 && <p className="text-xs text-gray-400 italic">No specific brands added. Default prices will be used.</p>}
+             {/* Default/Base Price Row */}
+             <div className="flex gap-2 items-center">
+                 <div className="w-1/3 text-xs font-bold text-gray-500 pl-1">Base / Default</div>
+                 <input type="number" className="flex-1 p-2 border rounded text-xs" placeholder="Sell Price" value={form.sellPrice} onChange={e => setForm({...form, sellPrice: e.target.value})} />
+                 <input type="number" className="flex-1 p-2 border rounded text-xs" placeholder="Buy Price" value={form.buyPrice} onChange={e => setForm({...form, buyPrice: e.target.value})} />
+                 <div className="w-6"></div> 
+             </div>
 
-             {(form.brands || []).map((b, idx) => (
-                 <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded-lg border shadow-sm">
-                     <div className="flex-1 space-y-1">
-                         <input className="w-full p-1 border-b text-sm font-bold text-blue-900 placeholder-blue-200" placeholder="Brand Name (e.g. Havells)" value={b.name} onChange={e => updateBrand(idx, 'name', e.target.value)} />
-                         <div className="flex gap-2">
-                             <input type="number" className="w-1/2 p-1 bg-gray-50 rounded text-xs" placeholder="Sell" value={b.sellPrice} onChange={e => updateBrand(idx, 'sellPrice', e.target.value)} />
-                             <input type="number" className="w-1/2 p-1 bg-gray-50 rounded text-xs" placeholder="Buy" value={b.buyPrice} onChange={e => updateBrand(idx, 'buyPrice', e.target.value)} />
-                         </div>
-                     </div>
-                     <button onClick={() => removeBrandRow(idx)} className="text-red-400 hover:text-red-600"><X size={16}/></button>
+             {/* Dynamic Brands */}
+             {form.brands && form.brands.map((brand, idx) => (
+                 <div key={idx} className="flex gap-2 items-center">
+                     <input className="w-1/3 p-2 border rounded text-xs font-bold" placeholder="Brand Name" value={brand.name} onChange={e => updateBrand(idx, 'name', e.target.value)} />
+                     <input type="number" className="flex-1 p-2 border rounded text-xs" placeholder="Sell" value={brand.sellPrice} onChange={e => updateBrand(idx, 'sellPrice', e.target.value)} />
+                     <input type="number" className="flex-1 p-2 border rounded text-xs" placeholder="Buy" value={brand.buyPrice} onChange={e => updateBrand(idx, 'buyPrice', e.target.value)} />
+                     <button onClick={() => removeBrandRow(idx)} className="text-red-500"><Trash2 size={14}/></button>
                  </div>
              ))}
          </div>
 
-         <button onClick={async () => {  handleCloseUI();await saveRecord('items', form, 'item'); }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-200">Save Item</button>
+         <button onClick={async () => {
+             // Validation
+             if(!form.name) return alert("Item Name Required");
+             if(form.brands && form.brands.some(b => !b.name)) return alert("Brand Name cannot be empty");
+
+             await saveRecord('items', form, 'item');
+         }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold text-lg shadow-lg shadow-blue-200">Save Item</button>
        </div>
     );
   };
