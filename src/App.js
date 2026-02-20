@@ -1317,21 +1317,41 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
     const [selectedAccountForTx, setSelectedAccountForTx] = useState(null); // REQ 5: Custom Account view
     const [showAddForm, setShowAddForm] = useState(false);
 
-    // REQ 2: Local + Firebase Sync Combination (Quick Load)
+    // REQ 2: Local + Firebase Sync Combination (Quick Load & Minimum Reads)
     useEffect(() => {
+        // 1. Instantly load from local storage
         const cached = localStorage.getItem('smees_data');
-        if (cached && (!data.personalTransactions || data.personalTransactions.length === 0)) {
+        if (cached) {
             const parsed = JSON.parse(cached);
             if (parsed.personalTransactions) {
-                setData(prev => ({ ...prev, personalTransactions: parsed.personalTransactions || [], personalAccounts: parsed.personalAccounts || [], personalCategories: parsed.personalCategories || [] }));
+                setData(prev => ({ ...prev, personalTransactions: parsed.personalTransactions || [], personalAccounts: parsed.personalAccounts || [], personalCategories: parsed.personalCategories || [], personalTasks: parsed.personalTasks || [] }));
             }
         }
+
+        // 2. Firebase Background Listener (Sirf changes aane par read karega)
+        const unsub = onSnapshot(doc(db, "companies", "smees_pro_data"), (docSnap) => {
+            if (docSnap.exists()) {
+                const cloudData = docSnap.data();
+                setData(prev => {
+                    const newData = { ...prev, personalTransactions: cloudData.personalTransactions || [], personalAccounts: cloudData.personalAccounts || [], personalCategories: cloudData.personalCategories || [], personalTasks: cloudData.personalTasks || [] };
+                    localStorage.setItem('smees_data', JSON.stringify(newData));
+                    return newData;
+                });
+            }
+        });
+
+        return () => unsub();
     }, []);
     const [showAccountForm, setShowAccountForm] = useState(false); // NEW: Account Form State
-    const [filterType, setFilterType] = useState('Month'); 
+    const [filterType, setFilterType] = useState('Monthly'); 
     const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+    const [filterCustom, setFilterCustom] = useState({ start: '', end: '' });
     const [statsTab, setStatsTab] = useState('income');
     const [moreTab, setMoreTab] = useState('menu');
+    const [selectedPTask, setSelectedPTask] = useState(null);
+    const [editingPTask, setEditingPTask] = useState(null);
+    const [selectedPTx, setSelectedPTx] = useState(null);
+    const [editingPTx, setEditingPTx] = useState(null);
     
     const transactions = data.personalTransactions || [];
     const accounts = data.personalAccounts || [{ id: 'cash', name: 'Cash', group: 'Cash', initialBalance: 0 }];
@@ -1368,45 +1388,64 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
 
     const filteredTxs = useMemo(() => {
         return transactions.filter(t => {
-            const tDate = new Date(t.date);
+            const d = new Date(t.date);
+            const now = new Date();
             const fDate = new Date(filterDate);
+
             if (filterType === 'Date') return t.date === filterDate;
-            if (filterType === 'Month') return tDate.getMonth() === fDate.getMonth() && tDate.getFullYear() === fDate.getFullYear();
+            if (filterType === 'Weekly') {
+                const start = new Date(now);
+                start.setDate(start.getDate() - start.getDay());
+                start.setHours(0,0,0,0);
+                return d >= start;
+            }
+            if (filterType === 'Monthly') return d.getMonth() === fDate.getMonth() && d.getFullYear() === fDate.getFullYear();
+            if (filterType === 'Yearly') return d.getFullYear() === fDate.getFullYear();
+            if (filterType === 'Custom' && filterCustom.start && filterCustom.end) {
+                return d >= new Date(filterCustom.start) && d <= new Date(filterCustom.end);
+            }
             return true; 
         }).sort((a,b) => new Date(b.date) - new Date(a.date));
-    }, [transactions, filterDate, filterType]);
+    }, [transactions, filterDate, filterType, filterCustom]);
 
     // FIX: Firebase Save Logic with Data Sanitization
     const handleSaveTransaction = async (entry, reset) => {
+        const isEdit = !!editingPTx;
         const newTx = { 
-            id: Date.now().toString(), 
+            id: isEdit ? editingPTx.id : Date.now().toString(), 
             date: entry.date || new Date().toISOString().split('T')[0],
             type: entry.type || 'expense',
             amount: parseFloat(entry.amount || 0),
             account: entry.account || '',       
             toAccount: entry.toAccount || '',
             category: entry.category || '',
+            subCategory: entry.subCategory || '',
             note: entry.note || '',
             desc: entry.desc || '',
             fee: parseFloat(entry.fee || 0)
         };
         
         let txsToSave = [newTx];
-        if (newTx.type === 'transfer' && newTx.fee > 0) {
+        if (newTx.type === 'transfer' && newTx.fee > 0 && !isEdit) {
             txsToSave.push({ ...newTx, id: (Date.now() + 1).toString(), type: 'expense', amount: newTx.fee, account: newTx.account, toAccount: '', category: 'Transfer Charges', note: `Fee for ${newTx.toAccount}`, fee: 0 });
         }
         
-        const updatedTxs = [...txsToSave, ...transactions];
+        const updatedTxs = isEdit 
+            ? data.personalTransactions.map(t => t.id === newTx.id ? newTx : t)
+            : [...txsToSave, ...transactions];
+
         const newData = { ...data, personalTransactions: updatedTxs };
         setData(newData);
+        localStorage.setItem('smees_data', JSON.stringify(newData)); // Local Storage Updated
 
         // FIX: Ensure it saves to Firebase Main DB under a proper field
         try {
             await setDoc(doc(db, "companies", "smees_pro_data"), { personalTransactions: updatedTxs }, { merge: true });
         } catch (e) { console.error("Save Error", e); }
 
-        if (reset) return true;
+        if (reset && !isEdit) return true;
         setShowAddForm(false);
+        setEditingPTx(null);
     };
 
     // FIX: Sync Button Logic (Reads from Firebase)
@@ -1415,20 +1454,24 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
             const docSnap = await getDoc(doc(db, "companies", "smees_pro_data"));
             if (docSnap.exists()) {
                 const cloudData = docSnap.data();
-                setData(prev => ({ ...prev, personalTransactions: cloudData.personalTransactions || [], personalAccounts: cloudData.personalAccounts || [], personalCategories: cloudData.personalCategories || [], personalTasks: cloudData.personalTasks || [] }));
+                setData(prev => {
+                    const newData = { ...prev, personalTransactions: cloudData.personalTransactions || [], personalAccounts: cloudData.personalAccounts || [], personalCategories: cloudData.personalCategories || [], personalTasks: cloudData.personalTasks || [] };
+                    localStorage.setItem('smees_data', JSON.stringify(newData)); // Saved to Cache
+                    return newData;
+                });
                 alert("Personal Vault Synced Successfully!");
             }
         } catch(e) { alert("Sync Failed!"); }
     };
 
-    const TransactionForm = ({ onSave, onCancel }) => {
-        const [type, setType] = useState('expense'); 
-        const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], amount: '', fee: '', account: '', toAccount: '', category: '', note: '', desc: '' });
+    const TransactionForm = ({ onSave, onCancel, initialData }) => {
+        const [type, setType] = useState(initialData ? initialData.type : 'expense'); 
+        const [form, setForm] = useState(initialData ? { ...initialData } : { date: new Date().toISOString().split('T')[0], amount: '', fee: '', account: '', toAccount: '', category: '', subCategory: '', note: '', desc: '' });
         
         const save = (reset = false) => {
             if (!form.amount || !form.account) return alert("Required fields missing!");
             onSave({ ...form, type }, reset);
-            if (reset) setForm({ ...form, amount: '', fee: '', note: '', desc: '' });
+            if (reset) setForm({ ...form, amount: '', fee: '', subCategory: '', note: '', desc: '' });
         };
 
         return (
@@ -1441,7 +1484,16 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                     <div className="flex gap-3"><div className="flex-1"><label className="text-[10px] font-bold text-gray-400">DATE</label><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl font-bold" value={form.date} onChange={e => setForm({...form, date: e.target.value})} /></div><div className="flex-1"><label className="text-[10px] font-bold text-gray-400">AMOUNT</label><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl font-bold text-lg" placeholder="0.00" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} /></div></div>
                     <div><label className="text-[10px] font-bold text-gray-400">FROM ACCOUNT</label><SearchableSelect options={accounts.map(a => ({ id: a.name, name: a.name }))} value={form.account} onChange={v => setForm({...form, account: v})} onAddNew={v => setForm({...form, account: v})} placeholder="Select Account" /></div>
                     {type === 'transfer' && (<div className="flex gap-2"><div className="flex-1"><label className="text-[10px] font-bold text-gray-400">TO ACCOUNT</label><SearchableSelect options={accounts.map(a => ({ id: a.name, name: a.name }))} value={form.toAccount} onChange={v => setForm({...form, toAccount: v})} onAddNew={v => setForm({...form, toAccount: v})} placeholder="Destination" /></div><div className="w-24"><label className="text-[10px] font-bold text-gray-400">FEE</label><input type="number" className="w-full p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 font-bold" placeholder="0" value={form.fee} onChange={e => setForm({...form, fee: e.target.value})} /></div></div>)}
-                    {type !== 'transfer' && (<div><label className="text-[10px] font-bold text-gray-400">CATEGORY</label><SearchableSelect options={(categories[type] || []).map(c => ({ id: c, name: c }))} value={form.category} onChange={v => setForm({...form, category: v})} onAddNew={v => setForm({...form, category: v})} placeholder="Category" /></div>)}
+                    {type !== 'transfer' && (
+                        <div className="flex gap-2">
+                            <div className="flex-1"><label className="text-[10px] font-bold text-gray-400">CATEGORY</label><SearchableSelect options={(categories[type] || []).map(c => ({ id: c, name: c }))} value={form.category} onChange={v => setForm({...form, category: v, subCategory: ''})} onAddNew={v => setForm({...form, category: v})} placeholder="Category" /></div>
+                            <div className="flex-1"><label className="text-[10px] font-bold text-gray-400">SUB CATEGORY</label><input className="w-full p-3 bg-gray-50 border rounded-xl text-sm" placeholder="Optional" value={form.subCategory} onChange={e => setForm({...form, subCategory: e.target.value})} list="subcats" />
+                            <datalist id="subcats">
+                                {Array.from(new Set(transactions.filter(t => t.category === form.category && t.subCategory).map(t => t.subCategory))).map(sc => <option key={sc} value={sc} />)}
+                            </datalist>
+                            </div>
+                        </div>
+                    )}
                     <div><label className="text-[10px] font-bold text-gray-400">NOTE</label><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="e.g. Dinner" value={form.note} onChange={e => setForm({...form, note: e.target.value})} /></div>
                 </div>
                 <div className="p-4 border-t bg-white flex gap-3"><button onClick={() => save(false)} className="flex-1 py-3 border rounded-xl font-bold text-gray-700">Save</button><button onClick={() => save(true)} className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold">Save & Continue</button></div>
@@ -1468,7 +1520,7 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
 
             <div className="flex-1 overflow-y-auto bg-gray-50">
                 {/* --- TASKS TAB --- */}
-                {mainTab === 'tasks' && (
+                {mainTab === 'tasks' && !selectedPTask && (
                     <div className="p-4 space-y-4">
                         <div className="flex gap-2">
                             <input className="flex-1 p-3 bg-white border rounded-xl shadow-sm" placeholder="Add New Task..." id="quick_task_input" onKeyDown={(e) => {
@@ -1477,52 +1529,148 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                             <button id="quick_task_btn" onClick={async () => {
                                 const val = document.getElementById('quick_task_input').value;
                                 if(!val) return;
-                                const newTask = { id: Date.now().toString(), text: val, status: 'To Do', date: new Date().toISOString() };
+                                const newTask = { id: Date.now().toString(), text: val, status: 'To Do', date: new Date().toISOString(), desc: '', dueDate: '', priority: 'Medium', subTasks: [] };
                                 const updated = [newTask, ...(data.personalTasks || [])];
                                 setData({ ...data, personalTasks: updated });
+                                localStorage.setItem('smees_data', JSON.stringify({ ...data, personalTasks: updated }));
                                 await setDoc(doc(db, "companies", "smees_pro_data"), { personalTasks: updated }, { merge: true });
                                 document.getElementById('quick_task_input').value = '';
                             }} className="bg-purple-600 text-white px-4 rounded-xl font-bold"><Plus/></button>
                         </div>
                         <div className="space-y-3 pb-24">
                             {(data.personalTasks || []).map(t => (
-                                <div key={t.id} className="p-3 bg-white rounded-xl border shadow-sm flex flex-col gap-2">
+                                <div key={t.id} className="p-3 bg-white rounded-xl border shadow-sm flex flex-col gap-2 cursor-pointer active:scale-95 transition-all" onClick={() => setSelectedPTask(t)}>
                                     <div className="flex justify-between items-center">
                                         <div className="flex gap-3 items-center">
                                             <div className={`w-3 h-3 rounded-full ${t.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                                            <p className={`font-bold ${t.status === 'Done' ? 'line-through text-gray-400' : 'text-gray-800'}`}>{t.text}</p>
+                                            <div>
+                                                <p className={`font-bold text-sm ${t.status === 'Done' ? 'line-through text-gray-400' : 'text-gray-800'}`}>{t.text}</p>
+                                                {t.dueDate && <p className="text-[10px] text-gray-500">Due: {t.dueDate}</p>}
+                                            </div>
                                         </div>
-                                        <select 
-                                            className="text-[10px] font-bold py-1 px-2 rounded border bg-gray-50"
-                                            value={t.status || 'To Do'}
-                                            onChange={async (e) => {
-                                                const updated = data.personalTasks.map(task => task.id === t.id ? { ...task, status: e.target.value } : task);
-                                                setData({ ...data, personalTasks: updated });
-                                                await setDoc(doc(db, "companies", "smees_pro_data"), { personalTasks: updated }, { merge: true });
-                                            }}
-                                        >
-                                            <option>To Do</option><option>In Progress</option><option>Done</option>
-                                        </select>
+                                        <div className="flex items-center gap-2">
+                                            {t.priority && <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${t.priority === 'High' ? 'bg-red-100 text-red-600' : t.priority === 'Low' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>{t.priority}</span>}
+                                            <button onClick={(e) => { e.stopPropagation(); setEditingPTask(t); }} className="text-blue-500 p-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"><Edit2 size={14}/></button>
+                                        </div>
                                     </div>
-                                    <button onClick={async () => {
-                                        if(window.confirm('Delete Task?')) {
-                                            const updated = data.personalTasks.filter(task => task.id !== t.id);
-                                            setData({ ...data, personalTasks: updated });
-                                            await setDoc(doc(db, "companies", "smees_pro_data"), { personalTasks: updated }, { merge: true });
-                                        }
-                                    }} className="text-[10px] text-red-400 self-end">Delete</button>
                                 </div>
                             ))}
+                            {(data.personalTasks || []).length === 0 && <p className="text-center text-gray-400 text-sm py-10">No tasks found.</p>}
                         </div>
                     </div>
                 )}
+
+                {/* --- PERSONAL TASK DETAILED VIEW --- */}
+                {mainTab === 'tasks' && selectedPTask && (() => {
+                    const task = data.personalTasks.find(x => x.id === selectedPTask.id) || selectedPTask;
+                    return (
+                    <div className="p-4 space-y-4 pb-24">
+                        <div className="flex items-center gap-3 mb-2">
+                            <button onClick={() => setSelectedPTask(null)} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={16}/></button>
+                            <h2 className="font-bold text-lg text-gray-800">Task Details</h2>
+                        </div>
+                        <div className="bg-white p-4 rounded-xl border shadow-sm space-y-4">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <h3 className="font-black text-xl text-gray-800">{task.text}</h3>
+                                    <p className="text-[10px] text-gray-400 mt-1">ID: {task.id}</p>
+                                </div>
+                                <span className={`text-[10px] uppercase px-2 py-1 rounded-lg font-bold border ${task.status === 'Done' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>{task.status}</span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                <div className="bg-gray-50 p-3 rounded-xl border"><p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Due Date</p><p className="font-bold text-gray-700">{task.dueDate || 'Not set'}</p></div>
+                                <div className="bg-gray-50 p-3 rounded-xl border"><p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Priority</p><p className={`font-bold ${task.priority==='High'?'text-red-600':''}`}>{task.priority || 'Medium'}</p></div>
+                            </div>
+                            
+                            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                                <p className="text-[10px] text-blue-500 font-bold uppercase mb-1">Description</p>
+                                <p className="text-sm text-blue-900 whitespace-pre-wrap">{task.desc || 'No description provided.'}</p>
+                            </div>
+
+                            <div className="border-t pt-4 mt-4">
+                                <div className="flex justify-between items-center mb-3">
+                                    <p className="text-xs font-bold text-gray-500 uppercase">Sub Tasks</p>
+                                    <button onClick={async () => {
+                                        const subTask = prompt("Enter Sub Task:");
+                                        if(!subTask) return;
+                                        const updatedTask = { ...task, subTasks: [...(task.subTasks||[]), { id: Date.now(), text: subTask, done: false }] };
+                                        const newList = data.personalTasks.map(t => t.id === task.id ? updatedTask : t);
+                                        setData({...data, personalTasks: newList});
+                                        localStorage.setItem('smees_data', JSON.stringify({...data, personalTasks: newList}));
+                                        await setDoc(doc(db, "companies", "smees_pro_data"), { personalTasks: newList }, { merge: true });
+                                    }} className="text-[10px] bg-purple-100 text-purple-700 px-3 py-1.5 rounded-lg font-bold hover:bg-purple-200">+ Add Sub Task</button>
+                                </div>
+                                <div className="space-y-2">
+                                    {(task.subTasks||[]).map(st => (
+                                        <div key={st.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border">
+                                            <input type="checkbox" checked={st.done} onChange={async (e) => {
+                                                const newSt = task.subTasks.map(x => x.id === st.id ? {...x, done: e.target.checked} : x);
+                                                const updatedTask = { ...task, subTasks: newSt };
+                                                const newList = data.personalTasks.map(t => t.id === task.id ? updatedTask : t);
+                                                setData({...data, personalTasks: newList});
+                                                localStorage.setItem('smees_data', JSON.stringify({...data, personalTasks: newList}));
+                                                await setDoc(doc(db, "companies", "smees_pro_data"), { personalTasks: newList }, { merge: true });
+                                            }} className="w-5 h-5 rounded text-purple-600" />
+                                            <span className={`flex-1 text-sm ${st.done ? 'line-through text-gray-400' : 'font-bold text-gray-700'}`}>{st.text}</span>
+                                            <button onClick={async () => {
+                                                if(!window.confirm('Delete this sub task?')) return;
+                                                const newSt = task.subTasks.filter(x => x.id !== st.id);
+                                                const updatedTask = { ...task, subTasks: newSt };
+                                                const newList = data.personalTasks.map(t => t.id === task.id ? updatedTask : t);
+                                                setData({...data, personalTasks: newList});
+                                                localStorage.setItem('smees_data', JSON.stringify({...data, personalTasks: newList}));
+                                                await setDoc(doc(db, "companies", "smees_pro_data"), { personalTasks: newList }, { merge: true });
+                                            }} className="text-red-400 p-1 bg-red-50 rounded hover:bg-red-100"><X size={14}/></button>
+                                        </div>
+                                    ))}
+                                    {(task.subTasks||[]).length === 0 && <p className="text-xs text-center text-gray-400 py-3">No sub tasks added.</p>}
+                                </div>
+                            </div>
+                            
+                            <div className="flex gap-3 pt-4 border-t">
+                                <button onClick={() => { setEditingPTask(task); }} className="flex-1 py-3 bg-blue-50 text-blue-700 font-bold rounded-xl text-sm flex justify-center items-center gap-2 hover:bg-blue-100"><Edit2 size={16}/> Edit</button>
+                                <button onClick={async () => {
+                                    if(!window.confirm('Delete Task?')) return;
+                                    const updated = data.personalTasks.filter(t => t.id !== task.id);
+                                    setData({ ...data, personalTasks: updated });
+                                    localStorage.setItem('smees_data', JSON.stringify({...data, personalTasks: updated}));
+                                    await setDoc(doc(db, "companies", "smees_pro_data"), { personalTasks: updated }, { merge: true });
+                                    setSelectedPTask(null);
+                                }} className="flex-1 py-3 bg-red-50 text-red-600 font-bold rounded-xl text-sm flex justify-center items-center gap-2 hover:bg-red-100"><Trash2 size={16}/> Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                )})}
 
                 {/* --- FINANCE TAB --- */}
                 {mainTab === 'finance' && (
                     <div className="flex flex-col h-full">
                         {financeView === 'transactions' && (
                             <div className="p-4 bg-white border-b space-y-4">
-                                <div className="flex gap-2"><select className="bg-gray-100 p-2 rounded-lg text-xs font-bold" value={filterType} onChange={e => setFilterType(e.target.value)}><option>Month</option><option>Week</option><option>Date</option></select><input type={filterType === 'Month' ? 'month' : 'date'} className="flex-1 bg-gray-100 p-2 rounded-lg text-xs font-bold" value={filterDate} onChange={e => setFilterDate(e.target.value)} /></div>
+                                <div className="space-y-2">
+                                    <div className="flex gap-2">
+                                        <select className="bg-gray-100 p-2 rounded-lg text-xs font-bold flex-1" value={filterType} onChange={e => setFilterType(e.target.value)}>
+                                            <option value="Weekly">This Week</option>
+                                            <option value="Monthly">Monthly</option>
+                                            <option value="Yearly">Yearly</option>
+                                            <option value="Custom">Custom Range</option>
+                                            <option value="Date">Specific Date</option>
+                                        </select>
+                                        {['Monthly', 'Yearly', 'Date'].includes(filterType) && (
+                                            <input type={filterType === 'Monthly' ? 'month' : filterType === 'Yearly' ? 'number' : 'date'} placeholder={filterType === 'Yearly' ? 'YYYY' : ''} className="flex-1 bg-gray-100 p-2 rounded-lg text-xs font-bold" value={filterType === 'Yearly' ? filterDate.split('-')[0] : filterDate} onChange={e => {
+                                                if(filterType === 'Yearly') setFilterDate(`${e.target.value}-01-01`);
+                                                else setFilterDate(e.target.value);
+                                            }} />
+                                        )}
+                                    </div>
+                                    {filterType === 'Custom' && (
+                                        <div className="flex gap-2">
+                                            <input type="date" className="flex-1 bg-gray-100 p-2 rounded-lg text-xs" value={filterCustom.start} onChange={e=>setFilterCustom({...filterCustom, start: e.target.value})}/>
+                                            <input type="date" className="flex-1 bg-gray-100 p-2 rounded-lg text-xs" value={filterCustom.end} onChange={e=>setFilterCustom({...filterCustom, end: e.target.value})}/>
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="grid grid-cols-3 gap-2 text-center">
                                     <div className="bg-green-50 p-2 rounded-lg border border-green-100"><p className="text-[10px] text-green-600 font-bold">Income</p><p className="font-bold text-green-700">{formatCurrency(filteredTxs.filter(t=>t.type==='income').reduce((s,t)=>s+parseFloat(t.amount),0))}</p></div>
                                     <div className="bg-red-50 p-2 rounded-lg border border-red-100"><p className="text-[10px] text-red-600 font-bold">Expense</p><p className="font-bold text-red-700">{formatCurrency(filteredTxs.filter(t=>t.type==='expense').reduce((s,t)=>s+parseFloat(t.amount),0))}</p></div>
@@ -1531,10 +1679,12 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                             </div>
                         )}
 
+                        {/* FIX: Prevent Empty Space UI Glitch in Stats & More Tab */}
+                        {(financeView === 'transactions' || financeView === 'accounts') && (
                         <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-3">
                             {financeView === 'transactions' && filteredTxs.map(t => (
-                                <div key={t.id} className="bg-white p-3 rounded-xl border shadow-sm flex justify-between items-center">
-                                    <div className="flex items-center gap-3"><div className={`p-2 rounded-full ${t.type==='income'?'bg-green-100 text-green-600':t.type==='expense'?'bg-red-100 text-red-600':'bg-blue-100 text-blue-600'}`}>{t.type==='income'?<TrendingUp size={16}/>:t.type==='expense'?<ShoppingCart size={16}/>:<Share2 size={16}/>}</div><div><p className="font-bold text-sm text-gray-800">{t.category || t.note || 'Transfer'}</p><p className="text-[10px] text-gray-500">{t.account}</p></div></div>
+                                <div key={t.id} onClick={() => setSelectedPTx(t)} className="bg-white p-3 rounded-xl border shadow-sm flex justify-between items-center cursor-pointer active:scale-95 transition-all hover:bg-gray-50">
+                                    <div className="flex items-center gap-3"><div className={`p-2 rounded-full ${t.type==='income'?'bg-green-100 text-green-600':t.type==='expense'?'bg-red-100 text-red-600':'bg-blue-100 text-blue-600'}`}>{t.type==='income'?<TrendingUp size={16}/>:t.type==='expense'?<ShoppingCart size={16}/>:<Share2 size={16}/>}</div><div><p className="font-bold text-sm text-gray-800 flex items-center gap-1">{t.category || t.note || 'Transfer'} {t.subCategory && <span className="text-[9px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 border font-normal">{t.subCategory}</span>}</p><p className="text-[10px] text-gray-500">{t.account}</p></div></div>
                                     <div className="text-right"><p className={`font-bold ${t.type==='income'?'text-green-600':'text-red-600'}`}>{t.type==='income'?'+':'-'}{formatCurrency(t.amount)}</p><p className="text-[10px] text-gray-400">{new Date(t.date).toLocaleDateString()}</p></div>
                                 </div>
                             ))}
@@ -1553,17 +1703,57 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
 
                             {financeView === 'accounts' && selectedAccountForTx && (
                                 <div className="space-y-3 pb-20">
-                                    <div className="flex items-center gap-3 bg-white p-3 rounded-xl shadow-sm border mb-4">
-                                        <button onClick={() => setSelectedAccountForTx(null)} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={16}/></button>
-                                        <div>
-                                            <h2 className="font-bold text-gray-800 text-sm">{selectedAccountForTx} Transactions</h2>
+                                    <div className="flex items-center justify-between bg-white p-3 rounded-xl shadow-sm border mb-4">
+                                        <div className="flex items-center gap-3">
+                                            <button onClick={() => setSelectedAccountForTx(null)} className="p-2 bg-gray-100 rounded-full"><ArrowLeft size={16}/></button>
+                                            <div>
+                                                <h2 className="font-bold text-gray-800 text-sm">{selectedAccountForTx} Ledger</h2>
+                                            </div>
                                         </div>
+                                        <button onClick={() => {
+                                            const accTxs = transactions.filter(t => t.account === selectedAccountForTx || t.toAccount === selectedAccountForTx).sort((a,b)=>new Date(a.date)-new Date(b.date));
+                                            let runningBal = accounts.find(a=>a.name===selectedAccountForTx)?.initialBalance || 0;
+                                            
+                                            let html = `<html><head><title>${selectedAccountForTx} Ledger</title><style>body{font-family:sans-serif;padding:20px;} table{width:100%;border-collapse:collapse;margin-top:20px;} th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:12px;} th{background:#f4f4f4;} .text-right{text-align:right;} .green{color:green;} .red{color:red;}</style></head><body>`;
+                                            html += `<h2>Account Ledger: ${selectedAccountForTx}</h2>`;
+                                            html += `<table><thead><tr><th>Date</th><th>Description</th><th>Type</th><th class="text-right">In (+)</th><th class="text-right">Out (-)</th><th class="text-right">Balance</th></tr></thead><tbody>`;
+                                            
+                                            html += `<tr><td>-</td><td>Opening Balance</td><td>-</td><td>-</td><td>-</td><td class="text-right font-bold">₹${runningBal.toFixed(2)}</td></tr>`;
+
+                                            accTxs.forEach(tx => {
+                                                let isIncoming = (tx.type === 'income' && tx.account === selectedAccountForTx) || (tx.type === 'transfer' && tx.toAccount === selectedAccountForTx);
+                                                let inAmt = isIncoming ? parseFloat(tx.amount||0) : 0;
+                                                let outAmt = !isIncoming ? parseFloat(tx.amount||0) : 0;
+                                                runningBal += (inAmt - outAmt);
+                                                
+                                                let desc = tx.category || tx.note || 'Transfer';
+                                                if(tx.subCategory) desc += ` (${tx.subCategory})`;
+                                                if(tx.note && tx.category) desc += ` - ${tx.note}`;
+                                                if(tx.type === 'transfer') desc += `<br/><small>From: ${tx.account} To: ${tx.toAccount}</small>`;
+
+                                                html += `<tr>
+                                                    <td>${new Date(tx.date).toLocaleDateString()}</td>
+                                                    <td>${desc}</td>
+                                                    <td>${tx.type.toUpperCase()}</td>
+                                                    <td class="text-right green">${inAmt > 0 ? '₹'+inAmt : '-'}</td>
+                                                    <td class="text-right red">${outAmt > 0 ? '₹'+outAmt : '-'}</td>
+                                                    <td class="text-right font-bold">₹${runningBal.toFixed(2)}</td>
+                                                </tr>`;
+                                            });
+                                            html += `</tbody></table></body></html>`;
+                                            const win = window.open('', '_blank');
+                                            win.document.write(html);
+                                            win.document.close();
+                                            setTimeout(() => win.print(), 500);
+                                        }} className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg flex items-center gap-1 text-xs font-bold hover:bg-blue-100">
+                                            <Share2 size={14}/> Share PDF
+                                        </button>
                                     </div>
                                     {transactions.filter(t => t.account === selectedAccountForTx || t.toAccount === selectedAccountForTx).length === 0 && <p className="text-center text-gray-400 text-xs py-4">No transactions found.</p>}
                                     {transactions.filter(t => t.account === selectedAccountForTx || t.toAccount === selectedAccountForTx).sort((a,b)=>new Date(b.date)-new Date(a.date)).map(tx => {
                                         const isIncoming = (tx.type === 'income' && tx.account === selectedAccountForTx) || (tx.type === 'transfer' && tx.toAccount === selectedAccountForTx);
                                         return (
-                                        <div key={tx.id} className="p-3 bg-white rounded-xl border flex justify-between items-center shadow-sm">
+                                        <div key={tx.id} onClick={() => setSelectedPTx(tx)} className="p-3 bg-white rounded-xl border flex justify-between items-center shadow-sm cursor-pointer active:scale-95 transition-all hover:bg-gray-50">
                                             <div className="flex items-center gap-3">
                                                 <div className={`p-2 rounded-full ${isIncoming ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
                                                     {isIncoming ? <TrendingUp size={16} /> : <ShoppingCart size={16} />}
@@ -1581,11 +1771,36 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                                 </div>
                             )}
                         </div>
+                        )}
                         {financeView === 'transactions' && <button onClick={() => setShowAddForm(true)} className="fixed bottom-24 right-6 w-14 h-14 bg-slate-900 text-white rounded-full shadow-2xl flex items-center justify-center z-[105]"><Plus size={28} /></button>}
                         {/* --- NEW: STATS VIEW --- */}
 {financeView === 'stats' && (
     <div className="p-4 space-y-4 pb-24 flex-1 overflow-y-auto">
-        <div className="flex bg-white rounded-xl p-1 shadow-sm">
+        <div className="space-y-2 bg-white p-3 rounded-xl shadow-sm border">
+            <div className="flex gap-2">
+                <select className="bg-gray-100 p-2 rounded-lg text-xs font-bold flex-1 border-none outline-none" value={filterType} onChange={e => setFilterType(e.target.value)}>
+                    <option value="Weekly">This Week</option>
+                    <option value="Monthly">Monthly</option>
+                    <option value="Yearly">Yearly</option>
+                    <option value="Custom">Custom Range</option>
+                    <option value="Date">Specific Date</option>
+                </select>
+                {['Monthly', 'Yearly', 'Date'].includes(filterType) && (
+                    <input type={filterType === 'Monthly' ? 'month' : filterType === 'Yearly' ? 'number' : 'date'} placeholder={filterType === 'Yearly' ? 'YYYY' : ''} className="flex-1 bg-gray-100 p-2 rounded-lg text-xs font-bold" value={filterType === 'Yearly' ? filterDate.split('-')[0] : filterDate} onChange={e => {
+                        if(filterType === 'Yearly') setFilterDate(`${e.target.value}-01-01`);
+                        else setFilterDate(e.target.value);
+                    }} />
+                )}
+            </div>
+            {filterType === 'Custom' && (
+                <div className="flex gap-2">
+                    <input type="date" className="flex-1 bg-gray-100 p-2 rounded-lg text-xs" value={filterCustom.start} onChange={e=>setFilterCustom({...filterCustom, start: e.target.value})}/>
+                    <input type="date" className="flex-1 bg-gray-100 p-2 rounded-lg text-xs" value={filterCustom.end} onChange={e=>setFilterCustom({...filterCustom, end: e.target.value})}/>
+                </div>
+            )}
+        </div>
+
+        <div className="flex bg-white rounded-xl p-1 shadow-sm border">
             <button onClick={() => setStatsTab('income')} className={`flex-1 py-2 text-xs font-bold rounded-lg ${statsTab === 'income' ? 'bg-green-100 text-green-700' : 'text-gray-500'}`}>Income</button>
             <button onClick={() => setStatsTab('expense')} className={`flex-1 py-2 text-xs font-bold rounded-lg ${statsTab === 'expense' ? 'bg-red-100 text-red-700' : 'text-gray-500'}`}>Expense</button>
         </div>
@@ -1596,24 +1811,72 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
             const totalAmount = Object.values(catTotals).reduce((a, b) => a + b, 0);
             const sortedCats = Object.entries(catTotals).sort((a, b) => b[1] - a[1]);
             
-            // Generate Pie Chart logic
             const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
-            let cumulative = 0;
-            const gradientStops = sortedCats.map(([cat, amt], i) => {
-                const pct = (amt / (totalAmount || 1)) * 100;
-                const stop = `${colors[i % colors.length]} ${cumulative}% ${cumulative + pct}%`;
-                cumulative += pct;
-                return stop;
-            }).join(', ');
+            
+            // Generate SVG Pie Chart Data
+            let currentAngle = -Math.PI / 2; // Start from top
+            const cx = 120, cy = 120, radius = 60;
+            
+            const slices = sortedCats.map(([cat, amt], i) => {
+                const percent = totalAmount > 0 ? (amt / totalAmount) : 0;
+                const angle = percent * Math.PI * 2;
+                const nextAngle = currentAngle + angle;
+                const midAngle = currentAngle + angle / 2;
+                
+                const x1 = cx + radius * Math.cos(currentAngle);
+                const y1 = cy + radius * Math.sin(currentAngle);
+                
+                let pathData;
+                if (percent === 1) { // 100% circle handle
+                    pathData = `M ${cx} ${cy - radius} A ${radius} ${radius} 0 1 1 ${cx} ${cy + radius} A ${radius} ${radius} 0 1 1 ${cx} ${cy - radius} Z`;
+                } else {
+                    const x2 = cx + radius * Math.cos(nextAngle);
+                    const y2 = cy + radius * Math.sin(nextAngle);
+                    const largeArc = angle > Math.PI ? 1 : 0;
+                    pathData = `M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+                }
+
+                // Line and Text calculations
+                const labelRadius = radius + 20;
+                const lineX = cx + labelRadius * Math.cos(midAngle);
+                const lineY = cy + labelRadius * Math.sin(midAngle);
+                const isRight = Math.cos(midAngle) >= 0;
+                const textX = lineX + (isRight ? 5 : -5);
+                const textAnchor = isRight ? "start" : "end";
+
+                currentAngle = nextAngle;
+
+                return { cat, amt, percent: (percent * 100).toFixed(1), pathData, lineX, lineY, textX, textAnchor, color: colors[i % colors.length], midAngle };
+            });
 
             return (
                 <div className="space-y-4">
-                    <div className="bg-white p-4 rounded-xl shadow-sm text-center flex flex-col items-center">
+                    <div className="bg-white p-4 rounded-xl shadow-sm border text-center flex flex-col items-center">
                         <p className="text-xs font-bold text-gray-500 uppercase">Total {statsTab}</p>
-                        <p className={`text-2xl font-black mb-4 ${statsTab === 'income' ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(totalAmount)}</p>
+                        <p className={`text-2xl font-black mb-2 ${statsTab === 'income' ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(totalAmount)}</p>
                         
                         {sortedCats.length > 0 ? (
-                            <div className="w-40 h-40 rounded-full shadow-inner border-2 border-gray-100 mb-2" style={{ background: `conic-gradient(${gradientStops})` }}></div>
+                            <svg viewBox="0 0 240 240" className="w-full h-56 font-sans">
+                                {slices.map((slice, i) => (
+                                    <g key={i}>
+                                        <path d={slice.pathData} fill={slice.color} stroke="#fff" strokeWidth="1" />
+                                        {slice.percent > 3 && ( // Avoid cluttering lines for very small slices < 3%
+                                            <>
+                                                <polyline 
+                                                    points={`${cx + radius * Math.cos(slice.midAngle)},${cy + radius * Math.sin(slice.midAngle)} ${slice.lineX},${slice.lineY} ${slice.textX},${slice.lineY}`} 
+                                                    fill="none" stroke={slice.color} strokeWidth="1" opacity="0.6"
+                                                />
+                                                <text x={slice.textX + (slice.textAnchor==='start'?2:-2)} y={slice.lineY - 3} fontSize="8" fontWeight="bold" fill="#374151" textAnchor={slice.textAnchor}>
+                                                    {slice.cat.length > 12 ? slice.cat.substring(0,12)+'..' : slice.cat}
+                                                </text>
+                                                <text x={slice.textX + (slice.textAnchor==='start'?2:-2)} y={slice.lineY + 6} fontSize="7" fill="#6B7280" textAnchor={slice.textAnchor}>
+                                                    {formatCurrency(slice.amt)} ({slice.percent}%)
+                                                </text>
+                                            </>
+                                        )}
+                                    </g>
+                                ))}
+                            </svg>
                         ) : (
                             <div className="text-gray-400 text-xs py-6">No data for chart</div>
                         )}
@@ -1674,18 +1937,48 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                             }} className="px-3 bg-blue-600 text-white rounded-lg text-xs font-bold">Add</button>
                         </div>
                         {item.dataList.map((str, idx) => (
-                            <div key={idx} className="flex justify-between text-xs p-2 border-b last:border-0">
+                            <div key={idx} className="flex justify-between items-center text-xs p-2 border-b last:border-0 hover:bg-gray-50">
                                 <span className="font-medium">{str}</span>
-                                <button onClick={async () => {
-                                    if(!window.confirm("Delete this item?")) return;
-                                    let newData = {...data};
-                                    if(item.id === 'incomeCat') newData.personalCategories = {...categories, income: categories.income.filter(x => x !== str)};
-                                    if(item.id === 'expenseCat') newData.personalCategories = {...categories, expense: categories.expense.filter(x => x !== str)};
-                                    if(item.id === 'accountSetting') newData.personalAccounts = accounts.filter(x => x.name !== str);
-                                    
-                                    setData(newData);
-                                    await setDoc(doc(db, "companies", "smees_pro_data"), newData, { merge: true });
-                                }} className="text-red-500"><Trash2 size={14}/></button>
+                                <div className="flex gap-3">
+                                    <button onClick={async () => {
+                                        const newVal = prompt(`Edit ${item.label}:`, str);
+                                        if(!newVal || newVal === str) return;
+                                        let newData = {...data};
+                                        
+                                        if(item.id === 'incomeCat') {
+                                            newData.personalCategories = {...categories, income: categories.income.map(x => x === str ? newVal : x)};
+                                            newData.personalTransactions = data.personalTransactions.map(t => t.category === str && t.type === 'income' ? {...t, category: newVal} : t);
+                                        }
+                                        if(item.id === 'expenseCat') {
+                                            newData.personalCategories = {...categories, expense: categories.expense.map(x => x === str ? newVal : x)};
+                                            newData.personalTransactions = data.personalTransactions.map(t => t.category === str && t.type === 'expense' ? {...t, category: newVal} : t);
+                                        }
+                                        if(item.id === 'accountSetting') {
+                                            newData.personalAccounts = accounts.map(x => x.name === str ? {...x, name: newVal} : x);
+                                            newData.personalTransactions = data.personalTransactions.map(t => {
+                                                let updated = {...t};
+                                                if(t.account === str) updated.account = newVal;
+                                                if(t.toAccount === str) updated.toAccount = newVal;
+                                                return updated;
+                                            });
+                                        }
+                                        
+                                        setData(newData);
+                                        localStorage.setItem('smees_data', JSON.stringify(newData));
+                                        await setDoc(doc(db, "companies", "smees_pro_data"), newData, { merge: true });
+                                    }} className="text-blue-500"><Edit2 size={14}/></button>
+                                    <button onClick={async () => {
+                                        if(!window.confirm("Delete this item?")) return;
+                                        let newData = {...data};
+                                        if(item.id === 'incomeCat') newData.personalCategories = {...categories, income: categories.income.filter(x => x !== str)};
+                                        if(item.id === 'expenseCat') newData.personalCategories = {...categories, expense: categories.expense.filter(x => x !== str)};
+                                        if(item.id === 'accountSetting') newData.personalAccounts = accounts.filter(x => x.name !== str);
+                                        
+                                        setData(newData);
+                                        localStorage.setItem('smees_data', JSON.stringify(newData));
+                                        await setDoc(doc(db, "companies", "smees_pro_data"), newData, { merge: true });
+                                    }} className="text-red-500"><Trash2 size={14}/></button>
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -1705,8 +1998,88 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                 )}
             </div>
 
-            {showAddForm && <TransactionForm onSave={handleSaveTransaction} onCancel={() => setShowAddForm(false)} />}
+            {showAddForm && <TransactionForm onSave={handleSaveTransaction} onCancel={() => { setShowAddForm(false); setEditingPTx(null); }} initialData={editingPTx} />}
             
+            {/* --- PERSONAL TRANSACTION DETAILED VIEW MODAL --- */}
+            {selectedPTx && !editingPTx && (
+                <div className="fixed inset-0 z-[130] bg-black/60 backdrop-blur-sm flex items-end justify-center p-4 animate-in fade-in">
+                    <div className="bg-white w-full max-w-sm rounded-3xl p-6 space-y-4 animate-in slide-in-from-bottom relative shadow-2xl">
+                        <button onClick={() => setSelectedPTx(null)} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={18}/></button>
+                        <div className="text-center pt-2">
+                            <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-2 shadow-sm border ${selectedPTx.type==='income'?'bg-green-100 text-green-600 border-green-200':selectedPTx.type==='expense'?'bg-red-100 text-red-600 border-red-200':'bg-blue-100 text-blue-600 border-blue-200'}`}>
+                                {selectedPTx.type==='income'?<TrendingUp size={32}/>:selectedPTx.type==='expense'?<ShoppingCart size={32}/>:<Share2 size={32}/>}
+                            </div>
+                            <h2 className={`text-3xl font-black ${selectedPTx.type==='income'?'text-green-600':selectedPTx.type==='expense'?'text-red-600':'text-blue-600'}`}>{selectedPTx.type==='income'?'+':'-'}{formatCurrency(selectedPTx.amount)}</h2>
+                            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">{selectedPTx.type}</p>
+                        </div>
+                        
+                        <div className="bg-gray-50 rounded-2xl p-4 space-y-3 border">
+                            <div className="flex justify-between items-center"><span className="text-xs font-bold text-gray-500">Date</span><span className="text-sm font-bold text-gray-800">{new Date(selectedPTx.date).toLocaleDateString()}</span></div>
+                            <div className="flex justify-between items-center"><span className="text-xs font-bold text-gray-500">Account</span><span className="text-sm font-bold text-gray-800">{selectedPTx.account}</span></div>
+                            {selectedPTx.type === 'transfer' && <div className="flex justify-between items-center"><span className="text-xs font-bold text-gray-500">To Account</span><span className="text-sm font-bold text-gray-800">{selectedPTx.toAccount}</span></div>}
+                            {selectedPTx.category && <div className="flex justify-between items-center"><span className="text-xs font-bold text-gray-500">Category</span><span className="text-sm font-bold text-gray-800">{selectedPTx.category}</span></div>}
+                            {selectedPTx.subCategory && <div className="flex justify-between items-center"><span className="text-xs font-bold text-gray-500">Sub-Category</span><span className="text-sm font-bold text-gray-800">{selectedPTx.subCategory}</span></div>}
+                            {selectedPTx.fee > 0 && <div className="flex justify-between items-center"><span className="text-xs font-bold text-gray-500">Transfer Fee</span><span className="text-sm font-bold text-red-600">₹{selectedPTx.fee}</span></div>}
+                            <div className="flex justify-between items-start pt-2 border-t"><span className="text-xs font-bold text-gray-500">Description</span><span className="text-sm font-bold text-gray-800 text-right w-2/3">{selectedPTx.note || selectedPTx.desc || '-'}</span></div>
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                            <button onClick={() => { setEditingPTx(selectedPTx); setSelectedPTx(null); setShowAddForm(true); }} className="flex-1 py-3 bg-blue-50 text-blue-700 font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-blue-100 transition-colors"><Edit2 size={16}/> Edit</button>
+                            <button onClick={async () => {
+                                if(!window.confirm("Delete this transaction?")) return;
+                                const updatedTxs = data.personalTransactions.filter(t => t.id !== selectedPTx.id);
+                                const newData = { ...data, personalTransactions: updatedTxs };
+                                setData(newData);
+                                localStorage.setItem('smees_data', JSON.stringify(newData));
+                                await setDoc(doc(db, "companies", "smees_pro_data"), { personalTransactions: updatedTxs }, { merge: true });
+                                setSelectedPTx(null);
+                            }} className="flex-1 py-3 bg-red-50 text-red-600 font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-red-100 transition-colors"><Trash2 size={16}/> Delete</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* FIX: New Account Modal Form */}
+            
+            {/* --- PERSONAL TASK EDIT MODAL --- */}
+            {editingPTask && (
+                <div className="fixed inset-0 z-[120] bg-black/50 flex items-center justify-center p-4 animate-in fade-in">
+                    <div className="bg-white w-full max-w-sm p-6 rounded-3xl space-y-4 shadow-2xl">
+                        <div className="flex justify-between items-center mb-2">
+                            <h3 className="font-bold text-xl text-gray-800">Edit Task</h3>
+                            <button onClick={() => setEditingPTask(null)} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={18}/></button>
+                        </div>
+                        <div className="space-y-3">
+                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Task Name</label><input id="pt_name" defaultValue={editingPTask.text} className="w-full p-3 border bg-gray-50 rounded-xl font-bold mt-1" /></div>
+                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Description</label><textarea id="pt_desc" defaultValue={editingPTask.desc} className="w-full p-3 border bg-gray-50 rounded-xl text-sm mt-1" rows="3" placeholder="Add some details..." /></div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">Due Date</label><input type="date" id="pt_due" defaultValue={editingPTask.dueDate} className="w-full p-3 border bg-gray-50 rounded-xl text-sm mt-1 font-bold" /></div>
+                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">Priority</label><select id="pt_pri" defaultValue={editingPTask.priority || 'Medium'} className="w-full p-3 border bg-gray-50 rounded-xl text-sm mt-1 font-bold"><option>Low</option><option>Medium</option><option>High</option></select></div>
+                            </div>
+                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Status</label><select id="pt_stat" defaultValue={editingPTask.status || 'To Do'} className="w-full p-3 border bg-gray-50 rounded-xl text-sm mt-1 font-bold"><option>To Do</option><option>In Progress</option><option>Done</option></select></div>
+                        </div>
+                        <div className="flex gap-3 pt-4 border-t mt-4">
+                            <button onClick={() => setEditingPTask(null)} className="flex-1 py-3 text-gray-600 font-bold bg-gray-100 hover:bg-gray-200 rounded-xl">Cancel</button>
+                            <button onClick={async () => {
+                                const updatedTask = {
+                                    ...editingPTask,
+                                    text: document.getElementById('pt_name').value,
+                                    desc: document.getElementById('pt_desc').value,
+                                    dueDate: document.getElementById('pt_due').value,
+                                    priority: document.getElementById('pt_pri').value,
+                                    status: document.getElementById('pt_stat').value,
+                                };
+                                const newList = data.personalTasks.map(t => t.id === editingPTask.id ? updatedTask : t);
+                                setData({...data, personalTasks: newList});
+                                localStorage.setItem('smees_data', JSON.stringify({...data, personalTasks: newList}));
+                                await setDoc(doc(db, "companies", "smees_pro_data"), { personalTasks: newList }, { merge: true });
+                                setEditingPTask(null);
+                            }} className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200">Save</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* FIX: New Account Modal Form */}
             {showAccountForm && (
                 <div className="fixed inset-0 z-[120] bg-black/50 flex items-center justify-center p-4">
@@ -6131,8 +6504,21 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                         </span>
                     )}
                     <p className="text-sm text-gray-600 my-4">{task.description}</p>
-                    {/* FIX #5: Photos Link Button in Task Detail */}
-                    {task.photosLink && (
+
+                        {/* SUB TASK ME PARENT TASK KI INFO DIKHANE KE LIYE */}
+                        {task.parentId && (() => {
+                            const parentTask = data.tasks.find(t => t.id === task.parentId);
+                            return parentTask ? (
+                                <div onClick={() => setViewDetail({ type: 'task', id: parentTask.id })} className="p-3 bg-purple-50 border border-purple-200 rounded-xl cursor-pointer active:scale-95 mb-4">
+                                    <p className="text-[10px] font-bold text-purple-600 uppercase mb-1">Part of Main Task</p>
+                                    <p className="font-bold text-purple-900 text-sm">{parentTask.name}</p>
+                                    <p className="text-xs text-purple-700">ID: {parentTask.id}</p>
+                                </div>
+                            ) : null;
+                        })()}
+
+                        {/* FIX #5: Photos Link Button in Task Detail */}
+                        {!task.parentId && task.photosLink && (
                         <div className="mb-4">
                             <a href={task.photosLink} target="_blank" rel="noreferrer" className="w-full p-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-colors">
                                 <span>📸</span> View Attached Photos/Album
@@ -6141,7 +6527,8 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     )}
 
      {/* --- SUB TASKS SECTION --- */}
-                    <div className="bg-white border rounded-xl p-3 mb-4 shadow-sm">
+                        {!task.parentId && (
+                        <div className="bg-white border rounded-xl p-3 mb-4 shadow-sm">
                         <div className="flex justify-between items-center mb-2">
                             <h3 className="text-xs font-bold text-gray-500 uppercase">Sub Tasks</h3>
                             <button 
@@ -6162,10 +6549,11 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                 </div>
                             ))}
                             {data.tasks.filter(t => t.parentId === task.id).length === 0 && <p className="text-[10px] text-gray-400 italic">No sub tasks added.</p>}
+                            </div>
                         </div>
-                    </div>
+                        )}
 
-     {/* CHANGE: Client Card Clickable for Admin Only */}
+                        {/* CHANGE: Client Card Clickable for Admin Only */}
            {/* FIXED: Single Clean Client Card */}
                     <div className={`bg-white p-4 rounded-2xl border mb-2 shadow-sm relative overflow-hidden ${task.parentId ? 'hidden' : ''}`}>
                         {/* Background Decoration */}
@@ -6219,13 +6607,11 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                         )}
                     </div>
                     
-                    {/* SIMPLE WHATSAPP PHOTO SECTION */}
-            <TaskPhotoWhatsApp 
-                task={task}
-                party={party}
-                companyMobile={data.company.mobile}
-                saveRecord={saveRecord}
-            />
+                    {/* SUB-TASK KE LIYE YEH SAB HIDE KIYA HAI */}
+                        {!task.parentId && (
+                        <div className="space-y-4">
+                        {/* SIMPLE WHATSAPP PHOTO SECTION */}
+                        <TaskPhotoWhatsApp task={task} party={party} companyMobile={data.company.mobile} saveRecord={saveRecord} />
 
                     {/* Time Logs List with Summary & Toggle */}
                     <div className="bg-gray-50 rounded-xl border p-3 mb-4">
@@ -6299,13 +6685,18 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                         })}
                         {visibleStaff.length > 3 && (
                             <button onClick={() => setShowAllStaff(!showAllStaff)} className="text-xs font-bold text-blue-600 bg-blue-50 py-2 rounded-lg">
-                                {showAllStaff ? 'Show Less' : `Show All (${visibleStaff.length})`}
-                            </button>
+                                    {showAllStaff ? 'Show Less' : `Show All (${visibleStaff.length})`}
+                                </button>
+                            )}
+                        </div>
+                        </div>
                         )}
-                    </div>
-                </div>
 
-                {/* REQ 1: Items Used Section */}
+                    </div>
+
+                {!task.parentId && (
+                    <div className="space-y-4">
+                    {/* REQ 1: Items Used Section */}
                 {/* REQ 4: Items Section (Admin Only, Toggle, P&L) */}
                 {user.role === 'admin' && (
                     <div className="bg-gray-50 p-4 rounded-2xl border mb-4">
@@ -6398,17 +6789,19 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                     </div>
                 ) : (
                     task.status !== 'Converted' && checkPermission(user, 'canEditTasks') && (
-                        <button 
-                            onClick={() => setModal({ type: 'convertTask', data: task })} 
-                            className="w-full py-3 mt-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 active:scale-95 transition-transform"
-                        >
-                            Convert to Sale
-                        </button>
-                    )
-                )}
-            </div>
-            {/* --- FLOATING TIMER BUTTON (NEW) --- */}
-<button
+                                <button onClick={() => setModal({ type: 'convertTask', data: task })} className="w-full py-3 mt-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 active:scale-95 transition-transform" >
+                                    Convert to Sale
+                                </button>
+                            )
+                        )}
+                    </div>
+                    )}
+
+                    </div>
+
+                    {/* --- FLOATING TIMER BUTTON (NEW) --- */}
+                    {!task.parentId && (
+                    <button
     onClick={() => toggleTimer(user.id)}
     className={`fixed bottom-6 right-6 z-[70] shadow-2xl flex items-center justify-center gap-2 px-6 py-4 rounded-full transition-all active:scale-90 font-black text-white tracking-widest ${
         isMyTimerRunning 
@@ -6426,6 +6819,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         </>
     )}
 </button>
+)}
           </div>
         );
     }
@@ -6759,10 +7153,10 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                          <div className="p-4 overflow-y-auto flex-1 space-y-4">
                              <div className="p-4 bg-white border rounded-2xl shadow-sm space-y-3">
                                  <input className="w-full p-3 bg-gray-50 border rounded-xl font-bold" placeholder="Asset Name (e.g. Split AC 1.5T)" value={editingAsset.name} onChange={e => setEditingAsset({...editingAsset, name: e.target.value})} />
-                                 <div className="flex gap-2">
-                                     <input className="flex-1 p-3 bg-gray-50 border rounded-xl text-sm" placeholder="Brand" value={editingAsset.brand} onChange={e => setEditingAsset({...editingAsset, brand: e.target.value})} />
-                                     <input className="flex-1 p-3 bg-gray-50 border rounded-xl text-sm" placeholder="Model" value={editingAsset.model} onChange={e => setEditingAsset({...editingAsset, model: e.target.value})} />
-                                 </div>
+                                <div className="grid grid-cols-2 gap-2 overflow-hidden">
+                                    <input className="w-full p-3 bg-gray-50 border rounded-xl text-sm min-w-0" placeholder="Brand" value={editingAsset.brand} onChange={e => setEditingAsset({...editingAsset, brand: e.target.value})} />
+                                    <input className="w-full p-3 bg-gray-50 border rounded-xl text-sm min-w-0" placeholder="Model" value={editingAsset.model} onChange={e => setEditingAsset({...editingAsset, model: e.target.value})} />
+                                </div>
                                  <input className="w-full p-3 bg-gray-50 border rounded-xl text-sm" placeholder="Serial / IMEI No." value={editingAsset.serialNo} onChange={e => setEditingAsset({...editingAsset, serialNo: e.target.value})} />
                                  <input className="w-full p-3 bg-gray-50 border rounded-xl text-sm" placeholder="Google Photos Link (Optional)" value={editingAsset.photosLink} onChange={e => setEditingAsset({...editingAsset, photosLink: e.target.value})} />
                              </div>
@@ -6784,10 +7178,10 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                              ) : (
                                 <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl shadow-sm space-y-3">
                                     <h3 className="text-xs font-bold text-blue-800 uppercase flex items-center gap-1"><AlertCircle size={14}/> AMC / Service Setup</h3>
-                                    <div className="flex gap-2">
-                                        <div className="flex-1"><label className="text-[10px] font-bold text-gray-500 uppercase ml-1">Start Date</label><input type="date" className="w-full p-3 bg-white border rounded-xl text-sm font-bold" value={editingAsset.amcStart || ''} onChange={e => setEditingAsset({...editingAsset, amcStart: e.target.value})} /></div>
-                                        <div className="flex-1"><label className="text-[10px] font-bold text-gray-500 uppercase ml-1">End Date</label><input type="date" className="w-full p-3 bg-white border rounded-xl text-sm font-bold" value={editingAsset.amcEnd || ''} onChange={e => setEditingAsset({...editingAsset, amcEnd: e.target.value})} /></div>
-                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                    <div><label className="text-[10px] font-bold text-gray-500 uppercase ml-1">Install Date</label><input type="date" className="w-full p-3 bg-white border rounded-xl text-xs font-bold" value={editingAsset.installDate || ''} onChange={e => setEditingAsset({...editingAsset, installDate: e.target.value})} /></div>
+                                    <div><label className="text-[10px] font-bold text-gray-500 uppercase ml-1">Next Service</label><input type="date" className="w-full p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-bold" value={editingAsset.nextServiceDate || ''} onChange={e => setEditingAsset({...editingAsset, nextServiceDate: e.target.value})} /></div>
+                                </div>
                                     <div>
                                         <label className="text-[10px] font-bold text-gray-500 uppercase ml-1">Service Interval</label>
                                         <div>
@@ -6815,15 +7209,11 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                 </div>
                              )}
                              <button type="button" onClick={async () => {
-                                 if(!editingAsset.name) return alert("Name is required");
-                                 let cleanAsset = { ...editingAsset };
-                                 if(!editingAsset.isNewUI && cleanAsset.amcStart && cleanAsset.serviceInterval) {
-                                     const start = new Date(cleanAsset.amcStart);
-                                     start.setMonth(start.getMonth() + parseInt(cleanAsset.serviceInterval));
-                                     cleanAsset.nextServiceDate = start.toISOString().split('T')[0];
-                                 } else if(!cleanAsset.nextServiceDate) {
-                                     cleanAsset.nextServiceDate = '';
-                                 }
+                                if(!editingAsset.name) return alert("Name is required");
+                                let cleanAsset = { ...editingAsset };
+                                if(!cleanAsset.nextServiceDate) {
+                                    cleanAsset.nextServiceDate = '';
+                                }
                                  delete cleanAsset.isNewUI; 
                                  
                                  let freshParty = data.parties.find(p => p.id === record.id);
@@ -7870,9 +8260,11 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
 
         <div className="p-3 bg-gray-50 rounded-xl border"><label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Assigned Staff</label><div className="flex flex-wrap gap-2 mb-2">{form.assignedStaff.map(sid => { const s = data.staff.find(st => st.id === sid); return (<span key={sid} className="bg-white border px-2 py-1 rounded-full text-xs flex items-center gap-1">{s?.name} <button onClick={() => setForm({...form, assignedStaff: form.assignedStaff.filter(id => id !== sid)})}><X size={12}/></button></span>); })}</div><select className="w-full p-2 border rounded-lg text-sm bg-white" onChange={e => { if(e.target.value && !form.assignedStaff.includes(e.target.value)) setForm({...form, assignedStaff: [...form.assignedStaff, e.target.value]}); }}><option value="">+ Add Staff</option>{data.staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
         
-        <div>
-            <SearchableSelect label="Client" options={data.parties} value={form.partyId} onChange={v => setForm({...form, partyId: v, locationLabel: '', address: ''})} />
-            {(selectedParty?.locations?.length > 0 || selectedParty?.mobileNumbers?.length > 0) && (
+        {/* SUB-TASK KE LIYE CLIENT SECTION HIDE KIYA */}
+            {!form.parentId && (
+            <div>
+                <SearchableSelect label="Client" options={data.parties} value={form.partyId} onChange={v => setForm({...form, partyId: v, locationLabel: '', address: ''})} />
+                {(selectedParty?.locations?.length > 0 || selectedParty?.mobileNumbers?.length > 0) && (
                 <div className="relative mt-1 mb-2">
                     <div className="flex justify-between items-center bg-blue-50 p-2 rounded-lg border border-blue-100">
                          <div className="text-xs text-blue-800 overflow-hidden">
@@ -7893,17 +8285,20 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
                                 );
                             })}
                             {selectedParty.locations?.map((loc, idx) => (<div key={`loc-${idx}`} onClick={() => handleLocationSelect(loc)} className="p-2 hover:bg-blue-50 cursor-pointer border-b"><span className="text-xs font-bold text-blue-600 flex items-center gap-1"><MapPin size={10}/> {loc.label}</span><div className="text-[10px] truncate text-gray-500">{loc.address}</div></div>))}
-                        </div>
-                    )}
-                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
             )}
-        </div>
 
-        <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-20" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
+            <textarea className="w-full p-3 bg-gray-50 border rounded-xl h-20" placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
         <input className="w-full p-3 bg-gray-50 border rounded-xl text-sm mt-2" placeholder="Paste Google Photos/Album Link" value={form.photosLink || ''} onChange={e => setForm({...form, photosLink: e.target.value})} />
-        
-        <div className="space-y-2 bg-gray-50 p-3 rounded-xl border">
-            <div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4><button onClick={() => setShowItems(!showItems)} className="text-[10px] font-bold text-blue-600 bg-white border border-blue-200 px-3 py-1 rounded-full">{showItems ? 'Hide Items' : 'Show Items'}</button></div>
+
+            {/* SUB-TASK KE LIYE ITEMS SECTION HIDE KIYA */}
+            {!form.parentId && (
+            <div className="space-y-2 bg-gray-50 p-3 rounded-xl border">
+                <div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-400 uppercase">Items / Parts</h4><button onClick={() => setShowItems(!showItems)} className="text-[10px] font-bold text-blue-600 bg-white border border-blue-200 px-3 py-1 rounded-full">{showItems ? 'Hide Items' : 'Show Items'}</button></div>
             {showItems && (
                 <div className="space-y-2 pt-2">
                     {form.itemsUsed.map((line, idx) => {
@@ -7967,12 +8362,13 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
     </div>
 )}
                     <button onClick={() => setForm({...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="w-full py-3 border-2 border-dashed border-blue-200 text-blue-600 rounded-xl font-bold text-sm">+ Add Item</button>
-                </div>
+                    </div>
+                )}
+            </div>
             )}
-        </div>
 
-        {/* Brand Modal */}
-        {addBrandModal && (
+            {/* Brand Modal */}
+            {addBrandModal && (
             <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                 <div className="bg-white p-5 rounded-2xl w-full max-w-xs shadow-2xl">
                     <h3 className="font-bold text-lg mb-2">Add Brand</h3>
@@ -8357,19 +8753,18 @@ const removeMobile = (idx) => {
                     <div className="flex gap-2">
                         <input type="number" placeholder="Qty" className="w-16 p-2 border rounded-lg text-xs bg-yellow-50 text-center font-bold" value={tempLinkedItem.qty} onChange={e=>setTempLinkedItem({...tempLinkedItem, qty: e.target.value})} />
                         <input type="number" placeholder="Price" className="w-20 p-2 border rounded-lg text-xs font-bold text-gray-700" value={tempLinkedItem.price} onChange={e=>setTempLinkedItem({...tempLinkedItem, price: e.target.value})} />
-                        <button type="button" onClick={async () => {
-                                     if(!tempLinkedItem.name) return;
-                                     const cleanLinkedItem = { name: tempLinkedItem.name || '', brand: tempLinkedItem.brand || '', price: parseFloat(tempLinkedItem.price || 0), qty: parseFloat(tempLinkedItem.qty || 1) };
-                                     const newLinkedItems = [...(form.linkedItems||[]), cleanLinkedItem];
-                                     setForm(prev => ({...prev, linkedItems: newLinkedItems}));
-                                     setTempLinkedItem({ name: '', brand: '', price: '', qty: 1 });
-                                     
-                                     if (form.id) {
-                                         const updatedItem = { ...form, linkedItems: newLinkedItems, updatedAt: new Date().toISOString() };
-                                         setData(prev => ({...prev, items: prev.items.map(i => i.id === form.id ? updatedItem : i)}));
-                                         await setDoc(doc(db, "items", form.id), updatedItem, { merge: true });
-                                     }
-                                 }} className="px-4 bg-orange-600 text-white rounded-lg font-bold text-xs">Add</button>
+                        <button type="button" onClick={() => {
+                                if(!tempLinkedItem.name) return;
+                                const cleanLinkedItem = {
+                                    name: tempLinkedItem.name || '',
+                                    brand: tempLinkedItem.brand || '',
+                                    price: parseFloat(tempLinkedItem.price || 0),
+                                    qty: parseFloat(tempLinkedItem.qty || 1)
+                                };
+                                const newLinkedItems = [...(form.linkedItems||[]), cleanLinkedItem];
+                                setForm(prev => ({...prev, linkedItems: newLinkedItems}));
+                                setTempLinkedItem({ name: '', brand: '', price: '', qty: 1 });
+                            }} className="px-4 bg-orange-600 text-white rounded-lg font-bold text-xs">Add</button>
                     </div>
                 </div>
              </div>
@@ -8412,53 +8807,58 @@ const removeMobile = (idx) => {
                      <input id="item_new_brand_sell" type="number" className="w-20 p-2 border rounded text-xs" placeholder="Sell" defaultValue={form.sellPrice} />
                      <input id="item_new_brand_buy" type="number" className="w-20 p-2 border rounded text-xs" placeholder="Buy" defaultValue={form.buyPrice} />
                  </div>
-                 <button type="button" onClick={async () => {
-                     const nameInput = document.getElementById('item_new_brand_name');
-                     const sellInput = document.getElementById('item_new_brand_sell');
-                     const buyInput = document.getElementById('item_new_brand_buy');
-                     const name = nameInput?.value;
-                     const sell = parseFloat(sellInput?.value||0);
-                     const buy = parseFloat(buyInput?.value||0);
-                     if(!name) return alert("Brand name required");
-                     
-                     const newBrands = [...(form.brands || []), { name, sellPrice: sell, buyPrice: buy }];
-                     setForm(prev => ({...prev, brands: newBrands}));
-                     
-                     if(form.id) {
-                        const updatedItem = { ...form, brands: newBrands, updatedAt: new Date().toISOString() };
-                        setData(prev => ({...prev, items: prev.items.map(i => i.id === form.id ? updatedItem : i)}));
-                        await setDoc(doc(db, "items", form.id), updatedItem, {merge:true});
-                     }
-                     if(nameInput) nameInput.value = '';
-                 }} className="w-full bg-blue-100 text-blue-700 font-bold p-2 rounded-lg text-xs">+ Add Brand (Auto-Save)</button>
+                 <button type="button" onClick={() => {
+                                const nameInput = document.getElementById('item_new_brand_name');
+                                const sellInput = document.getElementById('item_new_brand_sell');
+                                const buyInput = document.getElementById('item_new_brand_buy');
+                                
+                                const name = nameInput?.value;
+                                const sell = parseFloat(sellInput?.value||0);
+                                const buy = parseFloat(buyInput?.value||0);
+                                
+                                if(!name) return alert("Brand name required");
+                                
+                                const newBrands = [...(form.brands || []), { name, sellPrice: sell, buyPrice: buy }];
+                                setForm(prev => ({...prev, brands: newBrands}));
+                                
+                                if(nameInput) nameInput.value = '';
+                            }} className="w-full bg-blue-100 text-blue-700 font-bold p-2 rounded-lg text-xs">+ Add Brand</button>
              </div>
          </div>
 
          <button onClick={async () => {
-             if(!form.name) return alert("Item Name Required");
-             // FIX: Direct Save Record to force sync and CLOSE modal
-             const collectionName = 'items';
-             const isNew = !form.id;
-             const recordToSave = { ...form };
-             if(isNew) {
-                 recordToSave.id = Date.now().toString();
-                 recordToSave.createdAt = new Date().toISOString();
-             }
-             
-             // Optimistic Update Local State
-             const updatedList = isNew ? [recordToSave, ...data[collectionName]] : data[collectionName].map(r => r.id === recordToSave.id ? recordToSave : r);
-             setData({ ...data, [collectionName]: updatedList });
-             
-             // Close Modal First (Responsive UI)
-             setModal({ type: null }); 
-             
-             // Sync to Firebase
-             try {
-                 if (isNew) await setDoc(doc(db, collectionName, recordToSave.id), recordToSave);
-                 else await updateDoc(doc(db, collectionName, recordToSave.id), recordToSave);
-             } catch(e) { console.error("Item Save Error", e); }
-             
-         }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold text-lg shadow-lg">Save Item</button>
+                if(!form.name) return alert("Item Name Required");
+                
+                const collectionName = 'items';
+                const isNew = !form.id;
+                const recordToSave = { ...form };
+                
+                if(isNew) {
+                    recordToSave.id = `I-${Date.now()}`;
+                    recordToSave.createdAt = new Date().toISOString();
+                }
+                recordToSave.updatedAt = new Date().toISOString();
+
+                // 1. Prepare New Data Array
+                const updatedList = isNew 
+                    ? [recordToSave, ...data[collectionName]] 
+                    : data[collectionName].map(r => r.id === recordToSave.id ? recordToSave : r);
+                
+                // 2. Update Local State AND Local Storage (IMPORTANT!)
+                const newData = { ...data, [collectionName]: updatedList };
+                setData(newData);
+                localStorage.setItem('smees_data', JSON.stringify(newData));
+
+                // 3. Close Modal
+                setModal({ type: null });
+
+                // 4. Save to Firebase
+                try {
+                    await setDoc(doc(db, collectionName, recordToSave.id), recordToSave, { merge: true });
+                } catch(e) {
+                    console.error("Item Save Error", e);
+                }
+            }} className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold text-lg shadow-lg">Save Item</button>
        </div>
     );
   };
