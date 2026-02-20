@@ -1352,6 +1352,7 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
     const [editingPTask, setEditingPTask] = useState(null);
     const [selectedPTx, setSelectedPTx] = useState(null);
     const [editingPTx, setEditingPTx] = useState(null);
+    const [catFormModal, setCatFormModal] = useState(null);
     
     const transactions = data.personalTransactions || [];
     const accounts = data.personalAccounts || [{ id: 'cash', name: 'Cash', group: 'Cash', initialBalance: 0 }];
@@ -1484,16 +1485,46 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                     <div className="flex gap-3"><div className="flex-1"><label className="text-[10px] font-bold text-gray-400">DATE</label><input type="date" className="w-full p-3 bg-gray-50 border rounded-xl font-bold" value={form.date} onChange={e => setForm({...form, date: e.target.value})} /></div><div className="flex-1"><label className="text-[10px] font-bold text-gray-400">AMOUNT</label><input type="number" className="w-full p-3 bg-gray-50 border rounded-xl font-bold text-lg" placeholder="0.00" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} /></div></div>
                     <div><label className="text-[10px] font-bold text-gray-400">FROM ACCOUNT</label><SearchableSelect options={accounts.map(a => ({ id: a.name, name: a.name }))} value={form.account} onChange={v => setForm({...form, account: v})} onAddNew={v => setForm({...form, account: v})} placeholder="Select Account" /></div>
                     {type === 'transfer' && (<div className="flex gap-2"><div className="flex-1"><label className="text-[10px] font-bold text-gray-400">TO ACCOUNT</label><SearchableSelect options={accounts.map(a => ({ id: a.name, name: a.name }))} value={form.toAccount} onChange={v => setForm({...form, toAccount: v})} onAddNew={v => setForm({...form, toAccount: v})} placeholder="Destination" /></div><div className="w-24"><label className="text-[10px] font-bold text-gray-400">FEE</label><input type="number" className="w-full p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 font-bold" placeholder="0" value={form.fee} onChange={e => setForm({...form, fee: e.target.value})} /></div></div>)}
-                    {type !== 'transfer' && (
+                    {type !== 'transfer' && (() => {
+                        const normCats = (categories[type] || []).map(c => typeof c === 'string' ? { name: c, subCategories: [] } : c);
+                        const selectedCatObj = normCats.find(c => c.name === form.category);
+                        const subCatOptions = selectedCatObj ? selectedCatObj.subCategories : [];
+                        return (
                         <div className="flex gap-2">
-                            <div className="flex-1"><label className="text-[10px] font-bold text-gray-400">CATEGORY</label><SearchableSelect options={(categories[type] || []).map(c => ({ id: c, name: c }))} value={form.category} onChange={v => setForm({...form, category: v, subCategory: ''})} onAddNew={v => setForm({...form, category: v})} placeholder="Category" /></div>
-                            <div className="flex-1"><label className="text-[10px] font-bold text-gray-400">SUB CATEGORY</label><input className="w-full p-3 bg-gray-50 border rounded-xl text-sm" placeholder="Optional" value={form.subCategory} onChange={e => setForm({...form, subCategory: e.target.value})} list="subcats" />
-                            <datalist id="subcats">
-                                {Array.from(new Set(transactions.filter(t => t.category === form.category && t.subCategory).map(t => t.subCategory))).map(sc => <option key={sc} value={sc} />)}
-                            </datalist>
+                            <div className="flex-1"><label className="text-[10px] font-bold text-gray-400">CATEGORY</label><SearchableSelect options={normCats.map(c => ({ id: c.name, name: c.name }))} value={form.category} onChange={v => setForm({...form, category: v, subCategory: ''})} onAddNew={() => { const v = prompt("New Category:"); if(v) setForm({...form, category: v}); }} placeholder="Category" /></div>
+                            <div className="flex-1"><label className="text-[10px] font-bold text-gray-400">SUB CATEGORY</label>
+                            <SearchableSelect 
+                                options={(subCatOptions||[]).map(sc => ({ id: sc, name: sc }))}
+                                value={form.subCategory}
+                                onChange={v => setForm({...form, subCategory: v})}
+                                onAddNew={async () => {
+                                    if(!form.category) return alert("Select category first");
+                                    const newSub = prompt("Enter new sub-category:");
+                                    if(!newSub) return;
+                                    
+                                    let newData = {...data};
+                                    let updatedCats = [...(newData.personalCategories[type] || [])];
+                                    const catIdx = updatedCats.findIndex(c => (typeof c === 'string' ? c : c.name) === form.category);
+                                    
+                                    if (catIdx >= 0) {
+                                        const existingObj = typeof updatedCats[catIdx] === 'string' ? { name: updatedCats[catIdx], subCategories: [] } : updatedCats[catIdx];
+                                        updatedCats[catIdx] = { ...existingObj, subCategories: [...(existingObj.subCategories||[]), newSub] };
+                                    } else {
+                                        updatedCats.push({ name: form.category, subCategories: [newSub] });
+                                    }
+                                    
+                                    newData.personalCategories = { ...newData.personalCategories, [type]: updatedCats };
+                                    setData(newData);
+                                    localStorage.setItem('smees_data', JSON.stringify(newData));
+                                    await setDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: newData.personalCategories }, { merge: true });
+                                    
+                                    setForm({...form, subCategory: newSub});
+                                }}
+                                placeholder="Sub Category"
+                            />
                             </div>
                         </div>
-                    )}
+                    )})()}
                     <div><label className="text-[10px] font-bold text-gray-400">NOTE</label><input className="w-full p-3 bg-gray-50 border rounded-xl" placeholder="e.g. Dinner" value={form.note} onChange={e => setForm({...form, note: e.target.value})} /></div>
                 </div>
                 <div className="p-4 border-t bg-white flex gap-3"><button onClick={() => save(false)} className="flex-1 py-3 border rounded-xl font-bold text-gray-700">Save</button><button onClick={() => save(true)} className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold">Save & Continue</button></div>
@@ -1502,8 +1533,8 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
     };
 
     return (
-        <div className="fixed inset-0 z-[100] bg-white flex flex-col overflow-hidden">
-            <div className="bg-slate-900 text-white pt-4 pb-0 px-4 shadow-lg shrink-0">
+        <div className="fixed inset-0 z-[250] bg-white flex flex-col overflow-hidden">
+            <div className="bg-slate-900 text-white pt-14 pb-0 px-4 shadow-lg shrink-0">
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold flex items-center gap-2">🔐 My Vault</h2>
                     <div className="flex gap-2">
@@ -1641,7 +1672,7 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                             </div>
                         </div>
                     </div>
-                )})}
+                )})()}
 
                 {/* --- FINANCE TAB --- */}
                 {mainTab === 'finance' && (
@@ -1912,78 +1943,86 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
             {[
                 { id: 'accountGroup', label: 'Account Groups', dataList: Object.keys(accountGroups) },
                 { id: 'accountSetting', label: 'Accounts Setting', dataList: accounts.map(a=>a.name) },
-                { id: 'incomeCat', label: 'Income Categories', dataList: categories.income || [] },
-                { id: 'expenseCat', label: 'Expense Categories', dataList: categories.expense || [] }
-            ].map(item => (
+                { id: 'incomeCat', type: 'income', label: 'Income Categories', dataList: categories.income || [] },
+                { id: 'expenseCat', type: 'expense', label: 'Expense Categories', dataList: categories.expense || [] }
+            ].map(item => {
+                const isCat = item.id === 'incomeCat' || item.id === 'expenseCat';
+                return (
                 <div key={item.id} className="bg-white rounded-xl shadow-sm overflow-hidden">
                     <div className="p-4 flex justify-between items-center bg-gray-50 border-b cursor-pointer active:scale-95">
                         <span className="font-bold text-gray-700">{item.label}</span>
                     </div>
                     <div className="p-3 space-y-2 max-h-40 overflow-y-auto">
-                        <div className="flex gap-2 mb-3">
-                            <input id={`new_${item.id}`} className="flex-1 p-2 border rounded-lg text-xs" placeholder={`Add new ${item.label}...`} />
-                            <button onClick={async () => {
-                                const val = document.getElementById(`new_${item.id}`).value;
-                                if(!val) return;
-                                let newData = {...data};
-                                if(item.id === 'incomeCat') newData.personalCategories = {...categories, income: [...(categories.income||[]), val]};
-                                if(item.id === 'expenseCat') newData.personalCategories = {...categories, expense: [...(categories.expense||[]), val]};
-                                if(item.id === 'accountSetting') newData.personalAccounts = [...accounts, {id: Date.now().toString(), name: val, group: 'General', initialBalance: 0}];
-                                
-                                setData(newData);
-                                await setDoc(doc(db, "companies", "smees_pro_data"), newData, { merge: true });
-                                document.getElementById(`new_${item.id}`).value = '';
-                                alert("Saved to Firebase!");
-                            }} className="px-3 bg-blue-600 text-white rounded-lg text-xs font-bold">Add</button>
-                        </div>
-                        {item.dataList.map((str, idx) => (
-                            <div key={idx} className="flex justify-between items-center text-xs p-2 border-b last:border-0 hover:bg-gray-50">
-                                <span className="font-medium">{str}</span>
-                                <div className="flex gap-3">
-                                    <button onClick={async () => {
-                                        const newVal = prompt(`Edit ${item.label}:`, str);
-                                        if(!newVal || newVal === str) return;
-                                        let newData = {...data};
-                                        
-                                        if(item.id === 'incomeCat') {
-                                            newData.personalCategories = {...categories, income: categories.income.map(x => x === str ? newVal : x)};
-                                            newData.personalTransactions = data.personalTransactions.map(t => t.category === str && t.type === 'income' ? {...t, category: newVal} : t);
-                                        }
-                                        if(item.id === 'expenseCat') {
-                                            newData.personalCategories = {...categories, expense: categories.expense.map(x => x === str ? newVal : x)};
-                                            newData.personalTransactions = data.personalTransactions.map(t => t.category === str && t.type === 'expense' ? {...t, category: newVal} : t);
-                                        }
-                                        if(item.id === 'accountSetting') {
-                                            newData.personalAccounts = accounts.map(x => x.name === str ? {...x, name: newVal} : x);
-                                            newData.personalTransactions = data.personalTransactions.map(t => {
-                                                let updated = {...t};
-                                                if(t.account === str) updated.account = newVal;
-                                                if(t.toAccount === str) updated.toAccount = newVal;
-                                                return updated;
-                                            });
-                                        }
-                                        
-                                        setData(newData);
-                                        localStorage.setItem('smees_data', JSON.stringify(newData));
-                                        await setDoc(doc(db, "companies", "smees_pro_data"), newData, { merge: true });
-                                    }} className="text-blue-500"><Edit2 size={14}/></button>
-                                    <button onClick={async () => {
-                                        if(!window.confirm("Delete this item?")) return;
-                                        let newData = {...data};
-                                        if(item.id === 'incomeCat') newData.personalCategories = {...categories, income: categories.income.filter(x => x !== str)};
-                                        if(item.id === 'expenseCat') newData.personalCategories = {...categories, expense: categories.expense.filter(x => x !== str)};
-                                        if(item.id === 'accountSetting') newData.personalAccounts = accounts.filter(x => x.name !== str);
-                                        
-                                        setData(newData);
-                                        localStorage.setItem('smees_data', JSON.stringify(newData));
-                                        await setDoc(doc(db, "companies", "smees_pro_data"), newData, { merge: true });
-                                    }} className="text-red-500"><Trash2 size={14}/></button>
-                                </div>
+                        {/* Dynamic Add Logic */}
+                        {isCat ? (
+                            <button onClick={() => setCatFormModal({ type: item.type, index: -1, name: '', subCategories: [] })} className="w-full py-2 bg-blue-50 text-blue-600 font-bold text-xs rounded-lg border border-blue-100">+ Add New Category</button>
+                        ) : (
+                            <div className="flex gap-2 mb-3">
+                                <input id={`new_${item.id}`} className="flex-1 p-2 border rounded-lg text-xs" placeholder={`Add new ${item.label}...`} />
+                                <button onClick={async () => {
+                                    const val = document.getElementById(`new_${item.id}`).value;
+                                    if(!val) return;
+                                    let newData = {...data};
+                                    if(item.id === 'accountSetting') newData.personalAccounts = [...accounts, {id: Date.now().toString(), name: val, group: 'General', initialBalance: 0}];
+                                    
+                                    setData(newData);
+                                    await setDoc(doc(db, "companies", "smees_pro_data"), newData, { merge: true });
+                                    document.getElementById(`new_${item.id}`).value = '';
+                                }} className="px-3 bg-blue-600 text-white rounded-lg text-xs font-bold">Add</button>
                             </div>
-                        ))}
+                        )}
+                        {item.dataList.map((strOrObj, idx) => {
+                            const str = typeof strOrObj === 'string' ? strOrObj : strOrObj.name;
+                            const subs = typeof strOrObj === 'string' ? [] : (strOrObj.subCategories || []);
+                            return (
+                            <div key={idx} className="flex flex-col text-xs p-2 border-b last:border-0 hover:bg-gray-50">
+                                <div className="flex justify-between items-center">
+                                    <span className="font-medium text-gray-800">{str}</span>
+                                    <div className="flex gap-3">
+                                        <button onClick={async () => {
+                                            if (isCat) {
+                                                setCatFormModal({ type: item.type, index: idx, name: str, subCategories: subs });
+                                            } else {
+                                                const newVal = prompt(`Edit ${item.label}:`, str);
+                                                if(!newVal || newVal === str) return;
+                                                let newData = {...data};
+                                                if(item.id === 'accountSetting') {
+                                                    newData.personalAccounts = accounts.map(x => x.name === str ? {...x, name: newVal} : x);
+                                                    newData.personalTransactions = data.personalTransactions.map(t => {
+                                                        let updated = {...t};
+                                                        if(t.account === str) updated.account = newVal;
+                                                        if(t.toAccount === str) updated.toAccount = newVal;
+                                                        return updated;
+                                                    });
+                                                }
+                                                setData(newData);
+                                                localStorage.setItem('smees_data', JSON.stringify(newData));
+                                                await setDoc(doc(db, "companies", "smees_pro_data"), newData, { merge: true });
+                                            }
+                                        }} className="text-blue-500"><Edit2 size={14}/></button>
+                                        <button onClick={async () => {
+                                            if(!window.confirm("Delete this item?")) return;
+                                            let newData = {...data};
+                                            if(item.id === 'incomeCat') newData.personalCategories = {...categories, income: categories.income.filter((_, i) => i !== idx)};
+                                            if(item.id === 'expenseCat') newData.personalCategories = {...categories, expense: categories.expense.filter((_, i) => i !== idx)};
+                                            if(item.id === 'accountSetting') newData.personalAccounts = accounts.filter(x => x.name !== str);
+                                            
+                                            setData(newData);
+                                            localStorage.setItem('smees_data', JSON.stringify(newData));
+                                            await setDoc(doc(db, "companies", "smees_pro_data"), newData, { merge: true });
+                                        }} className="text-red-500"><Trash2 size={14}/></button>
+                                    </div>
+                                </div>
+                                {isCat && subs.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        {subs.map((s, i) => <span key={i} className="text-[9px] bg-gray-100 text-gray-500 px-1 rounded">{s}</span>)}
+                                    </div>
+                                )}
+                            </div>
+                        )})}
                     </div>
                 </div>
-            ))}
+            )})}
         </div>
     </div>
 )}
@@ -2075,6 +2114,71 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                                 await setDoc(doc(db, "companies", "smees_pro_data"), { personalTasks: newList }, { merge: true });
                                 setEditingPTask(null);
                             }} className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200">Save</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- CATEGORY FORM MODAL (MAIN + SUB) --- */}
+            {catFormModal && (
+                <div className="fixed inset-0 z-[140] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+                    <div className="bg-white p-6 rounded-3xl w-full max-w-sm shadow-2xl">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-lg">{catFormModal.index >= 0 ? 'Edit Category' : 'Add Category'}</h3>
+                            <button onClick={() => setCatFormModal(null)} className="p-1 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+                        </div>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Category Name</label>
+                                <input className="w-full p-3 border rounded-xl font-bold bg-gray-50" value={catFormModal.name} onChange={e => setCatFormModal({...catFormModal, name: e.target.value})} placeholder="e.g. Food" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-400 uppercase flex justify-between items-center mb-1">
+                                    <span>Sub Categories</span>
+                                    <button onClick={() => setCatFormModal({...catFormModal, subCategories: [...catFormModal.subCategories, '']})} className="text-blue-600 bg-blue-50 px-2 py-1 rounded">+ Add Sub</button>
+                                </label>
+                                <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                                    {catFormModal.subCategories.map((sub, idx) => (
+                                        <div key={idx} className="flex gap-2">
+                                            <input className="flex-1 p-2 border rounded-lg text-sm bg-gray-50" value={sub} onChange={e => {
+                                                const n = [...catFormModal.subCategories]; n[idx] = e.target.value; setCatFormModal({...catFormModal, subCategories: n});
+                                            }} placeholder="Sub category name" />
+                                            <button onClick={() => {
+                                                const n = catFormModal.subCategories.filter((_, i) => i !== idx); setCatFormModal({...catFormModal, subCategories: n});
+                                            }} className="p-2 text-red-500 bg-red-50 rounded-lg"><X size={16}/></button>
+                                        </div>
+                                    ))}
+                                    {catFormModal.subCategories.length === 0 && <p className="text-xs text-gray-400 italic">No sub categories added.</p>}
+                                </div>
+                            </div>
+                            <div className="flex gap-3 pt-2 border-t">
+                                <button onClick={() => setCatFormModal(null)} className="flex-1 py-3 bg-gray-100 font-bold rounded-xl text-gray-600">Cancel</button>
+                                <button onClick={async () => {
+                                    if(!catFormModal.name) return alert('Name is required');
+                                    const cleanSubs = catFormModal.subCategories.filter(s => s.trim() !== '');
+                                    const newCatObj = { name: catFormModal.name, subCategories: cleanSubs };
+                                    
+                                    let newData = {...data};
+                                    let list = [...(newData.personalCategories[catFormModal.type] || [])];
+                                    
+                                    if(catFormModal.index >= 0) {
+                                        const oldName = typeof list[catFormModal.index] === 'string' ? list[catFormModal.index] : list[catFormModal.index].name;
+                                        list[catFormModal.index] = newCatObj;
+                                        // Also update existing transactions
+                                        if (oldName !== catFormModal.name) {
+                                            newData.personalTransactions = data.personalTransactions.map(t => t.category === oldName && t.type === catFormModal.type ? {...t, category: catFormModal.name} : t);
+                                        }
+                                    } else {
+                                        list.push(newCatObj);
+                                    }
+                                    
+                                    newData.personalCategories = { ...newData.personalCategories, [catFormModal.type]: list };
+                                    setData(newData);
+                                    localStorage.setItem('smees_data', JSON.stringify(newData));
+                                    await setDoc(doc(db, "companies", "smees_pro_data"), newData, { merge: true });
+                                    setCatFormModal(null);
+                                }} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200">Save Category</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3605,7 +3709,7 @@ const TimeLogDetailsModal = ({ selectedTimeLog, setSelectedTimeLog, handleCloseU
 const Modal = ({ isOpen, onClose, title, children }) => {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
+    <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
       <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300">
         <div className="p-4 border-b flex justify-between items-center sticky top-0 bg-white z-10">
           <h2 className="text-lg font-bold text-gray-800">{title}</h2>
@@ -7119,7 +7223,11 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                 <a href={selectedAsset.photosLink} target="_blank" rel="noreferrer" className="w-full p-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-colors"><span>📸</span> View Asset Photos</a>
                              )}
                              <div className="flex gap-2 mb-2">
-                                <button onClick={() => { setEditingAsset({...selectedAsset}); setSelectedAsset(null); }} className="flex-1 py-3 bg-blue-50 text-blue-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-blue-100"><Edit size={14}/> Edit Asset</button>
+                               <button onClick={() => { 
+                                const astIdx = (record.assets || []).findIndex(a => a.name === selectedAsset.name);
+                                setEditingAsset({ ...selectedAsset, index: astIdx, isNewUI: true }); 
+                                setSelectedAsset(null); 
+                            }} className="flex-1 py-3 bg-blue-50 text-blue-700 font-bold rounded-xl text-sm flex justify-center items-center gap-2"><Edit2 size={16}/> Edit</button>
                                 <button onClick={() => { handleDeleteAsset(selectedAsset.name); setSelectedAsset(null); }} className="flex-1 py-3 bg-red-50 text-red-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-red-100"><Trash2 size={14}/> Delete Asset</button>
                              </div>
                              <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-2">
@@ -7234,12 +7342,23 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
             }
 
             return (
-                <div className="fixed inset-0 z-[100] bg-gray-50 flex flex-col animate-in slide-in-from-right">
-                   <div className="bg-white p-4 border-b flex justify-between items-center shadow-sm z-10 sticky top-0">
-                       <button onClick={() => setViewDetail(null)} className="p-2 bg-gray-100 rounded-full active:scale-90 transition-transform"><ArrowLeft size={20}/></button>
-                       <h2 className="font-black text-lg text-gray-800 tracking-tight">Party Profile</h2>
-                       <button onClick={() => { setModal({ type: 'party', data: record }); }} className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 active:scale-95 transition-all"><Edit2 size={12}/> Edit</button>
-                   </div>
+        <div className="fixed inset-0 z-[100] bg-gray-50 flex flex-col animate-in slide-in-from-right">
+            <div className="bg-white p-4 border-b flex justify-between items-center shadow-sm z-10 sticky top-0">
+                <button onClick={() => setViewDetail(null)} className="p-2 bg-gray-100 rounded-full active:scale-90 transition-transform"><ArrowLeft size={20}/></button>
+                <h2 className="font-black text-lg text-gray-800 tracking-tight flex-1 ml-3">Party Profile</h2>
+                <div className="flex gap-2">
+                    <button onClick={() => { setModal({ type: 'party', data: record }); }} className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 active:scale-95 transition-all"><Edit2 size={12}/> Edit</button>
+                    {/* STEP 4: DELETE BUTTON ADDED */}
+                    {user?.role === 'admin' && (
+                        <button onClick={async () => {
+                            if(window.confirm('Are you sure you want to delete this party? All related data may be affected.')) {
+                                await deleteRecord('parties', record.id);
+                                setViewDetail(null);
+                            }
+                        }} className="text-xs bg-red-50 text-red-600 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 active:scale-95 transition-all"><Trash2 size={12}/> Delete</button>
+                    )}
+                </div>
+            </div>
 
                    <div className="p-5 bg-gradient-to-br from-indigo-600 to-blue-700 text-white shadow-inner">
                        <div className="flex justify-between items-start mb-4">
@@ -7276,13 +7395,12 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                    </div>
 
                    <div className="flex p-2 gap-2 bg-white border-b shadow-sm sticky top-[72px] z-10 overflow-x-auto scrollbar-hide">
-                       <button onClick={() => setActiveTab('transactions')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'transactions' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>Trans</button>
-                       <button onClick={() => setActiveTab('assets')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'assets' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>Assets</button>
-                       <button onClick={() => setActiveTab('tasks')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'tasks' ? 'bg-white shadow text-purple-600' : 'text-gray-500'}`}>Tasks</button>
-                       <button onClick={() => setActiveTab('contacts')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'contacts' ? 'bg-white shadow text-green-600' : 'text-gray-500'}`}>Address/Contacts</button>
-                   </div>
-
-                   <div className="flex-1 overflow-y-auto p-4 pb-24">
+                    <button onClick={() => setActiveTab('transactions')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'transactions' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>Trans</button>
+                    <button onClick={() => setActiveTab('assets')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'assets' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>Assets</button>
+                    <button onClick={() => setActiveTab('tasks')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'tasks' ? 'bg-white shadow text-purple-600' : 'text-gray-500'}`}>Tasks</button>
+                    <button onClick={() => setActiveTab('contacts')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === 'contacts' ? 'bg-white shadow text-green-600' : 'text-gray-500'}`}>Address/Contacts</button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 pb-24" id="detail-scroller">
                        {activeTab === 'transactions' && (
                            <div className="space-y-3">
                              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">{['All', 'Sales', 'Purchase', 'Payment', 'Expense'].map(f => <button key={f} onClick={() => setFilter(f)} className={`px-4 py-2 rounded-full text-xs font-bold border whitespace-nowrap ${filter === f ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600'}`}>{f}</button>)}</div>
@@ -7295,56 +7413,87 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                     onChange={e => setTxSearch(e.target.value)} 
                                 />
                              </div>
-                             {history.filter(t => !txSearch || t.id.toLowerCase().includes(txSearch.toLowerCase()) || (t.amount || 0).toString().includes(txSearch)).length === 0 ? <div className="text-center py-10 text-gray-400 font-bold">No Transactions Found</div> : 
-                                history.filter(t => !txSearch || t.id.toLowerCase().includes(txSearch.toLowerCase()) || (t.amount || 0).toString().includes(txSearch)).map(tx => {
-                                   
-                                   // --- EXACT OLD LOGIC RESTORED FOR STATS & TAGS ---
-                                   const totals = getBillStats(tx, data.transactions); // Calculates exact balance
-                                   const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
-                                   const unusedAmount = tx.type === 'payment' ? (totals.amount - (totals.used || 0)) : 0;
+                            {history.filter(t => !txSearch || t.id.toLowerCase().includes(txSearch.toLowerCase()) || (t.amount || 0).toString().includes(txSearch)).length === 0 ? <div className="text-center py-10 text-gray-400 font-bold">No Transactions Found</div> : history.filter(t => !txSearch || t.id.toLowerCase().includes(txSearch.toLowerCase()) || (t.amount || 0).toString().includes(txSearch)).map(tx => {
+            // --- NEW: ACCOUNTS TAB JESA VIEW ---
+            const totals = getBillStats(tx, data.transactions); 
+            const isIncoming = tx.type === 'sales' || (tx.type === 'payment' && tx.subType === 'in');
+            const unusedAmount = tx.type === 'payment' ? (totals.amount - (totals.used || 0)) : 0;
+            
+            let typeLabel = tx.type;
+            if(tx.type === 'payment') typeLabel = tx.subType === 'in' ? 'Payment IN' : 'Payment OUT';
+            
+            const mode = tx.paymentMode || 'Cash';
+            const ModeIcon = (mode === 'Bank' || mode === 'UPI') ? Landmark : Banknote;
+            const showPayIcon = (['sales','purchase','expense'].includes(tx.type) && (parseFloat(tx.received||0) > 0 || parseFloat(tx.paid||0) > 0));
+            
+            let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
+            if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
+            if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
+            if (tx.type === 'payment') { Icon = ModeIcon; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
+            if (tx.type === 'expense') { Icon = ShoppingCart; iconColor = 'text-red-600'; bg = 'bg-red-100'; }
 
-                                   let typeLabel = tx.type;
-                                   if(tx.type === 'payment') typeLabel = tx.subType === 'in' ? 'Payment IN' : 'Payment OUT';
+            const isCancelled = tx.status === 'Cancelled';
 
-                                   const mode = tx.paymentMode || 'Cash';
-                                   let Icon = ReceiptText, iconColor = 'text-gray-600', bg = 'bg-gray-100';
-                                   if (tx.type === 'sales') { Icon = TrendingUp; iconColor = 'text-green-600'; bg = 'bg-green-100'; }
-                                   if (tx.type === 'purchase') { Icon = ShoppingCart; iconColor = 'text-blue-600'; bg = 'bg-blue-100'; }
-                                   if (tx.type === 'payment') { Icon = Banknote; iconColor = 'text-purple-600'; bg = 'bg-purple-100'; }
-                                   if (tx.type === 'expense') { Icon = TrendingDown; iconColor = 'text-red-600'; bg = 'bg-red-100'; }
-
-                                   return (
-                                     <div key={tx.id} onClick={() => { pushHistory(); setViewDetail({ type: 'transaction', id: tx.id }); }} className="p-4 bg-white border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform mb-2 shadow-sm hover:bg-gray-50">
-                                       <div className="flex gap-4 items-center">
-                                         <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
-                                         <div>
-                                           <div className="flex items-center gap-2">
-                                                <p className="font-bold text-gray-800 text-xs uppercase">{typeLabel} #{tx.id.split(':')[1] || tx.id.slice(-4)}</p>
-                                                {tx.type === 'payment' && <span className="text-[9px] bg-gray-100 px-1 rounded border">{mode}</span>}
-                                           </div>
-                                           <p className="text-[10px] text-gray-400 font-bold">{new Date(tx.date).toLocaleDateString()} {tx.note ? `• ${tx.note}` : ''}</p>
-                                         </div>
-                                       </div>
-                                       <div className="text-right flex flex-col items-end">
-                                            <p className={`font-black text-sm ${isIncoming ? 'text-green-600' : 'text-gray-800'}`}>
-                                                {isIncoming ? '+' : ''}{formatCurrency(totals.amount)}
-                                            </p>
-                                            
-                                            {/* OLD UI FULLY PAID & BALANCE TAGS RESTORED */}
-                                            {tx.type !== 'payment' && tx.type !== 'expense' && (
-                                                totals.balance <= 0 ? 
-                                                <span className="text-[9px] text-green-600 font-bold bg-green-50 px-1 rounded mt-1 border border-green-200">Fully Paid</span> :
-                                                <span className="text-[9px] text-red-500 font-bold bg-red-50 px-1 rounded mt-1 border border-red-100">Bal: {formatCurrency(totals.balance)}</span>
-                                            )}
-                                            
-                                            {tx.type === 'payment' && unusedAmount > 0 && (
-                                                <span className="text-[9px] text-orange-500 font-bold bg-orange-50 px-1 rounded mt-1 border border-orange-100">Unused: {formatCurrency(unusedAmount)}</span>
-                                            )}
-                                       </div>
-                                     </div>
-                                   );
-                                })
-                             }
+            return (
+              <div 
+                key={tx.id} 
+                onClick={() => { 
+                    const el = document.getElementById('detail-scroller');
+                    if (el) scrollPos.current[record.id] = el.scrollTop;
+                    pushHistory(); 
+                    setNavStack(prev => [...prev, { type: 'party', id: record.id }]);
+                    setViewDetail({ type: 'transaction', id: tx.id }); 
+                }}
+                className={`p-4 border rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-all mb-2 ${isCancelled ? 'opacity-50 grayscale bg-gray-50' : 'bg-white shadow-sm hover:bg-gray-50'}`}
+              >
+                <div className="flex gap-4 items-center flex-1">
+                  <div className={`p-3 rounded-full ${bg} ${iconColor}`}><Icon size={18} /></div>
+                  <div>
+                    <div className="flex items-center gap-2"><p className="font-bold text-gray-800 text-sm">{typeLabel} #{tx.id.split(':')[1] || tx.id.slice(-4)}</p></div>
+                    <div className="text-[10px] text-gray-400 uppercase font-bold mt-0.5">
+                        {tx.type === 'payment' ? (
+                            <div className="flex items-center gap-2">
+                                <span className="text-gray-400"><ModeIcon size={12}/></span>
+                                <span>{formatDate(tx.date)}</span>
+                            </div>
+                        ) : (
+                            <span className="flex items-center gap-1">
+                                {showPayIcon && <span className="text-green-600" title={mode}><ModeIcon size={10}/></span>}
+                                {formatDate(tx.date)}
+                            </span>
+                        )} 
+                    </div>
+                    {tx.description && ( 
+                        <p className="text-[9px] text-gray-500 italic truncate max-w-[150px] mt-0.5">{tx.description}</p> 
+                    )}
+                    <div className="flex gap-1 mt-1">
+                        {isCancelled ? (
+                            <span className="text-[8px] px-2 py-0.5 rounded-full font-black uppercase bg-gray-200 text-gray-600">CANCELLED</span>
+                        ) : (
+                            <>
+                                {['sales', 'purchase', 'expense'].includes(tx.type) && (
+                                    <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'PAID' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                        {totals.status}
+                                    </span>
+                                )}
+                                {tx.type === 'payment' && (
+                                    <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${totals.status === 'FULLY USED' ? 'bg-green-100 text-green-700' : totals.status === 'PARTIALLY USED' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>
+                                        {totals.status}
+                                    </span>
+                                )}
+                            </>
+                        )}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className={`font-bold ${isCancelled ? 'text-gray-400 line-through' : isIncoming ? 'text-green-600' : 'text-red-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totals.amount)}</p>
+                  {['sales', 'purchase', 'expense'].includes(tx.type) && totals.status !== 'PAID' && !isCancelled && <p className="text-[10px] font-bold text-orange-600">Bal: {formatCurrency(totals.pending)}</p>}
+                  {tx.type === 'payment' && !isCancelled && unusedAmount > 0.1 && <p className="text-[10px] font-bold text-orange-600">Unused: {formatCurrency(unusedAmount)}</p>}
+                </div>
+              </div>
+            );
+        })}
                            </div>
                        )}
 
@@ -7395,7 +7544,13 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                <div className="space-y-3">
                                    {filteredTasks.filter(t => !taskSearch || t.name.toLowerCase().includes(taskSearch.toLowerCase())).length === 0 ? <div className="text-center py-10 text-gray-400 font-bold">No {taskStatusFilter} Tasks</div> : 
                                     filteredTasks.filter(t => !taskSearch || t.name.toLowerCase().includes(taskSearch.toLowerCase())).map(task => (
-                                        <div key={task.id} onClick={() => { pushHistory(); setViewDetail({ type: 'task', id: task.id }); }} className="p-3 bg-white border rounded-xl shadow-sm flex justify-between items-center cursor-pointer active:scale-95 transition-all">
+                                        <div key={task.id} onClick={() => { 
+                                            const el = document.getElementById('detail-scroller');
+                                            if (el) scrollPos.current[record.id] = el.scrollTop;
+                                            pushHistory(); 
+                                            setNavStack(prev => [...prev, { type: 'party', id: record.id }]);
+                                            setViewDetail({ type: 'task', id: task.id }); 
+                                        }} className="p-3 bg-white border rounded-xl shadow-sm flex justify-between items-center cursor-pointer active:scale-95 transition-all">
                                            <div className="flex items-center gap-3">
                                                 <div className={`w-3 h-3 rounded-full ${task.status === 'Done' ? 'bg-green-500' : task.status === 'In Progress' ? 'bg-blue-500' : 'bg-yellow-500'}`}></div>
                                                 <div>
@@ -8907,44 +9062,31 @@ const removeMobile = (idx) => {
 
   if (!user) return <LoginScreen setUser={setUser} />;
 
-  return (
-    <div className="min-h-screen bg-gray-50 pb-24 font-sans select-none">
-      {toast && <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 rounded-full shadow-lg flex items-center gap-2 text-white animate-in fade-in slide-in-from-top duration-300 ${toast.type === 'error' ? 'bg-red-600' : 'bg-green-600'}`}>{toast.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}<span className="text-sm font-bold">{toast.message}</span></div>}
-      <DetailView />
+    return (
+        <div className="min-h-screen bg-gray-50 pb-24 font-sans select-none">
+            {/* GLOBAL VAULT SWITCHER */}
+            {user.role === 'admin' && (
+                <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[300] flex gap-1 bg-white/90 backdrop-blur-md p-1 rounded-full shadow-2xl border border-gray-200">
+                    <button onClick={() => setAppMode('business')} className={`px-5 py-1.5 rounded-full text-xs font-black transition-all ${ appMode === 'business' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100' }`}>
+                        Business Vault
+                    </button>
+                    <button onClick={() => setAppMode('personal')} className={`px-5 py-1.5 rounded-full text-xs font-black transition-all ${ appMode === 'personal' ? 'bg-purple-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100' }`}>
+                        My Vault
+                    </button>
+                </div>
+            )}
+
+            {toast && <div className={`fixed top-16 left-1/2 -translate-x-1/2 z-[300] px-4 py-2 rounded-full shadow-lg flex items-center gap-2 text-white animate-in fade-in slide-in-from-top duration-300 ${toast.type === 'error' ? 'bg-red-600' : 'bg-green-600'}`}>{toast.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}<span className="text-sm font-bold">{toast.message}</span></div>}
+            
+            <DetailView />
       
       {/* REQ 4: Header with Manual Sync Button */}
-      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md px-4 py-3 border-b flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black italic">S</div>
-          <span className="font-black text-gray-800 tracking-tight">SMEES Pro</span>
-          
-          {/* PERSONAL MODE TOGGLE - Only for him23 */}
-          {user.role === 'admin' && (
-            <div className="ml-3 flex gap-1 bg-gray-100 p-1 rounded-lg">
-              <button
-                onClick={() => setAppMode('business')}
-                className={`px-3 py-1 rounded text-xs font-bold transition-all ${
-                  appMode === 'business' 
-                    ? 'bg-blue-600 text-white shadow-sm' 
-                    : 'text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                Business
-              </button>
-              <button
-                onClick={() => setAppMode('personal')}
-                className={`px-3 py-1 rounded text-xs font-bold transition-all ${
-                  appMode === 'personal' 
-                    ? 'bg-purple-600 text-white shadow-sm' 
-                    : 'text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                Personal
-              </button>
+        <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md px-4 py-3 border-b flex justify-between items-center pt-14">
+            <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black italic">S</div>
+                <span className="font-black text-gray-800 tracking-tight">SMEES Pro</span>
             </div>
-          )}
-        </div>
-       <div className="flex gap-3">
+            <div className="flex gap-3">
             <button onClick={() => syncData(false)} className={`p-2 hover:bg-gray-100 rounded-full ${loading ? 'animate-spin' : ''}`}><RefreshCw size={20} className="text-blue-600" /></button>
             <button onClick={() => { pushHistory(); setModal({ type: 'company' }); }} className="p-2 hover:bg-gray-100 rounded-full"><Settings size={20} className="text-gray-500" /></button>
             {/* REQ 3: Logout Button */}
@@ -8959,24 +9101,17 @@ const removeMobile = (idx) => {
       </div>
 
       <main className="max-w-xl mx-auto p-4">
-        {loading ? <div className="flex flex-col items-center justify-center h-64 text-gray-400"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div><p className="text-sm font-bold">Syncing Data...</p></div> : (
-          <>
-            {/* PERSONAL MODE - Show Personal Dashboard */}
-            {appMode === 'personal' && user.role === 'admin' && activeTab === 'dashboard' && (
-              <PersonalDashboard 
-                data={data}
-                setData={setData}
-                pushHistory={pushHistory}
-                setViewDetail={setViewDetail}
-                showToast={showToast}
-                onClose={() => setAppMode('business')}
-              />
-            )}
-            
-            {/* BUSINESS MODE - Show Business Dashboard */}
-            {appMode === 'business' && activeTab === 'dashboard' && checkPermission(user, 'canViewDashboard') && <Dashboard />}
-            
-            {activeTab === 'accounting' && checkPermission(user, 'canViewAccounts') && (
+            {loading ? <div className="flex flex-col items-center justify-center h-64 text-gray-400"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div><p className="text-sm font-bold">Syncing Data...</p></div> : (
+                <>
+                    {/* PERSONAL MODE - Show Personal Dashboard Overlay */}
+                    {appMode === 'personal' && user.role === 'admin' && (
+                        <PersonalDashboard data={data} setData={setData} pushHistory={pushHistory} setViewDetail={setViewDetail} showToast={showToast} onClose={() => setAppMode('business')} />
+                    )}
+
+                    {/* BUSINESS MODE - Preserved in background */}
+                    {activeTab === 'dashboard' && checkPermission(user, 'canViewDashboard') && <Dashboard />}
+
+                    {activeTab === 'accounting' && checkPermission(user, 'canViewAccounts') && (
                 <TransactionList 
                     searchQuery={txSearchQuery} 
                     setSearchQuery={setTxSearchQuery}
