@@ -9065,16 +9065,26 @@ const removeMobile = (idx) => {
     return (
         <div className="min-h-screen bg-gray-50 pb-24 font-sans select-none">
             {/* GLOBAL VAULT SWITCHER */}
-            {user.role === 'admin' && (
-                <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[300] flex gap-1 bg-white/90 backdrop-blur-md p-1 rounded-full shadow-2xl border border-gray-200">
-                    <button onClick={() => setAppMode('business')} className={`px-5 py-1.5 rounded-full text-xs font-black transition-all ${ appMode === 'business' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100' }`}>
-                        Business Vault
-                    </button>
-                    <button onClick={() => setAppMode('personal')} className={`px-5 py-1.5 rounded-full text-xs font-black transition-all ${ appMode === 'personal' ? 'bg-purple-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100' }`}>
-                        My Vault
-                    </button>
-                </div>
-            )}
+          {user.role === 'admin' && (
+              <div className="fixed top-1 left-1/2 -translate-x-1/2 z-[300] flex gap-0.5 bg-white/80 backdrop-blur-sm p-0.5 rounded-full shadow-lg border border-gray-200">
+                  <button 
+                      onClick={() => setAppMode('business')} 
+                      className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all tracking-wide ${
+                          appMode === 'business' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100'
+                      }`}
+                  >
+                      Business
+                  </button>
+                  <button 
+                      onClick={() => setAppMode('personal')} 
+                      className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all tracking-wide ${
+                          appMode === 'personal' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100'
+                      }`}
+                  >
+                      Personal
+                  </button>
+              </div>
+          )}
 
             {toast && <div className={`fixed top-16 left-1/2 -translate-x-1/2 z-[300] px-4 py-2 rounded-full shadow-lg flex items-center gap-2 text-white animate-in fade-in slide-in-from-top duration-300 ${toast.type === 'error' ? 'bg-red-600' : 'bg-green-600'}`}>{toast.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}<span className="text-sm font-bold">{toast.message}</span></div>}
             
