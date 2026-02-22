@@ -1353,6 +1353,8 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
     const [selectedPTx, setSelectedPTx] = useState(null);
     const [editingPTx, setEditingPTx] = useState(null);
     const [catFormModal, setCatFormModal] = useState(null);
+    const [selectedPCat, setSelectedPCat] = useState(null);
+    const [selectedSubCats, setSelectedSubCats] = useState(['All']);
     
     const transactions = data.personalTransactions || [];
     const accounts = data.personalAccounts || [{ id: 'cash', name: 'Cash', group: 'Cash', initialBalance: 0 }];
@@ -1916,7 +1918,7 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                         {sortedCats.map(([cat, amount], i) => {
                             const percent = totalAmount > 0 ? ((amount / totalAmount) * 100).toFixed(1) : 0;
                             return (
-                                <div key={cat} className="bg-white p-3 rounded-xl shadow-sm">
+                                <div key={cat} onClick={() => { setSelectedPCat(cat); setSelectedSubCats(['All']); }} className="bg-white p-3 rounded-xl shadow-sm cursor-pointer active:scale-95 transition-all hover:bg-gray-50 border border-transparent hover:border-gray-200">
                                     <div className="flex justify-between items-center mb-1">
                                         <div className="flex items-center gap-2">
                                             <div className="w-3 h-3 rounded-full" style={{backgroundColor: colors[i % colors.length]}}></div>
@@ -2118,6 +2120,72 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                     </div>
                 </div>
             )}
+
+            {/* --- CATEGORY DETAILED VIEW OVERLAY --- */}
+            {selectedPCat && (() => {
+                const catTxs = filteredTxs.filter(t => t.type === statsTab && (t.category || 'Other') === selectedPCat);
+                const subCatTotals = {};
+                catTxs.forEach(t => { const sc = t.subCategory || 'Other'; subCatTotals[sc] = (subCatTotals[sc] || 0) + parseFloat(t.amount || 0); });
+                
+                const displayTxs = catTxs.filter(t => selectedSubCats.includes('All') || selectedSubCats.includes(t.subCategory || 'Other'));
+                const displayTotal = displayTxs.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+                const totalCatAmt = catTxs.reduce((s,t) => s + parseFloat(t.amount || 0), 0);
+                
+                return (
+                <div className="fixed inset-0 z-[125] bg-gray-50 flex flex-col animate-in slide-in-from-right pb-20">
+                    <div className="bg-white p-4 border-b flex items-center shadow-sm z-10 sticky top-0 gap-3">
+                        <button onClick={() => setSelectedPCat(null)} className="p-2 bg-gray-100 rounded-full active:scale-90 transition-transform"><ArrowLeft size={20}/></button>
+                        <h2 className="font-black text-lg text-gray-800 tracking-tight flex-1">{selectedPCat}</h2>
+                    </div>
+                    <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+                        <div className="bg-white p-4 rounded-xl shadow-sm border text-center">
+                            <p className="text-xs font-bold text-gray-500 uppercase">Selected Total</p>
+                            <p className={`text-2xl font-black ${statsTab === 'income' ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(displayTotal)}</p>
+                            <p className="text-[10px] text-gray-400 mt-1">{totalCatAmt > 0 ? ((displayTotal / totalCatAmt) * 100).toFixed(1) : 0}% of {selectedPCat}</p>
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={() => setSelectedSubCats(['All'])} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${selectedSubCats.includes('All') ? 'bg-slate-800 text-white border-slate-800 shadow-md' : 'bg-white text-gray-600 border-gray-200 shadow-sm'}`}>All</button>
+                            {Object.entries(subCatTotals).sort((a,b)=>b[1]-a[1]).map(([sc, amt]) => {
+                                const isSelected = selectedSubCats.includes(sc);
+                                return (
+                                    <button key={sc} onClick={() => {
+                                        if (selectedSubCats.includes('All')) { setSelectedSubCats([sc]); } 
+                                        else {
+                                            if (isSelected) {
+                                                const newArr = selectedSubCats.filter(x => x !== sc);
+                                                setSelectedSubCats(newArr.length === 0 ? ['All'] : newArr);
+                                            } else { setSelectedSubCats([...selectedSubCats, sc]); }
+                                        }
+                                    }} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${isSelected && !selectedSubCats.includes('All') ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 shadow-sm'}`}>
+                                        {sc} ({formatCurrency(amt)})
+                                    </button>
+                                )
+                            })}
+                        </div>
+
+                        <div className="space-y-2 mt-4">
+                            {displayTxs.length === 0 ? <p className="text-center text-gray-400 text-xs py-4">No transactions found.</p> : displayTxs.map(tx => (
+                                <div key={tx.id} onClick={() => setSelectedPTx(tx)} className="p-3 bg-white rounded-xl border flex justify-between items-center shadow-sm cursor-pointer active:scale-95 transition-all hover:bg-gray-50">
+                                    <div className="flex gap-3 items-center">
+                                        <div className={`p-2 rounded-full ${tx.type==='income'?'bg-green-100 text-green-600':'bg-red-100 text-red-600'}`}>
+                                            {tx.type==='income'?<TrendingUp size={16}/>:<ShoppingCart size={16}/>}
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-sm text-gray-800 flex items-center gap-1">{tx.category || 'Other'} {tx.subCategory && <span className="text-[9px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 border font-normal">{tx.subCategory}</span>}</p>
+                                            <p className="text-[10px] text-gray-500">{new Date(tx.date).toLocaleDateString()} • {tx.account}</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className={`font-bold ${tx.type==='income'?'text-green-600':'text-red-600'}`}>{tx.type==='income'?'+':'-'}{formatCurrency(tx.amount)}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+                );
+            })()}
 
             {/* --- CATEGORY FORM MODAL (MAIN + SUB) --- */}
             {catFormModal && (
@@ -7870,15 +7938,15 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
         const newItems = [...tx.items]; 
         newItems[idx][field] = val; 
         
-        if (field === 'itemId') { 
-            const item = data.items.find(i => i.id === val); 
-            if (item) { 
-                newItems[idx].price = type === 'purchase' ? item.buyPrice : item.sellPrice; 
-                newItems[idx].buyPrice = item.buyPrice; 
-                newItems[idx].description = item.description || ''; 
+        if (field === 'itemId') {
+            const item = data.items.find(i => i.id === val);
+            if (item) {
+                newItems[idx].price = type === 'purchase' ? item.buyPrice : item.sellPrice;
+                newItems[idx].buyPrice = item.buyPrice;
+                newItems[idx].description = item.description || '';
                 newItems[idx].brand = '';
-                newItems[idx].linkedItem = item.linkedItem || null; // Carry link info
-            } 
+                newItems[idx].linkedItems = item.linkedItems || []; // Carry link info array
+            }
         } 
         
         if (field === 'brand') { 
@@ -7915,10 +7983,9 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
              }
         }
 
-        // Calculate Qty based on Parent
+       // Calculate Qty based on Parent automatically
         const parentQty = parseFloat(parentLine.qty || 1);
-        const ratioQty = parseFloat(linkInfo.qty || 1);
-        const finalQty = parentQty * ratioQty;
+        const finalQty = parentQty;
 
         const newLine = { 
             itemId: linkedData.id, 
@@ -8117,15 +8184,12 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                 }}
                             />
 
-                            {/* SHOW LINKED ITEM BUTTON */}
-                            {line.linkedItem && (
-                                <button 
-                                    onClick={() => addLinkedItem(idx)}
-                                    className="text-[10px] bg-orange-100 text-orange-700 py-1 px-2 rounded-lg flex items-center gap-1 font-bold w-full justify-center border border-orange-200"
-                                >
-                                    <Plus size={10}/> Add Linked: {line.linkedItem.name} (₹{line.linkedItem.price})
-                                </button>
-                            )}
+                            {/* SHOW LINKED ITEM BUTTONS */}
+                                {(line.linkedItems || []).map((lItem, lIdx) => (
+                                    <button key={lIdx} type="button" onClick={() => addLinkedItem(idx, lIdx)} className="text-[10px] bg-orange-100 text-orange-700 py-1 px-2 rounded-lg flex items-center gap-1 font-bold w-full justify-center border border-orange-200 mt-1" >
+                                        <Plus size={10}/> Add Linked: {lItem.name} {lItem.brand ? `(${lItem.brand})` : ''} - ₹{lItem.price}
+                                    </button>
+                                ))}
                             
                             {selectedItemMaster && ( 
                                 <SearchableSelect 
@@ -8318,12 +8382,12 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
         n[idx][field] = val;
         const item = data.items.find(i => i.id === n[idx].itemId);
 
-        if (field === 'itemId' && item) {
+       if (field === 'itemId' && item) {
             n[idx].price = item.sellPrice || 0;
             n[idx].buyPrice = item.buyPrice || 0;
             n[idx].description = item.description || '';
-            n[idx].brand = ''; 
-            n[idx].linkedItem = item.linkedItem || null; // Carry Linked Info
+            n[idx].brand = '';
+            n[idx].linkedItems = item.linkedItems || []; // Carry Linked Info Array
         }
 
         if (field === 'brand' && item && item.brands) {
@@ -8340,12 +8404,10 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
     };
 
     // --- NEW: ADD LINKED ITEM HELPER (AUTO QTY SYNC) ---
-    const addLinkedItem = (parentIdx) => {
+    const addLinkedItem = (parentIdx, linkIdx) => {
         const parentLine = form.itemsUsed[parentIdx];
-        const linkInfo = parentLine.linkedItem; 
-        
+        const linkInfo = parentLine.linkedItems[linkIdx];
         if(!linkInfo) return;
-        
         const linkedData = data.items.find(i => i.name === linkInfo.name);
         if(!linkedData) return alert("Linked Item not found in Master!");
 
@@ -8361,12 +8423,9 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
              }
         }
 
-        // 2. Calculate Qty (Parent Qty * Master Config Qty)
-        // Example: Parent Qty 3 hai, aur Master me set hai ki 1 item ke sath 1 service charge lagta hai.
-        // To Total Qty = 3 * 1 = 3.
+       // 2. Calculate Qty (Automatic same as Parent Qty)
         const parentQty = parseFloat(parentLine.qty || 1);
-        const ratioQty = parseFloat(linkInfo.qty || 1);
-        const finalQty = parentQty * ratioQty;
+        const finalQty = parentQty;
 
         const newLine = { 
             itemId: linkedData.id, 
@@ -8466,15 +8525,12 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
                     
                             <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} placeholder="Select Item"/>
                             
-                            {/* --- NEW: LINKED ITEM BUTTON --- */}
-                            {line.linkedItem && (
-                                <button 
-                                    onClick={() => addLinkedItem(idx)}
-                                    className="text-[10px] bg-orange-100 text-orange-700 py-1 px-2 rounded-lg flex items-center gap-1 font-bold w-full justify-center border border-orange-200 hover:bg-orange-200"
-                                >
-                                    <Plus size={10}/> Add Linked: {line.linkedItem.name} {line.linkedItem.brand ? `(${line.linkedItem.brand})` : ''} - ₹{line.linkedItem.price} (Qty: {line.linkedItem.qty || 1})
+                            {/* --- NEW: LINKED ITEM BUTTONS --- */}
+                            {(line.linkedItems || []).map((lItem, lIdx) => (
+                                <button key={lIdx} onClick={() => addLinkedItem(idx, lIdx)} className="text-[10px] bg-orange-100 text-orange-700 py-1 px-2 rounded-lg flex items-center gap-1 font-bold w-full justify-center border border-orange-200 hover:bg-orange-200 mt-1" >
+                                    <Plus size={10}/> Add Linked: {lItem.name} {lItem.brand ? `(${lItem.brand})` : ''} - ₹{lItem.price}
                                 </button>
-                            )}
+                            ))}
 
                             {selectedItemMaster && ( 
                                 <SearchableSelect 
@@ -8866,7 +8922,7 @@ const removeMobile = (idx) => {
                     <div className="space-y-2 mb-2">
                         {form.linkedItems.map((li, idx) => (
                             <div key={idx} className="flex justify-between items-center bg-white p-2 rounded border text-xs">
-                                <div><span className="font-bold">{li.name}</span> {li.brand && `(${li.brand})`} <span className="text-gray-500">x{li.qty}</span></div>
+                                <div><span className="font-bold">{li.name}</span> {li.brand && `(${li.brand})`}</div>
                                 <div className="flex gap-2 items-center">
                                     <span className="font-bold text-gray-700">₹{li.price}</span>
                                     <button onClick={() => setForm({...form, linkedItems: form.linkedItems.filter((_, i) => i !== idx)})} className="text-red-500"><X size={14}/></button>
@@ -8906,21 +8962,20 @@ const removeMobile = (idx) => {
                         </select>
                     )}
                     <div className="flex gap-2">
-                        <input type="number" placeholder="Qty" className="w-16 p-2 border rounded-lg text-xs bg-yellow-50 text-center font-bold" value={tempLinkedItem.qty} onChange={e=>setTempLinkedItem({...tempLinkedItem, qty: e.target.value})} />
-                        <input type="number" placeholder="Price" className="w-20 p-2 border rounded-lg text-xs font-bold text-gray-700" value={tempLinkedItem.price} onChange={e=>setTempLinkedItem({...tempLinkedItem, price: e.target.value})} />
-                        <button type="button" onClick={() => {
-                                if(!tempLinkedItem.name) return;
-                                const cleanLinkedItem = {
-                                    name: tempLinkedItem.name || '',
-                                    brand: tempLinkedItem.brand || '',
-                                    price: parseFloat(tempLinkedItem.price || 0),
-                                    qty: parseFloat(tempLinkedItem.qty || 1)
-                                };
-                                const newLinkedItems = [...(form.linkedItems||[]), cleanLinkedItem];
-                                setForm(prev => ({...prev, linkedItems: newLinkedItems}));
-                                setTempLinkedItem({ name: '', brand: '', price: '', qty: 1 });
-                            }} className="px-4 bg-orange-600 text-white rounded-lg font-bold text-xs">Add</button>
-                    </div>
+                                        <input type="number" placeholder="Price" className="flex-1 p-2 border rounded-lg text-xs font-bold text-gray-700" value={tempLinkedItem.price} onChange={e=>setTempLinkedItem({...tempLinkedItem, price: e.target.value})} />
+                                        <button type="button" onClick={() => {
+                                            if(!tempLinkedItem.name) return;
+                                            const cleanLinkedItem = {
+                                                name: tempLinkedItem.name || '',
+                                                brand: tempLinkedItem.brand || '',
+                                                price: parseFloat(tempLinkedItem.price || 0),
+                                                qty: 1
+                                            };
+                                            const newLinkedItems = [...(form.linkedItems||[]), cleanLinkedItem];
+                                            setForm(prev => ({...prev, linkedItems: newLinkedItems}));
+                                            setTempLinkedItem({ name: '', brand: '', price: '', qty: 1 });
+                                        }} className="px-4 bg-orange-600 text-white rounded-lg font-bold text-xs">Add</button>
+                                    </div>
                 </div>
              </div>
          </div>
