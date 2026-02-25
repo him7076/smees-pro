@@ -1281,7 +1281,12 @@ const LoginScreen = ({ setUser }) => {
               if(!snap.empty) {
                   const userData = snap.docs[0].data();
                   const defaults = { canViewAccounts: false, canViewMasters: false, canViewTasks: true, canEditTasks: false, canViewDashboard: true };
-                  const staffUser = { ...userData, permissions: { ...defaults, ...userData.permissions } };
+                  // FIX: Normalize role to lowercase to match all admin checks
+                  const staffUser = { 
+                      ...userData, 
+                      role: userData.role ? userData.role.toLowerCase() : 'staff',
+                      permissions: { ...defaults, ...userData.permissions } 
+                  };
                   setUser(staffUser);
                   localStorage.setItem('smees_user', JSON.stringify(staffUser));
               } else {
@@ -4451,19 +4456,21 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
       const isFirstRun = !lastSyncTime || !currentData.transactions || currentData.transactions.length === 0;
 
       const collectionsToSync = [
-         { name: 'staff' }, 
-         { name: 'tasks' }, 
-         { name: 'attendance' },
-         { name: 'parties' }, 
-         { name: 'items' }, 
-         { name: 'transactions' },
-         { name: 'taskPhotos' }
-      ];
+        { name: 'staff' },
+        { name: 'tasks' },
+        { name: 'attendance' },
+        { name: 'parties' },
+        { name: 'items' },
+        { name: 'transactions' },
+        { name: 'taskPhotos' }
+    ];
 
-      // Admin check
-      if (user.role !== 'admin') {
-          collectionsToSync.pop(); // Staff ko transactions mat do
-      }
+    // Admin check
+    if (user.role !== 'admin') {
+        // FIX: Remove 'transactions' correctly instead of just popping the last item
+        const txIndex = collectionsToSync.findIndex(c => c.name === 'transactions');
+        if (txIndex > -1) collectionsToSync.splice(txIndex, 1);
+    }
 
       for (const col of collectionsToSync) {
           let q;
