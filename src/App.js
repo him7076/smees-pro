@@ -1266,7 +1266,7 @@ const LoginScreen = ({ setUser }) => {
             // FIX: Admin ke liye bhi Firebase Auth zaruri hai
             await signInAnonymously(auth); 
             
-            const adminUser = { name: 'Admin', role: 'admin', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true } };
+            const adminUser = { name: 'Admin', role: 'admin', loginId: 'him23', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true } };
             setUser(adminUser);
             localStorage.setItem('smees_user', JSON.stringify(adminUser));
         } catch (e) {
@@ -9127,8 +9127,8 @@ const removeMobile = (idx) => {
     return (
         <div className="min-h-screen bg-gray-50 pb-24 font-sans select-none">
             {/* GLOBAL VAULT SWITCHER */}
-          {user.role === 'admin' && (
-              <div className="fixed top-1 left-1/2 -translate-x-1/2 z-[300] flex gap-0.5 bg-white/80 backdrop-blur-sm p-0.5 rounded-full shadow-lg border border-gray-200">
+      {user.loginId === 'him23' && (
+        <div className="fixed top-1 left-1/2 -translate-x-1/2 z-[300] flex gap-0.5 bg-white/80 backdrop-blur-sm p-0.5 rounded-full shadow-lg border border-gray-200">
                   <button 
                       onClick={() => setAppMode('business')} 
                       className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all tracking-wide ${
@@ -9176,9 +9176,9 @@ const removeMobile = (idx) => {
             {loading ? <div className="flex flex-col items-center justify-center h-64 text-gray-400"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div><p className="text-sm font-bold">Syncing Data...</p></div> : (
                 <>
                     {/* PERSONAL MODE - Show Personal Dashboard Overlay */}
-                    {appMode === 'personal' && user.role === 'admin' && (
-                        <PersonalDashboard data={data} setData={setData} pushHistory={pushHistory} setViewDetail={setViewDetail} showToast={showToast} onClose={() => setAppMode('business')} />
-                    )}
+          {appMode === 'personal' && user.loginId === 'him23' && (
+              <PersonalDashboard data={data} setData={setData} pushHistory={pushHistory} setViewDetail={setViewDetail} showToast={showToast} onClose={() => setAppMode('business')} />
+          )}
 
                     {/* BUSINESS MODE - Preserved in background */}
                     {activeTab === 'dashboard' && checkPermission(user, 'canViewDashboard') && <Dashboard />}
