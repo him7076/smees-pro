@@ -4595,91 +4595,7 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
     
     return () => { unsubTasks(); unsubAtt(); };
   }, [user]);
-  // --- REQ 5: AUTOMATED AMC TASK CREATION ---
-  useEffect(() => {
-      // Run only if user is admin and data is loaded
-      if (!user || user.role !== 'admin' || data.parties.length === 0) return;
-
-      const runAutomation = async () => {
-          const today = new Date();
-          // Look ahead 2 days (Tomorrow or Today)
-          const thresholdDate = new Date();
-          thresholdDate.setDate(today.getDate() + 2); 
-
-          const newTasks = [];
-          const timestamp = new Date().toISOString();
-          let counters = { ...data.counters };
-
-          data.parties.forEach(p => {
-              if (!p.assets) return;
-              p.assets.forEach(asset => {
-                  if (!asset.nextServiceDate) return;
-                  
-                  const dueDate = new Date(asset.nextServiceDate);
-                  
-                  // 1. Check Date Condition (Due Today or Tomorrow)
-                  if (dueDate <= thresholdDate && dueDate >= today) {
-                      
-                      // 2. Check Duplicate (Already task created for this asset around this date?)
-                      // Logic: Check if any task exists for this party with description containing asset name AND created recently
-                      // FIX: Strict check using Linked Asset Name AND Due Date to prevent duplicates on refresh
-                      const alreadyExists = data.tasks.some(t => 
-                          t.partyId === p.id && 
-                          t.linkedAssetStr === asset.name && 
-                          t.dueDate === asset.nextServiceDate
-                      );
-
-                      if (!alreadyExists) {
-                          // Create Task Object
-                          const { id, nextCounters } = getNextId({ counters }, 'task');
-                          counters = nextCounters; // Update local counter for loop
-
-                          newTasks.push({
-                              id,
-                              name: `Auto Service: ${asset.name}`,
-                              partyId: p.id,
-                              description: `Automated Task for ${asset.brand} ${asset.model}. Service Due: ${asset.nextServiceDate}`,
-                              status: 'To Do',
-                              dueDate: asset.nextServiceDate,
-                              assignedStaff: [],
-                              itemsUsed: [],
-                              createdAt: timestamp,
-                              updatedAt: timestamp,
-                              taskCreatedAt: timestamp,
-                              linkedAssetStr: asset.name // Tag for future checks
-                          });
-                      }
-                  }
-              });
-          });
-
-          if (newTasks.length > 0) {
-              console.log("Auto-Creating Tasks:", newTasks.length);
-              
-              // 1. Update Local Data
-              const updatedTasks = [...data.tasks, ...newTasks];
-              const newData = { ...data, tasks: updatedTasks, counters };
-              setData(newData); // UI Update
-              
-              // 2. Batch Save to Firebase
-              const batch = [];
-              newTasks.forEach(t => batch.push(setDoc(doc(db, "tasks", t.id), t)));
-              batch.push(setDoc(doc(db, "settings", "counters"), counters));
-              
-              try {
-                  await Promise.all(batch);
-                  showToast(`Auto-created ${newTasks.length} AMC Tasks`);
-              } catch (e) {
-                  console.error("Auto Task Error", e);
-              }
-          }
-      };
-
-      // Run once on load (debounce slightly to ensure data is fresh)
-      const timer = setTimeout(runAutomation, 3000);
-      return () => clearTimeout(timer);
-
-  }, [data.parties, user]); // Dependency on parties ensure it runs after sync
+  
 
 
   // REQ 2: Deep Linking (Open Task from URL) ke baad wala useEffect
@@ -4883,23 +4799,79 @@ if (tx.type === 'payment') {
          }
       }
     } else {
-      // --- CASE 2: CREATING (Naya Record) ---
-      const { id, nextCounters } = getNextId(data, idType);
-      const createdField = collectionName === 'tasks' ? { taskCreatedAt: timestamp } : {};
-      
-      // Yahan hum 'createdAt' aur 'updatedAt' dono daal rahe hain
-      record = { 
-          ...record, 
-          id, 
-          createdAt: timestamp, 
-          updatedAt: timestamp, // <--- YE ZARURI HAI SMART SYNC KE LIYE
-          ...createdField 
-      };
-      
-      newData[collectionName] = [...data[collectionName], record];
-      newData.counters = nextCounters; 
-      newCounters = nextCounters;
-      finalId = id;
+        // --- CASE 2: CREATING (Naya Record) ---
+        const { id, nextCounters } = getNextId(data, idType);
+        finalId = id; 
+        
+        // REQ 7: Bullet-proof duplicate voucher check
+        if (collectionName === 'transactions') {
+            let duplicateSource = null;
+            const localExists = data.transactions.some(t => t.id === finalId);
+            if (localExists) duplicateSource = 'Local Storage';
+            
+            if (!duplicateSource) {
+                try {
+                    const snap = await getDoc(doc(db, "transactions", finalId));
+                    if (snap.exists()) duplicateSource = 'Firebase Database';
+                } catch(e) { console.error(e); }
+            }
+
+            if (duplicateSource) {
+                alert(`⚠️ DUPLICATE VOUCHER ERROR!\n\nVoucher Number ${finalId} already exists in ${duplicateSource}.\n\nPlease click "OK" on the next prompt to auto-repair your counters.`);
+                const fixIt = window.confirm(`Do you want to Auto-Fix the counters by finding the highest voucher number for "${idType}"?`);
+                if (fixIt) {
+                    showToast("Fixing Counters...", "info");
+                    let prefix = idType.charAt(0).toUpperCase();
+                    let counterKey = idType;
+                    if (idType === 'sales') { prefix = 'Sales:'; counterKey = 'sales'; } 
+                    else if (idType === 'purchase') { prefix = 'Purchase:'; counterKey = 'purchase'; } 
+                    else if (idType === 'expense') { prefix = 'Expense:'; counterKey = 'expense'; } 
+                    else if (idType === 'payment') { prefix = 'Payment:'; counterKey = 'payment'; } 
+                    else if (idType === 'estimate') { prefix = 'EST'; counterKey = 'estimate'; } 
+                    
+                    let maxNum = 0;
+                    data.transactions.forEach(t => {
+                        if (t.id && t.id.startsWith(prefix)) {
+                            const parts = t.id.split('-');
+                            if (parts.length > 1) {
+                                const n = parseInt(parts[1]);
+                                if (!isNaN(n) && n > maxNum) maxNum = n;
+                            }
+                        }
+                    });
+                    
+                    try {
+                        const counterSnap = await getDoc(doc(db, "settings", "counters"));
+                        let fbCounters = counterSnap.exists() ? counterSnap.data() : {};
+                        let fbMax = fbCounters[counterKey] || 0;
+                        
+                        const trueMax = Math.max(maxNum, fbMax);
+                        
+                        const newCountersObj = { ...data.counters, ...fbCounters, [counterKey]: trueMax };
+                        await setDoc(doc(db, "settings", "counters"), newCountersObj);
+                        
+                        setData(prev => ({ ...prev, counters: newCountersObj }));
+                        alert(`Counters Fixed! Next ${idType} voucher will be ${trueMax + 1}.\nPlease save your transaction again.`);
+                    } catch(e) {
+                        alert("Failed to fix counters on Firebase.");
+                    }
+                }
+                return null;
+            }
+        }
+
+        const createdField = collectionName === 'tasks' ? { taskCreatedAt: timestamp } : {};
+        // Yahan hum 'createdAt' aur 'updatedAt' dono daal rahe hain
+        record = { 
+            ...record, 
+            id: finalId, 
+            createdAt: timestamp, 
+            updatedAt: timestamp, // <--- YE ZARURI HAI SMART SYNC KE LIYE
+            ...createdField 
+        };
+        newData[collectionName] = [...data[collectionName], record];
+        newData.counters = nextCounters;
+        newCounters = nextCounters;
     }
     
     // FIX: Track Completion Date for Reports (Required for On-Time analysis)
@@ -4936,15 +4908,20 @@ if (tx.type === 'payment') {
         // await refreshSingleRecord(collectionName, finalId); <--- Isse hata bhi sakte hain agar local update sahi hai
     } catch (e) { console.error(e); showToast("Save Error", "error"); }
     // REQ 5: Restore Task Draft if coming back from Party Creation
-    if (collectionName === 'parties' && taskDraft) {
-        setModal({ type: 'task', data: { ...taskDraft, partyId: finalId } });
-        setTaskDraft(null);
-    }
-    // REQ 6: Restore Transaction Draft if coming back from Item Creation
-    if (collectionName === 'items' && txDraft) {
-        setModal({ type: txDraft.type, data: txDraft });
-        setTxDraft(null);
-    }
+        if (collectionName === 'parties' && taskDraft) {
+            setModal({ type: 'task', data: { ...taskDraft, partyId: finalId } });
+            setTaskDraft(null);
+        }
+        // Restore Task Draft if coming back from Item Edit/Creation
+        if (collectionName === 'items' && taskDraft) {
+            setModal({ type: 'task', data: taskDraft });
+            setTaskDraft(null);
+        }
+        // REQ 6: Restore Transaction Draft if coming back from Item Edit/Creation
+        if (collectionName === 'items' && txDraft) {
+            setModal({ type: txDraft.type, data: txDraft });
+            setTxDraft(null);
+        }
     return finalId; 
   };
   
@@ -5244,55 +5221,76 @@ const StaffDetailView = ({ staff, data, setData, user, pushHistory, setManualAtt
 
       // --- 3. Check-In/Out Logic ---
       const handleAttendance = async (type) => {
-          // Safety Check: Agar User nahi hai to alert do (Debugging ke liye)
-          if (!user) { alert("Error: User session not found. Please reload."); return; }
+        if (!user) {
+            alert("Error: User session not found. Please reload.");
+            return;
+        }
+        
+        if (showToast) showToast(`Processing ${type}...`, "info");
 
-          const now = new Date();
-          const todayStr = now.toISOString().split('T')[0];
-          const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
-          const timestamp = new Date().toISOString();
-          
-          const attId = `ATT-${staff.id}-${todayStr}`;
-          
-          const updatePayload = { updatedAt: timestamp };
-          if (type === 'checkIn') updatePayload.checkIn = timeStr;
-          if (type === 'checkOut') updatePayload.checkOut = timeStr;
-          if (type === 'lunchStart') updatePayload.lunchStart = timeStr;
-          if (type === 'lunchEnd') updatePayload.lunchEnd = timeStr;
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const timestamp = new Date().toISOString();
+        const attId = `ATT-${staff.id}-${todayStr}`;
 
-          const existingDoc = data.attendance.find(a => a.id === attId);
-          let newAttRecord;
-          
-          if (existingDoc) {
-              newAttRecord = { ...existingDoc, ...updatePayload };
-          } else {
-              newAttRecord = {
-                  id: attId,
-                  staffId: staff.id,
-                  date: todayStr,
-                  status: 'Present',
-                  createdAt: timestamp,
-                  ...updatePayload
-              };
-              // Fill missing fields to avoid undefined errors
-              ['checkIn', 'checkOut', 'lunchStart', 'lunchEnd'].forEach(k => {
-                  if(!newAttRecord[k]) newAttRecord[k] = '';
-              });
-          }
+        try {
+            const docRef = doc(db, "attendance", attId);
+            const docSnap = await getDoc(docRef);
+            
+            let fbData = null;
+            if (docSnap.exists()) {
+                fbData = docSnap.data();
+            }
 
-          // 1. Update UI Instantly
-          const newAttList = [...data.attendance.filter(a => a.id !== attId), newAttRecord];
-          setData(prev => ({ ...prev, attendance: newAttList }));
+            const existingLocal = data.attendance.find(a => a.id === attId);
+            
+            if (fbData) {
+                const targetField = type === 'checkIn' ? 'checkIn' : type === 'checkOut' ? 'checkOut' : type === 'lunchStart' ? 'lunchStart' : 'lunchEnd';
+                if (fbData[targetField] && fbData[targetField] !== '') {
+                    const confirmChange = window.confirm(`⚠️ WARNING: Firebase already has ${type} recorded as ${fbData[targetField]} for today.\n\nDo you want to overwrite it with current time (${timeStr})?\n\nSelect 'Cancel/No' to just sync Firebase data to your app.`);
+                    if (!confirmChange) {
+                        const newAttList = [...data.attendance.filter(a => a.id !== attId), fbData];
+                        setData(prev => ({ ...prev, attendance: newAttList }));
+                        localStorage.setItem('smees_data', JSON.stringify({ ...data, attendance: newAttList }));
+                        if(showToast) showToast("Synced from Firebase.");
+                        return;
+                    }
+                }
+            }
 
-          // 2. Update Firebase
-          try {
-              await setDoc(doc(db, "attendance", attId), newAttRecord, { merge: true });
-              if(showToast) showToast(`${type} Recorded`);
-          } catch (e) {
-              console.error(e);
-              if(showToast) showToast("Error Saving Attendance", "error");
-          }
-      };
+            const updatePayload = { updatedAt: timestamp };
+            if (type === 'checkIn') updatePayload.checkIn = timeStr;
+            if (type === 'checkOut') updatePayload.checkOut = timeStr;
+            if (type === 'lunchStart') updatePayload.lunchStart = timeStr;
+            if (type === 'lunchEnd') updatePayload.lunchEnd = timeStr;
+
+            let newAttRecord;
+            if (fbData) {
+                newAttRecord = { ...fbData, ...updatePayload };
+            } else if (existingLocal) {
+                newAttRecord = { ...existingLocal, ...updatePayload };
+            } else {
+                newAttRecord = { 
+                    id: attId, staffId: staff.id, date: todayStr, status: 'Present', createdAt: timestamp, 
+                    checkIn: '', checkOut: '', lunchStart: '', lunchEnd: '', ...updatePayload 
+                };
+            }
+
+            await setDoc(doc(db, "attendance", attId), newAttRecord, { merge: true });
+            
+            const newAttList = [...data.attendance.filter(a => a.id !== attId), newAttRecord];
+            const newData = { ...data, attendance: newAttList };
+            setData(newData);
+            localStorage.setItem('smees_data', JSON.stringify(newData)); 
+            
+            if(showToast) showToast(`${type} Recorded!`, "success");
+
+        } catch (e) {
+            console.error("Attendance Strict Check Error:", e);
+            alert("Error connecting to Firebase! Check internet connection.");
+        }
+    };
 
       const deleteAtt = async (id) => {
       if(!window.confirm("Delete this attendance record?")) return;
@@ -7419,7 +7417,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
             return (
         <div className="fixed inset-0 z-[100] bg-gray-50 flex flex-col animate-in slide-in-from-right">
             <div className="bg-white p-4 border-b flex justify-between items-center shadow-sm z-10 sticky top-0">
-                <button onClick={() => setViewDetail(null)} className="p-2 bg-gray-100 rounded-full active:scale-90 transition-transform"><ArrowLeft size={20}/></button>
+                <button onClick={handleCloseUI} className="p-2 bg-gray-100 rounded-full active:scale-90 transition-transform"><ArrowLeft size={20}/></button>
                 <h2 className="font-black text-lg text-gray-800 tracking-tight flex-1 ml-3">Party Profile</h2>
                 <div className="flex gap-2">
                     <button onClick={() => { setModal({ type: 'party', data: record }); }} className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 active:scale-95 transition-all"><Edit2 size={12}/> Edit</button>
