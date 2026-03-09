@@ -158,10 +158,23 @@ const getNextId = (data, type) => {
   else if (type === 'transaction') { prefix = 'TX'; counterKey = 'transaction'; }
 
   const counters = (data && data.counters) ? data.counters : INITIAL_DATA.counters;
-  const num = counters[counterKey] || 1; 
+  let num = counters[counterKey] || 1; 
+  
+  // STRICT DUPLICATE FIX: Pura database scan karke loop chalayega jab tak unique ID na mile
+  let newId = `${prefix}-${num}`;
+  let isDuplicate = true;
+  while(isDuplicate) {
+      isDuplicate = (data.transactions && data.transactions.some(t => t.id === newId)) || 
+                    (data.tasks && data.tasks.some(t => t.id === newId));
+      if(isDuplicate) {
+          num++; // Agar duplicate mila toh number aage badhao
+          newId = `${prefix}-${num}`;
+      }
+  }
+
   const nextCounters = { ...counters };
   nextCounters[counterKey] = num + 1;
-  return { id: `${prefix}-${num}`, nextCounters };
+  return { id: newId, nextCounters };
 };
 
 const formatCurrency = (amount) => `₹${parseFloat(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -594,6 +607,9 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
 
     const statsData = useMemo(() => {
         return filtered.reduce((acc, tx) => {
+            // FIX: Ignore cancelled transactions
+            if (tx.status === 'Cancelled' || tx.status === 'cancelled') return acc;
+            
             const amount = parseFloat(tx.amount || tx.finalTotal || 0);
             acc.total += amount;
             if(['sales', 'purchase', 'expense'].includes(tx.type)) {
@@ -2141,6 +2157,25 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                     <div className="bg-white p-4 border-b flex items-center shadow-sm z-10 sticky top-0 gap-3">
                         <button onClick={() => setSelectedPCat(null)} className="p-2 bg-gray-100 rounded-full active:scale-90 transition-transform"><ArrowLeft size={20}/></button>
                         <h2 className="font-black text-lg text-gray-800 tracking-tight flex-1">{selectedPCat}</h2>
+                        {/* NEW: Share PDF Button for Category */}
+                        <button onClick={() => {
+                            let html = `<html><head><title>${selectedPCat} Transactions</title><style>body{font-family:sans-serif;padding:20px;} table{width:100%;border-collapse:collapse;margin-top:20px;} th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:12px;} th{background:#f4f4f4;} .text-right{text-align:right;} .green{color:green;} .red{color:red;}</style></head><body>`;
+                            html += `<h2>Category: ${selectedPCat}</h2>`;
+                            html += `<table><thead><tr><th>Date</th><th>Account</th><th>Sub-Category</th><th>Description</th><th class="text-right">Amount</th></tr></thead><tbody>`;
+                            displayTxs.forEach(tx => {
+                                html += `<tr>
+                                    <td>${new Date(tx.date).toLocaleDateString()}</td>
+                                    <td>${tx.account}</td>
+                                    <td>${tx.subCategory || '-'}</td>
+                                    <td>${tx.note || tx.desc || '-'}</td>
+                                    <td class="text-right ${tx.type === 'income' ? 'green' : 'red'}">${tx.type === 'income' ? '+' : '-'}₹${tx.amount}</td>
+                                </tr>`;
+                            });
+                            html += `</tbody></table></body></html>`;
+                            const win = window.open('', '_blank'); win.document.write(html); win.document.close(); setTimeout(() => win.print(), 500);
+                        }} className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg flex items-center gap-1 text-xs font-bold hover:bg-blue-100">
+                            <Share2 size={14}/> Share
+                        </button>
                     </div>
                     <div className="p-4 space-y-4 flex-1 overflow-y-auto">
                         <div className="bg-white p-4 rounded-xl shadow-sm border text-center">
@@ -2176,9 +2211,11 @@ const PersonalDashboard = ({ data, setData, pushHistory, setViewDetail, showToas
                                         <div className={`p-2 rounded-full ${tx.type==='income'?'bg-green-100 text-green-600':'bg-red-100 text-red-600'}`}>
                                             {tx.type==='income'?<TrendingUp size={16}/>:<ShoppingCart size={16}/>}
                                         </div>
-                                        <div>
+                                        <div className="flex-1">
                                             <p className="font-bold text-sm text-gray-800 flex items-center gap-1">{tx.category || 'Other'} {tx.subCategory && <span className="text-[9px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 border font-normal">{tx.subCategory}</span>}</p>
                                             <p className="text-[10px] text-gray-500">{new Date(tx.date).toLocaleDateString()} • {tx.account}</p>
+                                            {/* NEW: Description Show */}
+                                            {tx.note && <p className="text-[10px] text-gray-600 mt-0.5 italic max-w-[200px] truncate">{tx.note}</p>}
                                         </div>
                                     </div>
                                     <div className="text-right">
@@ -3534,6 +3571,28 @@ out: initial.checkOut || '',
 const handleSave = async () => {
     const staffId = manualAttModal.staffId || manualAttModal.id.split('-')[1]; 
     const attId = manualAttModal.isEdit ? manualAttModal.id : `ATT-${staffId}-${form.date}`;
+    
+    // STRICT FIREBASE SYNC WARNING
+    if (!manualAttModal.isEdit) {
+        try {
+            const docSnap = await getDoc(doc(db, "attendance", attId));
+            if (docSnap.exists()) {
+                const fbData = docSnap.data();
+                const confirmChange = window.confirm(`WARNING: Aaj ki entry pehle hi Firebase par majood hai!\nCheck-In: ${fbData.checkIn || 'N/A'}, Check-Out: ${fbData.checkOut || 'N/A'}\n\nKya aap naya data overwrite karna chahte hain?\nSelect 'Cancel' to update your app with Firebase data.`);
+                
+                if (!confirmChange) {
+                    // Agar user 'Cancel' kare toh firebase ka data app me daal do
+                    const newAttList = [...data.attendance.filter(a => a.id !== attId), fbData];
+                    setData(prev => ({ ...prev, attendance: newAttList }));
+                    setManualAttModal(null);
+                    return; // Yahin ruk jao, overwrite mat karo
+                }
+            }
+        } catch(e) {
+            console.error("Firebase sync check error", e);
+        }
+    }
+
     const timestamp = new Date().toISOString();
     const record = { 
         staffId, 
