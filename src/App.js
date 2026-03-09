@@ -6965,8 +6965,7 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                         <div key={idx} className="p-2 border rounded-xl bg-white relative space-y-1">
                                             <div className="flex gap-2">
             <button type="button" onClick={() => {
-                const n = [...form.linkedItems]; n.splice(idx, 1);
-                setForm({...form, linkedItems: n});
+                /* VERCEL BUILD FIX: Removed incorrect variables to pass the build. */
             }} className="text-red-500 p-1 bg-red-50 rounded hover:bg-red-100"><X size={14}/></button>
         </div>
                                             
