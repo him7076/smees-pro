@@ -4696,7 +4696,18 @@ const [isMoreDataAvailable, setIsMoreDataAvailable] = useState(true);
   }, [modal, viewDetail, mastersView, reportView, convertModal, showPnlReport, timerConflict, editingTimeLog, statementModal, manualAttModal, adjustCashModal, selectedTimeLog, navStack, listPaymentMode]);
 
   const pushHistory = () => window.history.pushState({ modal: true }, '');
-  const handleCloseUI = () => window.history.back();
+  const handleCloseUI = () => {
+    // Agar history stack mein picchli screen save hai, toh us par jayein
+    if (typeof navStack !== 'undefined' && navStack.length > 0) {
+        const newStack = [...navStack];
+        const previousView = newStack.pop();
+        setNavStack(newStack);
+        if(typeof setViewDetail === 'function') setViewDetail(previousView);
+    } else {
+        // Default browser back behavior
+        window.history.back();
+    }
+};
 
   // --- LOGIC CALCULATIONS ---
   const getBillLogic = (bill) => getBillStats(bill, data.transactions);
@@ -6952,7 +6963,23 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                     const profit = (parseFloat(line.price||0) - parseFloat(line.buyPrice||0)) * parseFloat(line.qty||0);
                                     return (
                                         <div key={idx} className="p-2 border rounded-xl bg-white relative space-y-1">
-                                            <button onClick={() => { const n = [...task.itemsUsed]; n.splice(idx, 1); updateTaskItems(n); }} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
+                                            <div className="flex gap-2">
+            {/* NEW: Edit Button */}
+            <button type="button" onClick={(e) => {
+                e.preventDefault();
+                const newPrice = prompt("Edit Price (Leave blank for Auto):", li.price || '');
+                const newQty = prompt("Edit Quantity:", li.qty || 1);
+                const n = [...form.linkedItems];
+                n[idx] = { ...n[idx], price: newPrice, qty: parseFloat(newQty || 1) };
+                setForm({...form, linkedItems: n});
+            }} className="text-blue-500 p-1 bg-blue-50 rounded hover:bg-blue-100"><Edit2 size={14}/></button>
+
+            {/* OLD: Delete Button (Jise aap Replace kar rahe hain) */}
+            <button type="button" onClick={() => {
+                const n = [...form.linkedItems]; n.splice(idx, 1);
+                setForm({...form, linkedItems: n});
+            }} className="text-red-500 p-1 bg-red-50 rounded hover:bg-red-100"><X size={14}/></button>
+        </div>
                                             
                                             <div className="flex justify-between text-xs font-bold">
                                                 <span>{data.items.find(i=>i.id===line.itemId)?.name || 'Unknown Item'}</span>
@@ -8587,7 +8614,33 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
                         <div key={idx} className="p-2 border rounded-xl bg-gray-50 relative space-y-2 animate-in slide-in-from-left-2">
                             <button onClick={() => { const newItems = form.itemsUsed.filter((_, i) => i !== idx); setForm({ ...form, itemsUsed: newItems }); }} className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow border text-red-500"><X size={12}/></button>
                     
-                            <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} placeholder="Select Item"/>
+                            <div className="flex gap-2 items-center">
+    <div className="flex-1">
+       <div className="flex gap-2 items-center">
+    <div className="flex-1">
+        <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLineItem(idx, 'itemId', v)} placeholder="Select Item"/>
+    </div>
+    {line.itemId && (
+        <button onClick={(e) => {
+            e.preventDefault();
+            const itemData = data.items.find(i => i.id === line.itemId);
+            if(itemData) setModal({ type: 'item', data: itemData }); 
+        }} className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100" title="Edit Item">
+            <Edit2 size={16}/>
+        </button>
+    )}
+</div>
+    </div>
+    {line.itemId && (
+        <button onClick={(e) => {
+            e.preventDefault();
+            const itemData = data.items.find(i => i.id === line.itemId);
+            if(itemData) setModal({ type: 'item', data: itemData }); 
+        }} className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100" title="Edit Item">
+            <Edit2 size={16}/>
+        </button>
+    )}
+</div>
                             
                             {/* --- NEW: LINKED ITEM BUTTONS --- */}
                             {(line.linkedItems || []).map((lItem, lIdx) => (
@@ -9061,9 +9114,40 @@ const removeMobile = (idx) => {
                  <div key={idx} className="flex gap-2 items-center bg-white p-2 rounded-lg border shadow-sm">
                      <span className="flex-1 text-sm font-bold">{brand.name}</span>
                      <span className="w-20 text-xs font-bold text-green-700 text-center">Sell: {brand.sellPrice}</span>
-                     <span className="w-20 text-xs font-bold text-gray-600 text-center">Buy: {brand.buyPrice}</span>
-                     <button onClick={async () => {
-                         if(!window.confirm("Delete brand?")) return;
+                    <span className="w-20 text-xs font-bold text-gray-600 text-center">Buy: {brand.buyPrice}</span>
+        
+        {/* NEW: Edit Brand */}
+        <button type="button" onClick={async (e) => {
+            e.preventDefault();
+            const newName = prompt("Edit Brand Name:", brand.name);
+            if (!newName) return;
+            const newSell = prompt("Edit Sell Price:", brand.sellPrice);
+            const newBuy = prompt("Edit Buy Price:", brand.buyPrice);
+            
+            const newBrands = [...form.brands];
+            newBrands[idx] = { name: newName, sellPrice: parseFloat(newSell||0), buyPrice: parseFloat(newBuy||0) };
+            setForm({...form, brands: newBrands});
+            
+            if(form.id) {
+                const updatedItem = { ...form, brands: newBrands, updatedAt: new Date().toISOString() };
+                await setDoc(doc(db, "items", form.id), updatedItem);
+                setData(prev => ({...prev, items: prev.items.map(i => i.id === form.id ? updatedItem : i)}));
+                
+                data.transactions.forEach(async (tx) => {
+                    if(tx.status === 'Cancelled') return;
+                    let changed = false;
+                    const newTxItems = tx.items?.map(it => {
+                        if(it.brand === brand.name && it.itemId === form.id) { changed = true; return {...it, brand: newName}; }
+                        return it;
+                    });
+                    if(changed) await updateDoc(doc(db, "transactions", tx.id), { items: newTxItems });
+                });
+                alert("Brand & related transactions updated!");
+            }
+        }} className="text-blue-500 mr-2"><Edit2 size={14}/></button>
+
+        <button onClick={async () => {
+            if(!window.confirm("Delete brand?")) return;
                          const nb = [...form.brands]; nb.splice(idx, 1); 
                          setForm({...form, brands: nb});
                          if(form.id) {
