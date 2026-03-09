@@ -6964,17 +6964,6 @@ const isMyTimerRunning = task.timeLogs?.some(l => l.staffId === user.id && !l.en
                                     return (
                                         <div key={idx} className="p-2 border rounded-xl bg-white relative space-y-1">
                                             <div className="flex gap-2">
-            {/* NEW: Edit Button */}
-            <button type="button" onClick={(e) => {
-                e.preventDefault();
-                const newPrice = prompt("Edit Price (Leave blank for Auto):", li.price || '');
-                const newQty = prompt("Edit Quantity:", li.qty || 1);
-                const n = [...form.linkedItems];
-                n[idx] = { ...n[idx], price: newPrice, qty: parseFloat(newQty || 1) };
-                setForm({...form, linkedItems: n});
-            }} className="text-blue-500 p-1 bg-blue-50 rounded hover:bg-blue-100"><Edit2 size={14}/></button>
-
-            {/* OLD: Delete Button (Jise aap Replace kar rahe hain) */}
             <button type="button" onClick={() => {
                 const n = [...form.linkedItems]; n.splice(idx, 1);
                 setForm({...form, linkedItems: n});
@@ -8618,7 +8607,7 @@ const updatedParty = { ...partyRef, assets: updatedAssets, updatedAt: new Date()
     <div className="flex-1">
        <div className="flex gap-2 items-center">
     <div className="flex-1">
-        <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateLineItem(idx, 'itemId', v)} placeholder="Select Item"/>
+        <SearchableSelect options={itemOptions} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} placeholder="Select Item"/>
     </div>
     {line.itemId && (
         <button onClick={(e) => {
