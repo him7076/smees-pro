@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { 
   ArrowLeft, Search, Filter, TrendingUp, TrendingDown, 
-  RefreshCcw, Calendar, Trash2, Edit2, ChevronRight, 
+  RefreshCcw, Calendar, History, Trash2, Edit2, ChevronRight, 
   FileText, Download, Banknote, Landplot
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/helpers';

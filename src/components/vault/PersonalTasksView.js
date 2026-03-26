@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  ArrowLeft, Search, Plus, CheckCircle2, Circle, 
+  ArrowLeft, Search, Plus, CheckCircle2, Circle, CheckSquare, 
   Trash2, Edit2, Calendar, LayoutGrid, List, User, Lock, Save, X
 } from 'lucide-react';
 import { formatDate } from '../../utils/helpers';
