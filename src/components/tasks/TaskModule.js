@@ -12,9 +12,11 @@ import {
 } from 'lucide-react';
 import { doc, setDoc } from "firebase/firestore";
 import { db } from '../../services/firebase';
-import { formatDate, checkPermission } from '../../utils/helpers';
+import { formatCurrency, formatDate, checkPermission } from '../../utils/helpers';
+import { useDatabase } from '../../hooks/useDatabase';
 
-const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, deleteRecord }) => {
+const TaskModule = ({ data, setData, user, setViewDetail, setModal }) => {
+    const { deleteRecord } = useDatabase(data, setData);
     const [sort, setSort] = useState(localStorage.getItem('smees_task_sort') || 'DateAsc');
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('To Do');
@@ -139,7 +141,7 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, deleteRe
       else if(task.status === 'Converted') { statusColor = 'bg-purple-500'; textTheme = 'text-purple-600'; }
       
       return (
-        <div onClick={() => { pushHistory(); setViewDetail({ type: 'task', id: task.id }); }} className="p-5 bg-white border border-gray-100 rounded-3xl mb-3 flex justify-between items-center cursor-pointer active:scale-[0.98] transition-all hover:shadow-md shadow-sm">
+        <div onClick={() => setViewDetail({ type: 'task', id: task.id })} className="p-5 bg-white border border-gray-100 rounded-3xl mb-3 flex justify-between items-center cursor-pointer active:scale-[0.98] transition-all hover:shadow-md shadow-sm">
           <div className="flex-1 min-w-0">
             <div className="flex flex-col gap-1.5 mb-2">
                 <div className="flex items-center gap-3">
@@ -173,13 +175,13 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, deleteRe
             <div className="flex gap-3 items-center">
                 {checkPermission(user, 'canEditTasks') && (
                     <>
-                        <button onClick={() => { pushHistory(); setModal({ type: 'task' }); }} className="p-3 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 active:scale-95 transition-all text-xs flex items-center gap-2 hover:bg-blue-700">
+                        <button onClick={() => setModal({ type: 'task' })} className="p-3 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 active:scale-95 transition-all text-xs flex items-center gap-2 hover:bg-blue-700">
                              <Plus size={20}/> New Task
                         </button>
                         <div className="relative group">
                             <button className="p-3 bg-white border border-gray-100 text-gray-600 rounded-2xl hover:bg-gray-50 shadow-sm transition-all focus:ring-4 focus:ring-gray-100"><Settings size={22} /></button>
                             <div className="absolute right-0 top-14 mt-1 hidden group-hover:block bg-white border border-gray-100 rounded-3xl shadow-2xl w-64 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
-                                <button onClick={() => { pushHistory(); setModal({ type: 'taskSettings' }); }} className="w-full text-left px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-600 hover:bg-gray-50 flex items-center gap-3 transition-colors border-b border-gray-50"><Settings size={16}/> Pipeline Settings</button>
+                                <button onClick={() => setModal({ type: 'taskSettings' })} className="w-full text-left px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-600 hover:bg-gray-50 flex items-center gap-3 transition-colors border-b border-gray-50"><Settings size={16}/> Pipeline Settings</button>
                             </div>
                         </div>
                     </>
@@ -340,7 +342,7 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, deleteRe
                                             {existingTask ? (
                                                 <div className="flex items-center gap-2">
                                                     <button 
-                                                        onClick={(e) => { e.stopPropagation(); pushHistory(); setViewDetail({ type: 'task', id: existingTask.id }); }}
+                                                        onClick={(e) => { e.stopPropagation(); setViewDetail({ type: 'task', id: existingTask.id }); }}
                                                         className="px-6 py-2.5 bg-emerald-100 text-emerald-700 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-200 transition-all shadow-sm"
                                                     >
                                                         <CheckCircle2 size={16}/> Active Case
@@ -356,7 +358,6 @@ const TaskModule = ({ data, user, pushHistory, setViewDetail, setModal, deleteRe
                                                 <button 
                                                     onClick={(e) => {
                                                         e.stopPropagation(); 
-                                                        pushHistory();
                                                         setModal({
                                                             type: 'task',
                                                             data: {

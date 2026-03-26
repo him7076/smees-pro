@@ -21,6 +21,7 @@ import ItemForm from './components/masters/ItemForm';
 import StaffForm from './components/staff/StaffForm';
 import TransactionForm from './components/accounting/TransactionForm';
 import ConvertTaskModal from './components/tasks/ConvertTaskModal';
+import TaskForm from './components/tasks/TaskForm'; // Added TaskForm import
 
 // Views
 import PersonalFinanceView from './components/vault/PersonalFinanceView';
@@ -163,6 +164,7 @@ const App = () => {
                             {['sales', 'purchase', 'expense', 'payment', 'estimate'].includes(modal.type) && (
                                 <TransactionForm data={data} setData={setData} type={modal.type} record={modal.data} onClose={() => setModal(null)} />
                             )}
+                            {modal.type === 'task' && <TaskForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             {modal.type === 'convertTask' && <ConvertTaskModal task={modal.data} data={data} setData={setData} onClose={() => setModal(null)} />}
                         </div>
                     </div>
@@ -186,13 +188,13 @@ const App = () => {
                 
                 <Route path="/accounts" element={user ? (
                     <AppLayout user={user}>
-                        <TransactionList data={data} user={user} setViewDetail={setViewDetail} setModal={setModal} />
+                        <TransactionList data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} />
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
 
                 <Route path="/tasks" element={user ? (
                     <AppLayout user={user}>
-                        <TaskModule data={data} user={user} setViewDetail={setViewDetail} setModal={setModal} />
+                        <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} />
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
 
@@ -204,7 +206,7 @@ const App = () => {
 
                 <Route path="/masters" element={user?.role === 'admin' ? (
                     <AppLayout user={user}>
-                        <MasterModule data={data} setModal={setModal} setViewDetail={setViewDetail} />
+                        <MasterModule data={data} setData={setData} setModal={setModal} setViewDetail={setViewDetail} />
                     </AppLayout>
                 ) : <Navigate to="/" />} />
 

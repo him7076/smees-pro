@@ -12,7 +12,9 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDate, sortData, getTransactionTotals, getBillStats } from '../../utils/helpers';
 
-const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange, data, listFilter, listPaymentMode, categoryFilter, pushHistory, setViewDetail, setAdjustCashModal }) => {
+const TransactionList = ({ data, setViewDetail, setModal, listFilter = 'all', listPaymentMode = '', categoryFilter = '' }) => {
+    const [searchQuery, setSearchQuery] = useState('');
+    const [dateRange, setDateRange] = useState({ start: '', end: '' });
     const [sort, setSort] = useState('DateDesc');
     const [filter, setFilter] = useState(listFilter);
     const [visibleCount, setVisibleCount] = useState(50);
@@ -59,8 +61,8 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             if (filter !== 'all' && tx.type !== filter) return false;
             if (listPaymentMode && (tx.paymentMode || 'Cash') !== listPaymentMode) return false;
             if (categoryFilter && tx.category !== categoryFilter) return false;
-            if (dateRange.start && tx.date < dateRange.start) return false;
-            if (dateRange.end && tx.date > dateRange.end) return false;
+            if (dateRange && dateRange.start && tx.date < dateRange.start) return false;
+            if (dateRange && dateRange.end && tx.date > dateRange.end) return false;
             
             if (listPaymentMode) {
                 if (tx.type === 'estimate') return false;
@@ -130,7 +132,6 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
             ignoreClick.current = false;
             return;
         }
-        pushHistory(); 
         setViewDetail({ type: 'transaction', id: tx.id });
     };
 
@@ -153,7 +154,7 @@ const TransactionList = ({ searchQuery, setSearchQuery, dateRange, setDateRange,
                           {listPaymentMode ? `${listPaymentMode} Book` : `Accounting ${categoryFilter ? `(${categoryFilter})` : ''}`}
                         </h1>
                         {listPaymentMode && (
-                            <button onClick={() => setAdjustCashModal({ type: listPaymentMode })} className="px-3 py-1 bg-gray-900 text-white text-[10px] rounded-full font-bold uppercase tracking-widest hover:bg-black transition-colors">Adjust {listPaymentMode}</button>
+                            <button onClick={() => setModal({ type: 'adjustCash', data: { mode: listPaymentMode } })} className="px-3 py-1 bg-gray-900 text-white text-[10px] rounded-full font-bold uppercase tracking-widest hover:bg-black transition-colors">Adjust {listPaymentMode}</button>
                         )}
                     </div>
                     <select className="bg-white border text-xs font-bold p-2 px-4 rounded-2xl outline-none shadow-sm focus:ring-2 focus:ring-blue-500" value={sort} onChange={e => setSort(e.target.value)}>
