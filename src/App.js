@@ -52,9 +52,9 @@ const Dashboard = ({ data, setModal }) => {
                     <h1 className="text-4xl font-black text-slate-900 tracking-tighter">Command Center</h1>
                     <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] mt-2 ml-1">Live Intelligence & Growth Metrics</p>
                 </div>
-                <div className="flex gap-3">
-                    <button onClick={() => setModal({ type: 'sales' })} className="px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-600/20 hover:scale-105 active:scale-95 transition-all">+ Quick Sale</button>
-                    <button onClick={() => setModal({ type: 'task' })} className="px-6 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-slate-900/20 hover:scale-105 active:scale-95 transition-all">+ Dispatch</button>
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                    <button onClick={() => setModal({ type: 'sales' })} className="flex-1 px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-600/20 hover:scale-105 active:scale-95 transition-all">+ Quick Sale</button>
+                    <button onClick={() => setModal({ type: 'task' })} className="flex-1 px-6 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-slate-900/20 hover:scale-105 active:scale-95 transition-all">+ Dispatch</button>
                 </div>
             </div>
             
@@ -65,11 +65,11 @@ const Dashboard = ({ data, setModal }) => {
                     { label: 'Payables', value: formatCurrency(stats.payables), sub: 'To Pay', color: 'text-rose-600', bg: 'bg-rose-50 border-rose-100' },
                     { label: 'Today\'s Revenue', value: formatCurrency(stats.todaySales), sub: 'Gross Sales', color: 'text-blue-600', bg: 'bg-blue-50 border-blue-100' }
                 ].map((card, i) => (
-                    <div key={i} className={`p-8 rounded-[40px] border shadow-sm ${card.bg} hover:shadow-2xl transition-all group cursor-pointer active:scale-95 relative overflow-hidden`}>
+                    <div key={i} className={`p-6 sm:p-8 rounded-[32px] sm:rounded-[40px] border shadow-sm ${card.bg} hover:shadow-2xl transition-all group cursor-pointer active:scale-95 relative overflow-hidden`}>
                         <div className="absolute top-0 right-0 w-24 h-24 bg-white/40 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 group-hover:text-slate-600 relative z-10">{card.label}</p>
-                        <h3 className={`text-3xl font-black ${card.color} tracking-tighter relative z-10`}>{card.value}</h3>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase mt-1 relative z-10">{card.sub}</p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 group-hover:text-slate-600 relative z-10">{card.label}</p>
+                        <h3 className={`text-2xl sm:text-3xl font-black ${card.color} tracking-tighter relative z-10`}>{card.value}</h3>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5 relative z-10">{card.sub}</p>
                     </div>
                 ))}
             </div>

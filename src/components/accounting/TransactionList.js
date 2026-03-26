@@ -184,19 +184,19 @@ const TransactionList = ({ data, setViewDetail, setModal, listFilter = 'all', li
         </div>
 
         {!isSelectionMode && (
-            <div className="bg-white p-6 rounded-3xl border border-gray-100 flex justify-between items-center shadow-md relative overflow-hidden">
+            <div className="bg-white p-6 rounded-3xl border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 shadow-md relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-2 opacity-5"><ReceiptText size={60} /></div>
-                <div className="flex gap-8 relative z-10">
-                    <div>
+                <div className="flex flex-col sm:flex-row gap-6 sm:gap-8 relative z-10 w-full sm:w-auto">
+                    <div className="flex flex-col">
                         <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1">Total Flow</p>
-                        <p className="text-xl font-black text-gray-900">{formatCurrency(statsData.total)}</p>
+                        <p className="text-2xl font-black text-gray-900">{formatCurrency(statsData.total)}</p>
                     </div>
-                    <div className="border-l border-gray-100 pl-8">
+                    <div className="border-t sm:border-t-0 sm:border-l border-gray-100 pt-4 sm:pt-0 sm:pl-8 flex flex-col">
                         <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1">Total Due</p>
-                        <p className="text-xl font-black text-red-600">{formatCurrency(statsData.pending)}</p>
+                        <p className="text-2xl font-black text-red-600">{formatCurrency(statsData.pending)}</p>
                     </div>
                 </div>
-                <div className="bg-gray-50 px-4 py-2 rounded-2xl text-[10px] font-black text-gray-500 shadow-inner">COUNT: {filtered.length}</div>
+                <div className="bg-gray-50 px-4 py-2 rounded-2xl text-[10px] font-black text-gray-500 shadow-inner w-full sm:w-auto text-center mt-2 sm:mt-0">COUNT: {filtered.length}</div>
             </div>
         )}
 

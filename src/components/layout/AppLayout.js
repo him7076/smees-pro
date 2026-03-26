@@ -82,7 +82,7 @@ const AppLayout = ({ children, user }) => {
                     </div>
                 </header>
 
-                <div className="flex-1 p-4 md:p-10 max-w-7xl mx-auto w-full">
+                <div className="flex-1 p-4 md:p-10 pb-32 md:pb-10 max-w-7xl mx-auto w-full">
                     {children}
                 </div>
 

@@ -170,12 +170,12 @@ const TaskModule = ({ data, setData, user, setViewDetail, setModal }) => {
 
     return (
       <div className="space-y-6 px-1">
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h1 className="text-3xl font-black text-gray-900 tracking-tight">Workflow</h1>
-            <div className="flex gap-3 items-center">
+            <div className="flex gap-3 items-center w-full sm:w-auto">
                 {checkPermission(user, 'canEditTasks') && (
                     <>
-                        <button onClick={() => setModal({ type: 'task' })} className="p-3 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 active:scale-95 transition-all text-xs flex items-center gap-2 hover:bg-blue-700">
+                        <button onClick={() => setModal({ type: 'task' })} className="flex-1 sm:flex-none p-4 sm:p-3 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 active:scale-95 transition-all text-xs flex items-center justify-center gap-2 hover:bg-blue-700">
                              <Plus size={20}/> New Task
                         </button>
                         <div className="relative group">
