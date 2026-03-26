@@ -12,9 +12,10 @@ export const useFirebaseSync = () => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const collections = ['parties', 'items', 'staff', 'tasks', 'transactions'];
+        const collections = ['parties', 'items', 'staff', 'tasks', 'transactions', 'attendance'];
         const unsubs = [];
 
+        // 1. Sync Business Collections
         collections.forEach(col => {
             const q = query(collection(db, col), orderBy('updatedAt', 'desc'));
             unsubs.push(onSnapshot(q, (snapshot) => {
@@ -24,11 +25,38 @@ export const useFirebaseSync = () => {
                     localStorage.setItem('smees_data', JSON.stringify(newData));
                     return newData;
                 });
+            }, (error) => {
+                console.error(`Error syncing ${col}:`, error);
             }));
         });
 
-        // Sync Categories/Settings
-        unsubs.push(onSnapshot(doc(db, "settings", "categories"), (docSnap) => {
+        // 2. Sync Personal Data (My Vault) from a specific document
+        // Original app used "companies/smees_pro_data"
+        const personalDocRef = doc(db, "companies", "smees_pro_data");
+        unsubs.push(onSnapshot(personalDocRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const personalData = docSnap.data();
+                setData(prev => {
+                    const newData = { 
+                        ...prev, 
+                        personalTasks: personalData.personalTasks || [],
+                        personalTransactions: personalData.personalTransactions || [],
+                        personalAccounts: personalData.personalAccounts || [],
+                        personalCategories: personalData.personalCategories || prev.personalCategories,
+                        // Update counters if present in this doc
+                        counters: { ...prev.counters, ...(personalData.counters || {}) }
+                    };
+                    localStorage.setItem('smees_data', JSON.stringify(newData));
+                    return newData;
+                });
+            }
+        }, (error) => {
+            console.error("Error syncing personal data:", error);
+        }));
+
+        // 3. Sync Categories/Settings
+        const settingsDocRef = doc(db, "settings", "categories");
+        unsubs.push(onSnapshot(settingsDocRef, (docSnap) => {
             if (docSnap.exists()) {
                 setData(prev => {
                     const newData = { ...prev, categories: docSnap.data() };
@@ -36,6 +64,8 @@ export const useFirebaseSync = () => {
                     return newData;
                 });
             }
+        }, (error) => {
+            console.error("Error syncing settings:", error);
         }));
 
         setLoading(false);
