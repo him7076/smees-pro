@@ -51,7 +51,7 @@ const ConvertTaskModal = ({ task, data, setData, onClose }) => {
                 discountType: '₹',
                 notes: `Converted from Task #${task.id}: ${task.name}`,
                 convertedFromTask: task.id,
-                linkedAssetStr: selectedAsset,
+                linkedAssets: selectedAssets,
                 paymentMode: 'Cash',
                 status: 'Unpaid'
             };
