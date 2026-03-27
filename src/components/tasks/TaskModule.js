@@ -372,7 +372,7 @@ const TaskModule = ({ data, setData, user, setViewDetail, setModal }) => {
                                                     }}
                                                     className="px-6 py-2.5 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-500/20 active:scale-95 transition-all hover:bg-indigo-700"
                                                 >
-                                                    Dispatch Tech
+                                                    Task Tech
                                                 </button>
                                             )}
                                         </div>

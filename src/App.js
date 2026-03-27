@@ -60,8 +60,8 @@ const Dashboard = ({ data, setModal }) => {
                     <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] mt-2 ml-1">Live Intelligence & Growth Metrics</p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                    <button onClick={() => setModal({ type: 'sales' })} className="flex-1 px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-600/20 hover:scale-105 active:scale-95 transition-all">+ Quick Sale</button>
-                    <button onClick={() => setModal({ type: 'task' })} className="flex-1 px-6 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-slate-900/20 hover:scale-105 active:scale-95 transition-all">+ Dispatch</button>
+                    <button onClick={() => setModal({ type: 'sales' })} className="flex-1 px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-600/20 hover:scale-105 active:scale-95 transition-all text-center whitespace-nowrap">+ Quick Sale</button>
+                    <button onClick={() => setModal({ type: 'task' })} className="flex-1 px-6 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-slate-900/20 hover:scale-105 active:scale-95 transition-all text-center whitespace-nowrap">+ Quick Task</button>
                 </div>
             </div>
             
@@ -96,17 +96,27 @@ const Dashboard = ({ data, setModal }) => {
                         ))}
                     </div>
                 </div>
-                <div className="bg-slate-900 p-10 rounded-[48px] shadow-2xl space-y-6 text-white overflow-hidden relative">
+                <div className="bg-slate-900 p-10 rounded-[48px] shadow-2xl space-y-8 text-white overflow-hidden relative">
                     <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-                    <h4 className="text-sm font-black text-white uppercase tracking-widest border-b border-white/5 pb-4">System Alerts</h4>
-                    <div className="space-y-4 relative z-10">
-                        <div className="p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center gap-4">
-                            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">Synchronized with Vercel Edge Server</p>
-                        </div>
-                        <div className="p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center gap-4">
-                            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">Dual Firebase Instances Connected</p>
+                    <div className="relative z-10">
+                        <h4 className="text-sm font-black text-white uppercase tracking-widest border-b border-white/5 pb-4 mb-6">Execution Suite</h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            {[
+                                { label: 'Sale', type: 'sales', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+                                { label: 'Estimate', type: 'estimate', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
+                                { label: 'Purchase', type: 'purchase', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
+                                { label: 'Expense', type: 'expense', color: 'bg-rose-500/10 text-rose-400 border-rose-500/20' },
+                                { label: 'Payment', type: 'payment', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' }
+                            ].map(btn => (
+                                <button 
+                                    key={btn.label} 
+                                    onClick={() => setModal({ type: btn.type })} 
+                                    className={`p-4 rounded-3xl border ${btn.color} hover:bg-white/10 transition-all active:scale-90 flex flex-col items-center gap-2`}
+                                >
+                                    <Plus size={18}/>
+                                    <span className="text-[8px] font-black uppercase tracking-widest">{btn.label}</span>
+                                </button>
+                            ))}
                         </div>
                     </div>
                 </div>
@@ -237,12 +247,14 @@ const App = () => {
                     
                     {viewDetail.type === 'transaction' && (
                         <TransactionDetailView 
-                            transaction={data.transactions.find(t => t.id === viewDetail.id)}
+                            tx={data.transactions.find(t => t.id === viewDetail.id)}
                             data={data}
+                            user={user}
                             onBack={() => setViewDetail(null)}
                             setViewDetail={setViewDetail}
                             setModal={setModal}
                             deleteRecord={deleteRecord}
+                            checkPermission={checkPermission}
                         />
                     )}
 
@@ -296,14 +308,16 @@ const App = () => {
                             setViewDetail={setViewDetail}
                             setModal={setModal}
                             deleteRecord={deleteRecord}
-                            handleAttendance={handleAttendance}
+                            handleAttendance={(type) => handleAttendance(viewDetail.id, type)}
                             attToday={data.attendance.find(a => a.staffId === viewDetail.id && a.date === new Date().toISOString().split('T')[0]) || {}}
                             getFilteredAttendance={getFilteredAttendance}
+                            allAttendance={data.attendance}
                             attStats={(() => {
-                                const filtered = getFilteredAttendance(data.staff.find(s => s.id === viewDetail.id), 'This Month', {}, data.attendance);
-                                return { count: filtered.length, mins: filtered.reduce((acc, a) => acc + 480, 0) }; // Simplified stats
+                                const staff = data.staff.find(s => s.id === viewDetail.id);
+                                const filtered = getFilteredAttendance(staff, 'This Month', {}, data.attendance);
+                                return { count: filtered.length, mins: filtered.length * 480 }; 
                             })()}
-                            workLogs={[]}
+                            workLogs={data.workLogs?.filter(w => w.staffId === viewDetail.id) || []}
                             formatDurationHrs={(m) => `${Math.floor(m/60)}h`}
                         />
                     )}

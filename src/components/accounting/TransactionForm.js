@@ -19,11 +19,18 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         roundOff: 0,
         notes: '',
         paymentMode: 'Cash',
-        subType: 'out', // for payments
+        subType: initialType === 'sales' ? 'in' : 'out', // for payments
         linkedBills: [],
         linkedAssetId: '',
         ...(record || {})
     });
+
+    const nextId = useMemo(() => {
+        if (record) return record.id;
+        const prefix = type.charAt(0).toUpperCase();
+        const count = (data.transactions || []).filter(t => t.type === type).length + 1;
+        return `${prefix}-${count}`;
+    }, [data.transactions, type, record]);
 
     const [tempItem, setTempItem] = useState({ itemId: '', name: '', brand: '', qty: 1, price: 0, buyPrice: 0 });
 
@@ -96,20 +103,24 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
 
     return (
         <div className="space-y-6 max-h-[85vh] overflow-y-auto pr-2 scrollbar-hide py-2">
-            {/* Header / Type Switcher */}
-            {!record && (
-                <div className="flex bg-slate-100 p-1 rounded-[24px]">
+            {/* Header / Type Switcher & Voucher ID */}
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50 p-4 rounded-[32px] border border-slate-100">
+                <div className="flex bg-white p-1 rounded-2xl shadow-sm overflow-x-auto scrollbar-hide">
                     {['sales', 'estimate', 'purchase', 'expense', 'payment'].map(t => (
                         <button 
                             key={t} 
-                            onClick={() => setType(t)} 
-                            className={`flex-1 py-3 rounded-2xl text-[10px] font-black uppercase tracking-tight transition-all ${type === t ? 'bg-white text-blue-600 shadow-sm scale-100' : 'text-slate-400 hover:text-slate-600'}`}
+                            onClick={() => { setType(t); setForm(prev => ({ ...prev, subType: t === 'sales' || t === 'estimate' ? 'in' : 'out' })); }} 
+                            className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-tight transition-all whitespace-nowrap ${type === t ? 'bg-slate-900 text-white shadow-xl' : 'text-slate-400 hover:text-slate-600'}`}
                         >
                             {t}
                         </button>
                     ))}
                 </div>
-            )}
+                <div className="flex items-center gap-2 bg-white px-5 py-3 rounded-2xl border shadow-inner">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Voucher #</span>
+                    <span className="text-sm font-black text-slate-900">{nextId}</span>
+                </div>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
@@ -136,7 +147,8 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Package size={14}/> Inventory Selection</p>
                         
                         <div className="flex flex-col md:flex-row gap-3">
-                            <div className="flex-1">
+                            <div className="flex-1 min-w-[200px]">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Item Name</label>
                                 <SearchableSelect 
                                     options={data.items.map(i => ({ 
                                         id: i.id, 
@@ -154,17 +166,18 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                             name: item?.name, 
                                             brand: '', 
                                             qty: 1, 
-                                            price: type === 'purchase' ? item?.buyPrice : item?.sellPrice,
-                                            buyPrice: item?.buyPrice
+                                            price: type === 'purchase' ? (item?.buyPrice || 0) : (item?.sellPrice || 0),
+                                            buyPrice: item?.buyPrice || 0
                                         });
                                     }}
                                     placeholder="Search Product..."
                                 />
                             </div>
                             
-                            {tempItem.itemId && data.items.find(i => i.id === tempItem.itemId)?.brands?.length > 0 && (
+                            <div className="w-full md:w-40">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Brand</label>
                                 <select 
-                                    className="md:w-40 p-4 bg-white border border-slate-100 rounded-2xl text-xs font-bold outline-none"
+                                    className="w-full p-4 bg-white border border-slate-100 rounded-2xl text-xs font-bold outline-none"
                                     value={tempItem.brand}
                                     onChange={e => {
                                         const bName = e.target.value;
@@ -174,20 +187,28 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                             ...tempItem, 
                                             brand: bName, 
                                             price: bData ? (type === 'purchase' ? bData.buyPrice : bData.sellPrice) : (type === 'purchase' ? master.buyPrice : master.sellPrice),
-                                            buyPrice: bData ? bData.buyPrice : master.buyPrice
+                                            buyPrice: bData ? bData.buyPrice : (master?.buyPrice || 0)
                                         });
                                     }}
                                 >
                                     <option value="">Default Brand</option>
-                                    {data.items.find(i => i.id === tempItem.itemId).brands.map(b => (
+                                    {tempItem.itemId && data.items.find(i => i.id === tempItem.itemId)?.brands?.map(b => (
                                         <option key={b.name} value={b.name}>{b.name}</option>
                                     ))}
                                 </select>
-                            )}
+                            </div>
 
-                            <input type="number" className="w-20 p-4 bg-white border border-slate-100 rounded-2xl text-sm font-bold outline-none" placeholder="Qty" value={tempItem.qty} onChange={e => setTempItem({...tempItem, qty: e.target.value})} />
-                            <input type="number" className="w-24 p-4 bg-white border border-slate-100 rounded-2xl text-sm font-bold outline-none" placeholder="Rate" value={tempItem.price} onChange={e => setTempItem({...tempItem, price: e.target.value})} />
-                            <button onClick={() => { if(!tempItem.itemId) return; addItem(tempItem); setTempItem({ itemId: '', name: '', brand: '', qty: 1, price: 0 }); }} className="p-4 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-600/20 active:scale-90 transition-all"><Plus size={20}/></button>
+                            <div className="w-full md:w-24">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Qty</label>
+                                <input type="number" className="w-full p-4 bg-white border border-slate-100 rounded-2xl text-sm font-bold outline-none" value={tempItem.qty} onChange={e => setTempItem({...tempItem, qty: e.target.value})} />
+                            </div>
+                            <div className="w-full md:w-28">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Unit Rate</label>
+                                <input type="number" className="w-full p-4 bg-white border border-slate-100 rounded-2xl text-sm font-bold outline-none" value={tempItem.price} onChange={e => setTempItem({...tempItem, price: e.target.value})} />
+                            </div>
+                        <div className="flex items-end">
+                                <button onClick={() => { if(!tempItem.itemId) return; addItem(tempItem); setTempItem({ itemId: '', name: '', brand: '', qty: 1, price: 0 }); }} className="p-4 bg-slate-900 text-white rounded-2xl shadow-lg active:scale-90 transition-all mb-0.5"><Plus size={24}/></button>
+                            </div>
                         </div>
                     </div>
 
@@ -219,12 +240,19 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                 <div className="p-6 bg-purple-50 rounded-[32px] border border-purple-100 space-y-4">
                     <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest flex items-center gap-2"><Banknote size={14}/> Transaction Details</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Amount</label>
-                            <input type="number" className="w-full p-4 bg-white border border-purple-100 rounded-2xl text-xl font-black text-purple-700 outline-none" value={form.amount} onChange={e => setForm({...form, amount: e.target.value, received: e.target.value, paid: e.target.value})} />
+                        <div className="space-y-1.5 col-span-1 md:col-span-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Direction</label>
+                            <div className="flex bg-white p-1 rounded-2xl border border-purple-100">
+                                <button onClick={() => setForm({...form, subType: 'in'})} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${form.subType === 'in' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400'}`}>Payment IN (Receipt)</button>
+                                <button onClick={() => setForm({...form, subType: 'out'})} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${form.subType === 'out' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-400'}`}>Payment OUT (Payment)</button>
+                            </div>
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Mode</label>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Total Amount</label>
+                            <input type="number" className="w-full p-4 bg-white border border-purple-100 rounded-2xl text-xl font-black text-purple-700 outline-none" value={form.amount} onChange={e => setForm({...form, amount: e.target.value, received: form.subType === 'in' ? e.target.value : 0, paid: form.subType === 'out' ? e.target.value : 0})} />
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Payment Method</label>
                             <select className="w-full p-4 bg-white border border-purple-100 rounded-2xl text-sm font-bold outline-none" value={form.paymentMode} onChange={e => setForm({...form, paymentMode: e.target.value})}>
                                 <option>Cash</option>
                                 <option>Bank</option>

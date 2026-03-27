@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ArrowLeft, Edit2, Trash2, Phone, UserCheck, Coffee, Briefcase, Calendar, Clock, ChevronRight } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 
-const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, deleteRecord, handleAttendance, attToday, getFilteredAttendance, attStats, workLogs, formatDurationHrs }) => {
+const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, deleteRecord, handleAttendance, attToday, getFilteredAttendance, allAttendance, attStats, workLogs, formatDurationHrs }) => {
     const [sTab, setSTab] = useState('attendance');
     const [attFilter, setAttFilter] = useState('This Month');
     const [attCustom, setAttCustom] = useState({ start: '', end: '' });
@@ -25,7 +25,7 @@ const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, d
       return new Date(isoString).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
     };
 
-    const filteredAtt = getFilteredAttendance(staff, attFilter, attCustom);
+    const filteredAtt = getFilteredAttendance(staff, attFilter, attCustom, allAttendance);
 
     if (!staff) return null;
 
