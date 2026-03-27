@@ -207,7 +207,7 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                                         <span className="text-sm font-black text-slate-200">{s.name}</span>
                                     </div>
                                     <button 
-                                        onClick={() => toggleTimer(s.id)}
+                                        onClick={() => toggleTimer(task.id, s.id)}
                                         className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
                                             isRunning ? 'bg-rose-500 text-white' : 'bg-emerald-500 text-white'
                                         }`}

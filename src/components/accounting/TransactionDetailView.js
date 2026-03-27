@@ -18,8 +18,94 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
     const relatedDocs = []; // Logic to find related docs would go here if needed
 
     const shareInvoice = () => {
-        // Implementation for printing/PDF generation
-        window.print();
+        const win = window.open('', '_blank');
+        const isSales = tx.type === 'sales' || tx.type === 'estimate';
+        
+        const html = `
+            <html>
+            <head>
+                <title>INVOICE ${tx.id}</title>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+                    body { font-family: 'Inter', sans-serif; padding: 40px; color: #1e293b; max-width: 800px; margin: auto; }
+                    .header { display: flex; justify-content: space-between; border-bottom: 4px solid #000; padding-bottom: 20px; margin-bottom: 30px; }
+                    .brand { font-size: 32px; font-weight: 900; letter-spacing: -1px; text-transform: uppercase; }
+                    .invoice-meta { text-align: right; }
+                    .invoice-meta h1 { margin: 0; font-size: 40px; font-weight: 900; color: #cbd5e1; }
+                    .section { margin-bottom: 30px; display: flex; justify-content: space-between; }
+                    .info-box h3 { font-size: 10px; font-weight: 900; color: #64748b; text-transform: uppercase; margin-bottom: 5px; }
+                    .info-box p { margin: 2px 0; font-weight: 700; font-size: 14px; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                    th { text-align: left; padding: 12px; font-size: 10px; font-weight: 900; text-transform: uppercase; background: #f8fafc; border-bottom: 2px solid #000; }
+                    td { padding: 12px; border-bottom: 1px solid #f1f5f9; font-size: 13px; font-weight: 600; }
+                    .totals { margin-top: 30px; float: right; width: 250px; }
+                    .total-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; font-weight: 900; }
+                    .grand-total { border-top: 2px solid #000; margin-top: 10px; padding-top: 10px; font-size: 18px; }
+                    .footer { margin-top: 100px; border-top: 1px solid #f1f5f9; padding-top: 20px; font-size: 10px; font-weight: 700; color: #94a3b8; text-align: center; text-transform: uppercase; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <div class="brand">SMEES PRO <span style="color:#2563eb">ERP</span></div>
+                    <div class="invoice-meta">
+                        <h1>${tx.type.toUpperCase()}</h1>
+                        <p style="margin:0; font-weight:900; font-size:12px">NO: ${tx.id} | DATE: ${tx.date}</p>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="info-box">
+                        <h3>Billed To</h3>
+                        <p>${party?.name || tx.category || 'CASH CLIENT'}</p>
+                        <p>${tx.mobile || party?.mobile || ''}</p>
+                        <p style="font-size:11px; font-weight:500; color:#64748b; width:200px">${tx.address || party?.address || ''}</p>
+                    </div>
+                    <div class="info-box" style="text-align:right">
+                        <h3>Payment Matrix</h3>
+                        <p>${tx.paymentMode || 'Cash'} Settlement</p>
+                        <p>${tx.status || 'Paid'}</p>
+                    </div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Description</th>
+                            <th style="text-align:center">Qty</th>
+                            <th style="text-align:right">Rate</th>
+                            <th style="text-align:right">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${(tx.items || [{ itemName: tx.category || 'Services', qty: 1, price: tx.amount }]).map(i => `
+                            <tr>
+                                <td>${i.itemName}</td>
+                                <td style="text-align:center">${i.qty}</td>
+                                <td style="text-align:right">${(i.price || 0).toFixed(2)}</td>
+                                <td style="text-align:right">${((i.qty||1) * (i.price||0)).toFixed(2)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+
+                <div class="totals">
+                    <div class="total-row"><span>Gross Total</span> <span>${tx.grossTotal || tx.amount || 0}</span></div>
+                    ${tx.discountValue > 0 ? `<div class="total-row"><span>Discount</span> <span style="color:#e11d48">-${tx.discountValue}</span></div>` : ''}
+                    <div class="total-row grand-total"><span>Total Payable</span> <span>INR ${tx.finalTotal || tx.amount || 0}</span></div>
+                    <p style="font-size:10px; font-weight:900; text-align:right; margin-top:10px; color:#22c55e">RECEIVED: ${tx.received || tx.paid || (tx.type === 'payment' ? tx.amount : 0)}</p>
+                </div>
+
+                <div style="clear:both"></div>
+                <div class="footer">
+                    Computer Generated Document - SMEES Intelligence Engine
+                </div>
+                <script>window.print();</script>
+            </body>
+            </html>
+        `;
+
+        win.document.write(html);
+        win.document.close();
     };
 
     return (

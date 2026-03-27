@@ -48,14 +48,20 @@ const Dashboard = ({ data, setModal }) => {
         else if(fType === 'Yearly') start.setFullYear(now.getFullYear(), 0, 1);
         start.setHours(0,0,0,0);
 
-        const filtered = data.transactions.filter(t => new Date(t.date) >= start);
+        const filtered = data.transactions.filter(t => new Date(t.date) >= start && t.status !== 'Cancelled');
         
-        const sales = filtered.filter(t => t.type === 'sales' && t.status !== 'Cancelled').reduce((s, t) => s + parseFloat(t.finalTotal || 0), 0);
-        const expenses = filtered.filter(t => t.type === 'expense' && t.status !== 'Cancelled').reduce((s, t) => s + parseFloat(t.amount || t.finalTotal || 0), 0);
-        const activeTasks = data.tasks.filter(t => t.status !== 'Done' && t.status !== 'Converted').length;
-        const totalPayments = filtered.filter(t => t.type === 'payment').length;
+        const sales = filtered.filter(t => t.type === 'sales').reduce((s, t) => s + parseFloat(t.finalTotal || 0), 0);
+        const expenses = filtered.filter(t => t.type === 'expense').reduce((s, t) => s + parseFloat(t.amount || t.finalTotal || 0), 0);
+        
+        let cogs = 0;
+        filtered.filter(t => t.type === 'sales').forEach(s => {
+            (s.items || []).forEach(i => { cogs += (parseFloat(i.buyPrice || 0) * parseFloat(i.qty || 0)); });
+        });
 
-        return { sales, expenses, activeTasks, totalPayments };
+        const activeTasks = data.tasks.filter(t => t.status !== 'Done' && t.status !== 'Converted').length;
+        const grossProfit = sales - cogs;
+
+        return { sales, expenses, activeTasks, grossProfit, filteredTxs: filtered };
     }, [data, fType, fDate]);
 
     return (
@@ -106,12 +112,12 @@ const Dashboard = ({ data, setModal }) => {
             
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                    { label: 'Net Sales', value: formatCurrency(stats.sales), sub: `${fType} Performance`, color: 'bg-emerald-500 shadow-emerald-500/20', clrType: 'sales' },
-                    { label: 'Expenses', value: formatCurrency(stats.expenses), sub: `Opex ${fType}`, color: 'bg-rose-500 shadow-rose-500/20', clrType: 'expense' },
-                    { label: 'Pipeline', value: stats.activeTasks, sub: 'Active Workloads', color: 'bg-indigo-600 shadow-indigo-500/20', clrType: 'tasks' },
-                    { label: 'Settlements', value: stats.totalPayments, sub: 'Ledger Updates', color: 'bg-slate-900 shadow-slate-900/10', clrType: 'payment' }
+                    { label: 'Gross Sales', value: formatCurrency(stats.sales), sub: `${fType} Billing`, color: 'bg-emerald-500 shadow-emerald-500/20', type: 'sales' },
+                    { label: 'Opex Exp', value: formatCurrency(stats.expenses), sub: `Cost Center`, color: 'bg-rose-500 shadow-rose-500/20', type: 'expense' },
+                    { label: 'Gross Profit', value: formatCurrency(stats.grossProfit), sub: 'Period IQ', color: 'bg-blue-600 shadow-blue-500/20', type: 'profit' },
+                    { label: 'Pipeline', value: stats.activeTasks, sub: 'Active Load', color: 'bg-slate-900 shadow-slate-900/10', type: 'tasks' }
                 ].map((card, i) => (
-                    <div key={i} onClick={() => setModal({ type: 'transaction_list', filter: card.clrType })} className={`p-6 rounded-[36px] shadow-2xl ${card.color} text-white hover:scale-[1.02] transition-all cursor-pointer group active:scale-95 relative overflow-hidden`}>
+                    <div key={i} onClick={() => setModal({ type: 'dashboard_drilldown', filter: card.type, items: stats.filteredTxs.filter(t => t.type === card.type || (card.type === 'profit' && t.type === 'sales')) })} className={`p-6 rounded-[36px] shadow-2xl ${card.color} text-white hover:scale-[1.02] transition-all cursor-pointer group active:scale-95 relative overflow-hidden`}>
                         <div className="absolute top-0 right-0 w-16 h-16 bg-white/10 rounded-bl-full -z-0"></div>
                         <p className="text-[9px] font-black text-white/50 uppercase tracking-widest mb-2 group-hover:text-white relative z-10">{card.label}</p>
                         <h3 className="text-xl font-black tracking-tighter relative z-10">{card.value}</h3>
@@ -223,6 +229,23 @@ const App = () => {
     };
 
     useEffect(() => {
+        const handleBack = () => {
+            if (modal) {
+                setModal(null);
+                window.history.pushState(null, '', '');
+            } else if (viewDetail) {
+                setViewDetail(null);
+                window.history.pushState(null, '', '');
+            }
+        };
+        if (modal || viewDetail) {
+            window.history.pushState(null, '', '');
+            window.addEventListener('popstate', handleBack);
+        }
+        return () => window.removeEventListener('popstate', handleBack);
+    }, [modal, viewDetail]);
+
+    useEffect(() => {
         const unsub = onAuthStateChanged(auth, (authUser) => {
             if (authUser) {
                 const savedUser = JSON.parse(localStorage.getItem('smees_user'));
@@ -266,6 +289,40 @@ const App = () => {
                             {modal.type === 'staff' && <StaffForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             {['sales', 'purchase', 'expense', 'payment', 'estimate'].includes(modal.type) && (
                                 <TransactionForm data={data} setData={setData} type={modal.type} record={modal.data} onClose={() => setModal(null)} />
+                            )}
+                            {modal.type === 'dashboard_drilldown' && (
+                                <div className="space-y-4">
+                                    <div className="flex bg-slate-900 p-4 rounded-3xl justify-between items-center mb-6 shadow-xl">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center text-blue-400"><TrendingUp size={20}/></div>
+                                            <div>
+                                                <p className="text-[10px] font-black text-white/50 uppercase tracking-widest leading-none">Intelligence Drill-down</p>
+                                                <h4 className="text-sm font-black text-white tracking-tight mt-1">{modal.filter.toUpperCase()} Report</h4>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">{modal.items.length} Entries</p>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-3">
+                                        {modal.items.map(t => (
+                                            <div key={t.id} onClick={() => { setModal(null); setViewDetail({ type: 'transaction', id: t.id }); }} className="p-5 bg-slate-50 border border-slate-100 rounded-[28px] flex items-center justify-between hover:bg-white transition-all hover:shadow-xl cursor-pointer group active:scale-[0.98]">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 border border-slate-100 group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600 transition-all"><FileText size={20}/></div>
+                                                    <div>
+                                                        <p className="text-sm font-black text-slate-800 tracking-tight">{data.parties.find(p=>p.id===t.partyId)?.name || t.category || 'Direct Task'}</p>
+                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">#{t.id} • {t.date}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-sm font-black text-slate-900">{formatCurrency(t.finalTotal || t.amount || 0)}</p>
+                                                    <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest">{t.paymentMode}</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {modal.items.length === 0 && <p className="text-center py-12 text-[10px] font-black text-slate-400 uppercase tracking-widest italic opacity-50">No Data Points for this Period</p>}
+                                    </div>
+                                </div>
                             )}
                             {modal.type === 'personalFinance' && <PersonalFinanceForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             {modal.type === 'task' && <TaskForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
