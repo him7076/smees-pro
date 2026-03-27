@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowLeft, RefreshCw, MessageCircle, MoreHorizontal, Edit2, Trash2, Clock, CheckCircle2, AlertCircle, Play, Square, MapPin, ChevronRight } from 'lucide-react';
-import { formatCurrency, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatDate } from '../../utils/helpers';
 
 const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, deleteRecord, showToast, toggleTimer, checkPermission, refreshSingleRecord }) => {
     if (!task) return null;

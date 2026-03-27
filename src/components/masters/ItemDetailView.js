@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { ArrowLeft, Edit2, TrendingUp, ShoppingCart, Calendar, Search } from 'lucide-react';
-import { formatCurrency, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatDate } from '../../utils/helpers';
 
 const ItemDetailView = ({ item, data, onBack, setViewDetail, setModal, pushHistory, itemStock }) => {
     const [activeBrand, setActiveBrand] = useState('All');

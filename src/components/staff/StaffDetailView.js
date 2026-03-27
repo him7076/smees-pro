@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Edit2, Trash2, Phone, UserCheck, Coffee, Briefcase, Calendar, Clock, ChevronRight } from 'lucide-react';
-import { formatCurrency, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatDate } from '../../utils/helpers';
 
 const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, deleteRecord, handleAttendance, attToday, getFilteredAttendance, attStats, workLogs, formatDurationHrs }) => {
     const [sTab, setSTab] = useState('attendance');

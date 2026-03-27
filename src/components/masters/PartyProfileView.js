@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { ArrowLeft, Edit2, Trash2, Phone, MapPin, Search, Calendar, Landmark, Banknote, TrendingUp, ShoppingCart, ReceiptText, Smartphone } from 'lucide-react';
-import { formatCurrency, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatDate } from '../../utils/helpers';
 
 const PartyProfileView = ({ record, data, onBack, setViewDetail, setModal, user, deleteRecord, partyBalances, getBillStats }) => {
     const [activeTab, setActiveTab] = useState('transactions');
