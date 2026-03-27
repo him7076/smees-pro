@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Edit2, Trash2, Phone, UserCheck, Coffee, Briefcase, Calendar, Clock, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Edit2, Trash2, Phone, UserCheck, Coffee, Briefcase, Calendar, Clock, ChevronRight, X } from 'lucide-react';
 import { formatCurrency, formatDate, getAttendanceDurations } from '../../utils/helpers';
 
 const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, deleteRecord, handleAttendance, attToday, getFilteredAttendance, allAttendance, attStats, workLogs, formatDurationHrs }) => {
@@ -8,6 +8,13 @@ const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, d
     const [attCustom, setAttCustom] = useState({ start: '', end: '' });
     const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
     const [showManual, setShowManual] = useState(false);
+
+    const formatTime = (isoString) => {
+        if (!isoString) return '';
+        try {
+            return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch (e) { return '-'; }
+    };
 
     const filteredAtt = getFilteredAttendance(staff, attFilter, attCustom, allAttendance);
 
