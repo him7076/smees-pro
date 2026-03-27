@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   Lock, Wallet, TrendingUp, TrendingDown, RefreshCcw, 
   CheckSquare, Plus, ChevronRight, PieChart as PieIcon, 
-  History, Landmark, CreditCard, Banknote
+  History, Landmark, CreditCard as CardIcon, Banknote
 } from 'lucide-react';
 import { formatCurrency } from '../../utils/helpers';
 
