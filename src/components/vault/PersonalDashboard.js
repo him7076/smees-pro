@@ -13,41 +13,45 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
 
     // 1. Calculations
     const stats = useMemo(() => {
-        let income = 0, expense = 0;
+        let monthIncome = 0, monthExpense = 0;
+        let totalIncome = 0, totalExpense = 0;
         const now = new Date();
         const thisMonth = now.getMonth();
         const thisYear = now.getFullYear();
 
-        transactions.forEach(t => {
-            const d = new Date(t.date);
-            if (d.getMonth() === thisMonth && d.getFullYear() === thisYear) {
-                const amt = parseFloat(t.amount || 0);
-                if (t.type === 'income') income += amt;
-                else if (t.type === 'expense') expense += amt;
-            }
-        });
-
-        // Calculate account balances
+        // Account balances
         const accBals = {};
-        accounts.forEach(a => accBals[a.id] = parseFloat(a.initialBalance || 0));
+        accounts.forEach(a => accBals[a.name || a.id] = parseFloat(a.initialBalance || 0));
+
         transactions.forEach(t => {
             const amt = parseFloat(t.amount || 0);
-            if (t.type === 'income') accBals[t.accountId] = (accBals[t.accountId] || 0) + amt;
-            else if (t.type === 'expense') accBals[t.accountId] = (accBals[t.accountId] || 0) - amt;
-            else if (t.type === 'transfer') {
-                accBals[t.fromAccountId] = (accBals[t.fromAccountId] || 0) - amt;
-                accBals[t.toAccountId] = (accBals[t.toAccountId] || 0) + amt;
+            const d = new Date(t.date);
+            const accountKey = t.account || t.accountId;
+
+            if (t.type === 'income') {
+                totalIncome += amt;
+                if (d.getMonth() === thisMonth && d.getFullYear() === thisYear) monthIncome += amt;
+                if (accountKey) accBals[accountKey] = (accBals[accountKey] || 0) + amt;
+            } else if (t.type === 'expense') {
+                totalExpense += amt;
+                if (d.getMonth() === thisMonth && d.getFullYear() === thisYear) monthExpense += amt;
+                if (accountKey) accBals[accountKey] = (accBals[accountKey] || 0) - amt;
+            } else if (t.type === 'transfer') {
+                const fromKey = t.account || t.fromAccountId;
+                const toKey = t.toAccount || t.toAccountId;
+                if (fromKey) accBals[fromKey] = (accBals[fromKey] || 0) - amt;
+                if (toKey) accBals[toKey] = (accBals[toKey] || 0) + amt;
             }
         });
 
         const totalBalance = Object.values(accBals).reduce((a, b) => a + b, 0);
 
-        return { income, expense, totalBalance, accBals };
+        return { monthIncome, monthExpense, totalIncome, totalExpense, totalBalance, accBals };
     }, [transactions, accounts]);
 
     // 2. SVG Pie Chart Logic
     const Chart = ({ income, expense }) => {
-        const total = income + expense || 1;
+        const total = (income + expense) || 1;
         const incP = (income / total) * 100;
         const expP = (expense / total) * 100;
         
@@ -56,15 +60,15 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
         const dashExp = `${expP} ${100 - expP}`;
 
         return (
-            <div className="relative w-32 h-32 flex items-center justify-center">
+            <div className="relative w-28 h-28 flex items-center justify-center">
                 <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
-                    <circle cx="18" cy="18" r="15.9" fill="transparent" stroke="#f1f5f9" strokeWidth="3.8"/>
-                    <circle cx="18" cy="18" r="15.9" fill="transparent" stroke="#10b981" strokeWidth="3.8" strokeDasharray={dashInc} strokeDashoffset="0"/>
-                    <circle cx="18" cy="18" r="15.9" fill="transparent" stroke="#f43f5e" strokeWidth="3.8" strokeDasharray={dashExp} strokeDashoffset={-incP}/>
+                    <circle cx="18" cy="18" r="15.9" fill="transparent" stroke="#f1f5f9" strokeWidth="4"/>
+                    <circle cx="18" cy="18" r="15.9" fill="transparent" stroke="#10b981" strokeWidth="4" strokeDasharray={dashInc} strokeDashoffset="0"/>
+                    <circle cx="18" cy="18" r="15.9" fill="transparent" stroke="#f43f5e" strokeWidth="4" strokeDasharray={dashExp} strokeDashoffset={-incP}/>
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <PieIcon size={16} className="text-slate-300 mb-0.5"/>
-                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Budget</span>
+                    <PieIcon size={14} className="text-slate-300 mb-0.5"/>
+                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Flow</span>
                 </div>
             </div>
         );
@@ -94,12 +98,14 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                         </div>
                         <div className="flex flex-col md:flex-row gap-4">
                             <div className="bg-emerald-50 px-6 py-4 rounded-[28px] border border-emerald-100/50 flex flex-col items-center md:items-start group-hover:scale-105 transition-transform">
-                                <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1.5 mb-1"><TrendingUp size={10}/> Inflow</span>
-                                <span className="text-lg font-black text-emerald-900">{formatCurrency(stats.income)}</span>
+                                <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1.5 mb-1"><TrendingUp size={10}/> Total Income</span>
+                                <span className="text-lg font-black text-emerald-900">{formatCurrency(stats.totalIncome)}</span>
+                                <span className="text-[8px] font-black text-emerald-400 uppercase mt-1">₹{stats.monthIncome} This Month</span>
                             </div>
                             <div className="bg-rose-50 px-6 py-4 rounded-[28px] border border-rose-100/50 flex flex-col items-center md:items-start group-hover:scale-105 transition-transform">
-                                <span className="text-[9px] font-black text-rose-600 uppercase tracking-widest flex items-center gap-1.5 mb-1"><TrendingDown size={10}/> Outflow</span>
-                                <span className="text-lg font-black text-rose-900">{formatCurrency(stats.expense)}</span>
+                                <span className="text-[9px] font-black text-rose-600 uppercase tracking-widest flex items-center gap-1.5 mb-1"><TrendingDown size={10}/> Total Expense</span>
+                                <span className="text-lg font-black text-rose-900">{formatCurrency(stats.totalExpense)}</span>
+                                <span className="text-[8px] font-black text-rose-400 uppercase mt-1">₹{stats.monthExpense} This Month</span>
                             </div>
                         </div>
                     </div>
@@ -117,10 +123,10 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                     {accounts.map(acc => (
                         <div key={acc.id} onClick={() => setViewDetail({ type: 'personalFinance', accountId: acc.id })} className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-sm hover:shadow-xl hover:border-blue-100 transition-all cursor-pointer group active:scale-95">
                             <div className={`w-10 h-10 rounded-2xl flex items-center justify-center mb-4 transition-colors ${acc.type === 'Bank' ? 'bg-indigo-50 text-indigo-600' : acc.type === 'Card' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                                {acc.type === 'Bank' ? <Landmark size={20}/> : acc.type === 'Card' ? <CreditCard size={20}/> : <Banknote size={20}/>}
+                                {acc.type === 'Bank' ? <Landmark size={20}/> : acc.type === 'Card' ? <CardIcon size={20}/> : <Banknote size={20}/>}
                             </div>
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-tight mb-1">{acc.name}</p>
-                            <p className="text-lg font-black text-slate-900 truncate">{formatCurrency(stats.accBals[acc.id] || 0)}</p>
+                            <p className="text-lg font-black text-slate-900 truncate">{formatCurrency(stats.accBals[acc.name] || stats.accBals[acc.id] || 0)}</p>
                         </div>
                     ))}
                 </div>
