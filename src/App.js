@@ -6,7 +6,7 @@ import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { checkPermission, formatCurrency, getPartyBalances, getItemStock, getBillStats, getFilteredAttendance } from './utils/helpers';
 import { doc, setDoc, getDoc, deleteDoc } from "firebase/firestore";
 import { db } from './services/firebase';
-import { Plus } from 'lucide-react';
+import { Plus, TrendingUp, FileText, FileMinus, FileCheck } from 'lucide-react';
 
 // Layout & Auth
 import LoginScreen from './components/auth/LoginScreen';
@@ -245,6 +245,21 @@ const App = () => {
         return () => window.removeEventListener('popstate', handleBack);
     }, [modal, viewDetail]);
 
+    const cancelTransaction = async (id) => {
+        if(!window.confirm("Cancel this transaction?")) return;
+        const tx = data.transactions.find(t => t.id === id);
+        const updated = { ...tx, status: 'Cancelled', updatedAt: new Date().toISOString() };
+        await setDoc(doc(db, "transactions", id), updated, { merge: true });
+        setData(prev => ({ ...prev, transactions: prev.transactions.map(t => t.id === id ? updated : t) }));
+    };
+
+    const restoreTransaction = async (id) => {
+        const tx = data.transactions.find(t => t.id === id);
+        const updated = { ...tx, status: 'Unpaid', updatedAt: new Date().toISOString() };
+        await setDoc(doc(db, "transactions", id), updated, { merge: true });
+        setData(prev => ({ ...prev, transactions: prev.transactions.map(t => t.id === id ? updated : t) }));
+    };
+
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, (authUser) => {
             if (authUser) {
@@ -345,6 +360,8 @@ const App = () => {
                             onBack={() => setViewDetail(null)}
                             setViewDetail={setViewDetail}
                             setModal={setModal}
+                            cancelTransaction={cancelTransaction}
+                            restoreTransaction={restoreTransaction}
                             deleteRecord={deleteRecord}
                             checkPermission={checkPermission}
                         />

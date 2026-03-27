@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, ArrowRight, ShoppingCart, FileText, CheckCircle2, Package, User } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
-import { getTransactionTotals } from '../../utils/helpers';
+import { getTransactionTotals, formatCurrency } from '../../utils/helpers';
 
 const ConvertTaskModal = ({ task, data, setData, onClose }) => {
     const { saveRecord } = useDatabase(data, setData);
