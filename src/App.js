@@ -24,7 +24,8 @@ import ItemForm from './components/masters/ItemForm';
 import StaffForm from './components/staff/StaffForm';
 import TransactionForm from './components/accounting/TransactionForm';
 import ConvertTaskModal from './components/tasks/ConvertTaskModal';
-import TaskForm from './components/tasks/TaskForm'; // Added TaskForm import
+import TaskForm from './components/tasks/TaskForm';
+import PersonalFinanceForm from './components/vault/PersonalFinanceForm';
 
 // Views
 import PersonalFinanceView from './components/vault/PersonalFinanceView';
@@ -38,7 +39,6 @@ import StaffDetailView from './components/staff/StaffDetailView';
 const Dashboard = ({ data, setModal }) => {
     const stats = useMemo(() => {
         let receivables = 0, payables = 0;
-        // Simple balance calculation (Real app would use getPartyBalances)
         data.parties.forEach(p => {
             const bal = parseFloat(p.openingBal || 0);
             if (p.type === 'DR') receivables += bal;
@@ -131,11 +131,9 @@ const App = () => {
     const [authLoading, setAuthLoading] = useState(true);
     const { data, setData, loading: dataLoading } = useFirebaseSync();
 
-    // UI States
-    const [modal, setModal] = useState(null); // { type: 'party', data: null }
-    const [viewDetail, setViewDetail] = useState(null); // { type: 'party', id: 'P01' }
+    const [modal, setModal] = useState(null); 
+    const [viewDetail, setViewDetail] = useState(null); 
 
-    // Logic Calculations
     const partyBalances = useMemo(() => getPartyBalances(data), [data]);
     const itemStock = useMemo(() => getItemStock(data), [data]);
 
@@ -153,17 +151,24 @@ const App = () => {
         }
     };
 
-    const handleAttendance = async (staffId, type) => {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const timeStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
-        const attId = `ATT-${staffId}-${todayStr}`;
+    const handleAttendance = async (staffId, type, manualData = null) => {
+        let attId, updated;
+        const now = new Date();
+        const todayStr = manualData?.date || now.toISOString().split('T')[0];
+        const timeStr = manualData ? "" : now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
         
+        attId = `ATT-${staffId}-${todayStr}`;
         const existing = data.attendance.find(a => a.id === attId) || {
             id: attId, staffId, date: todayStr, status: 'Present',
             checkIn: '', checkOut: '', lunchStart: '', lunchEnd: ''
         };
 
-        const updated = { ...existing, [type]: timeStr, updatedAt: new Date().toISOString() };
+        if (type === 'manual') {
+            updated = { ...existing, ...manualData, updatedAt: now.toISOString() };
+        } else {
+            updated = { ...existing, [type]: timeStr, updatedAt: now.toISOString() };
+        }
+
         await setDoc(doc(db, "attendance", attId), updated, { merge: true });
         setData(prev => ({
             ...prev,
@@ -171,9 +176,26 @@ const App = () => {
         }));
     };
 
-    const toggleTimer = async (staffId) => {
-        // Implementation for task timer
-        console.log("Toggle Timer for", staffId);
+    const toggleTimer = async (taskId, staffId) => {
+        const task = data.tasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        const now = new Date().toISOString();
+        let newLogs = [...(task.timeLogs || [])];
+        const activeLogIndex = newLogs.findIndex(l => l.staffId === staffId && !l.end);
+
+        if (activeLogIndex > -1) {
+            newLogs[activeLogIndex] = { ...newLogs[activeLogIndex], end: now };
+        } else {
+            newLogs.push({ staffId, start: now, end: null });
+        }
+
+        const updatedTask = { ...task, timeLogs: newLogs, updatedAt: now };
+        await setDoc(doc(db, "tasks", taskId), updatedTask, { merge: true });
+        setData(prev => ({
+            ...prev,
+            tasks: prev.tasks.map(t => t.id === taskId ? updatedTask : t)
+        }));
     };
 
     const refreshSingleRecord = async (collection, id) => {
@@ -189,7 +211,6 @@ const App = () => {
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, (authUser) => {
             if (authUser) {
-                // In production, fetch staff role/permissions from Firestore
                 const savedUser = JSON.parse(localStorage.getItem('smees_user'));
                 setUser(savedUser || { 
                     uid: authUser.uid, 
@@ -218,7 +239,6 @@ const App = () => {
 
     return (
         <BrowserRouter>
-            {/* Global Modal Layer */}
             {modal && (
                 <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-6 animate-in fade-in duration-300">
                     <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-t-[48px] md:rounded-[48px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-10 h-full md:h-auto">
@@ -233,6 +253,7 @@ const App = () => {
                             {['sales', 'purchase', 'expense', 'payment', 'estimate'].includes(modal.type) && (
                                 <TransactionForm data={data} setData={setData} type={modal.type} record={modal.data} onClose={() => setModal(null)} />
                             )}
+                            {modal.type === 'personalFinance' && <PersonalFinanceForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             {modal.type === 'task' && <TaskForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             {modal.type === 'convertTask' && <ConvertTaskModal task={modal.data} data={data} setData={setData} onClose={() => setModal(null)} />}
                         </div>
@@ -240,10 +261,9 @@ const App = () => {
                 </div>
             )}
 
-            {/* Global Detail View Layer */}
             {viewDetail && (
                 <div className="fixed inset-0 z-[90] bg-white overflow-hidden">
-                    {viewDetail.type === 'personalFinance' && <PersonalFinanceView data={data} setData={setData} onBack={() => setViewDetail(null)} accountId={viewDetail.accountId} />}
+                    {viewDetail.type === 'personalFinance' && <PersonalFinanceView data={data} setData={setData} onBack={() => setViewDetail(null)} accountId={viewDetail.accountId} setModal={setModal} />}
                     {viewDetail.type === 'personalTasks' && <PersonalTasksView data={data} setData={setData} onBack={() => setViewDetail(null)} />}
                     
                     {viewDetail.type === 'transaction' && (
@@ -309,7 +329,7 @@ const App = () => {
                             setViewDetail={setViewDetail}
                             setModal={setModal}
                             deleteRecord={deleteRecord}
-                            handleAttendance={(type) => handleAttendance(viewDetail.id, type)}
+                            handleAttendance={(type, manual) => handleAttendance(viewDetail.id, type, manual)}
                             attToday={data.attendance.find(a => a.staffId === viewDetail.id && a.date === new Date().toISOString().split('T')[0]) || {}}
                             getFilteredAttendance={getFilteredAttendance}
                             allAttendance={data.attendance}
@@ -327,33 +347,27 @@ const App = () => {
 
             <Routes>
                 <Route path="/login" element={!user ? <LoginScreen setUser={setUser} /> : <Navigate to="/" />} />
-                
                 <Route path="/" element={user ? <AppLayout user={user}><Dashboard data={data} setModal={setModal} /></AppLayout> : <Navigate to="/login" />} />
-                
                 <Route path="/accounts" element={user ? (
                     <AppLayout user={user}>
                         <TransactionList data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} />
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
-
                 <Route path="/tasks" element={user ? (
                     <AppLayout user={user}>
                         <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} />
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
-
                 <Route path="/vault" element={user ? (
                     <AppLayout user={user}>
                         <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
-
                 <Route path="/masters" element={user?.role === 'admin' ? (
                     <AppLayout user={user}>
                         <MasterModule data={data} setData={setData} setModal={setModal} setViewDetail={setViewDetail} />
                     </AppLayout>
                 ) : <Navigate to="/" />} />
-
                 <Route path="*" element={<Navigate to="/" />} />
             </Routes>
         </BrowserRouter>

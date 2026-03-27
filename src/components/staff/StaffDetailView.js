@@ -1,29 +1,13 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Edit2, Trash2, Phone, UserCheck, Coffee, Briefcase, Calendar, Clock, ChevronRight } from 'lucide-react';
-import { formatCurrency, formatDate } from '../../utils/helpers';
+import { formatCurrency, formatDate, getAttendanceDurations } from '../../utils/helpers';
 
 const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, deleteRecord, handleAttendance, attToday, getFilteredAttendance, allAttendance, attStats, workLogs, formatDurationHrs }) => {
     const [sTab, setSTab] = useState('attendance');
     const [attFilter, setAttFilter] = useState('This Month');
     const [attCustom, setAttCustom] = useState({ start: '', end: '' });
-
-    const getMins = (t) => {
-        if(!t) return 0;
-        const [h, m] = t.split(':').map(Number);
-        return h * 60 + m;
-    };
-
-    const formatDur = (m) => {
-        if(m <= 0) return '-';
-        const h = Math.floor(m / 60);
-        const mins = m % 60;
-        return `${h}h ${mins}m`;
-    };
-
-    const formatTime = (isoString) => {
-      if(!isoString) return '';
-      return new Date(isoString).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-    };
+    const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
+    const [showManual, setShowManual] = useState(false);
 
     const filteredAtt = getFilteredAttendance(staff, attFilter, attCustom, allAttendance);
 
@@ -180,51 +164,136 @@ const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, d
                                 </div>
                             </div>
 
-                            <div className="space-y-3">
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Session Logs</p>
+                            <div className="flex justify-between items-center bg-white p-4 rounded-3xl border border-slate-100 shadow-sm mx-1">
+                                <p className="text-[10px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">Session Logs</p>
+                                {user?.role === 'admin' && (
+                                    <button 
+                                        onClick={() => setShowManual(true)} 
+                                        className="px-3 py-1.5 bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-blue-200"
+                                    >
+                                        Admin Manual Entry
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="space-y-4">
+                                {filteredAtt.length === 0 && (
+                                    <div className="p-12 text-center bg-slate-50 rounded-[32px] border border-dashed border-slate-200">
+                                        <p className="text-slate-400 font-bold text-sm">No attendance logs for this period.</p>
+                                    </div>
+                                )}
                                 {filteredAtt.map(item => {
-                                    const inM = getMins(item.checkIn);
-                                    const outM = getMins(item.checkOut);
-                                    const lsM = getMins(item.lunchStart);
-                                    const leM = getMins(item.lunchEnd);
-                                    
-                                    let gross = 0, lunch = 0, net = 0;
-                                    if (item.checkIn && item.checkOut) gross = outM - inM;
-                                    if (item.lunchStart && item.lunchEnd) lunch = leM - lsM;
-                                    net = gross - lunch;
+                                    const durs = getAttendanceDurations(item);
                                     
                                     return (
-                                        <div key={item.id} className="p-6 bg-white border border-slate-100 rounded-[28px] shadow-sm relative group overflow-hidden">
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div className="flex items-center gap-2">
-                                                    <Calendar size={16} className="text-slate-400"/>
-                                                    <p className="font-black text-slate-800 text-sm">{formatDate(item.date)}</p>
+                                        <div key={item.id} className="p-6 bg-white border border-slate-100 rounded-[32px] shadow-sm relative group overflow-hidden transition-all hover:shadow-xl hover:border-blue-100">
+                                            <div className="flex justify-between items-start mb-6 pb-4 border-b border-slate-50">
+                                                <div className="flex flex-col gap-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <Calendar size={14} className="text-blue-500"/>
+                                                        <p className="font-black text-slate-900 text-sm tracking-tight">{formatDate(item.date)}</p>
+                                                    </div>
+                                                    <span className="text-[8px] font-black text-slate-300 uppercase tracking-widest ml-5">ID: {item.id}</span>
                                                 </div>
                                                 {user?.role === 'admin' && (
                                                     <div className="flex gap-2">
-                                                        <button className="p-2 text-blue-500 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"><Edit2 size={14}/></button>
-                                                        <button className="p-2 text-rose-500 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors"><Trash2 size={14}/></button>
+                                                        <button className="p-2 text-blue-500 bg-blue-50 rounded-xl hover:bg-blue-600 hover:text-white transition-all"><Edit2 size={12}/></button>
+                                                        <button 
+                                                            onClick={async () => {
+                                                                if(window.confirm('Delete this entry?')) {
+                                                                    await deleteRecord('attendance', item.id);
+                                                                }
+                                                            }}
+                                                            className="p-2 text-rose-500 bg-rose-50 rounded-xl hover:bg-rose-600 hover:text-white transition-all"
+                                                        ><Trash2 size={12}/></button>
                                                     </div>
                                                 )}
                                             </div>
-                                            <div className="grid grid-cols-2 gap-4 mb-4 pb-4 border-b border-slate-50">
-                                                <div className="flex flex-col gap-1">
-                                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Clock In</p>
-                                                    <p className="font-bold text-slate-700 text-xs">{item.checkIn || '-'}</p>
+                                            
+                                            <div className="grid grid-cols-4 gap-2 mb-6">
+                                                <div className="flex flex-col items-center bg-slate-50 p-2 rounded-2xl">
+                                                    <p className="text-[8px] font-black text-slate-400 uppercase mb-1">In</p>
+                                                    <p className="font-black text-slate-800 text-[10px]">{item.checkIn || '-'}</p>
                                                 </div>
-                                                <div className="flex flex-col gap-1">
-                                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Clock Out</p>
-                                                    <p className="font-bold text-slate-700 text-xs">{item.checkOut || '-'}</p>
+                                                <div className="flex flex-col items-center bg-slate-50 p-2 rounded-2xl">
+                                                    <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Out</p>
+                                                    <p className="font-black text-slate-800 text-[10px]">{item.checkOut || '-'}</p>
+                                                </div>
+                                                <div className="flex flex-col items-center bg-orange-50/50 p-2 rounded-2xl">
+                                                    <p className="text-[8px] font-black text-orange-400 uppercase mb-1">L.Start</p>
+                                                    <p className="font-black text-orange-600 text-[10px]">{item.lunchStart || '-'}</p>
+                                                </div>
+                                                <div className="flex flex-col items-center bg-orange-50/50 p-2 rounded-2xl">
+                                                    <p className="text-[8px] font-black text-orange-400 uppercase mb-1">L.End</p>
+                                                    <p className="font-black text-orange-600 text-[10px]">{item.lunchEnd || '-'}</p>
                                                 </div>
                                             </div>
-                                            <div className="flex justify-between items-center bg-slate-50 p-3 rounded-2xl">
-                                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Net Work Hours</span>
-                                                <span className="font-black text-sm text-slate-900 tracking-tight">{formatDur(net)}</span>
+
+                                            <div className="flex gap-3">
+                                                <div className="flex-1 bg-blue-50 p-4 rounded-2xl border border-blue-100 flex items-center justify-between">
+                                                    <span className="text-[8px] font-black text-blue-600 uppercase tracking-widest">Gross Time</span>
+                                                    <span className="font-black text-xs text-blue-700">{durs.gross}</span>
+                                                </div>
+                                                <div className="flex-1 bg-amber-50 p-4 rounded-2xl border border-amber-100 flex items-center justify-between">
+                                                    <span className="text-[8px] font-black text-amber-600 uppercase tracking-widest">Lunch Break</span>
+                                                    <span className="font-black text-xs text-amber-700">{durs.lunch}</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-3 flex justify-between items-center bg-slate-900 p-5 rounded-[24px] text-white shadow-lg shadow-slate-200">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center"><Clock size={16}/></div>
+                                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wide">Actual Work Hours</span>
+                                                </div>
+                                                <span className="font-black text-lg tracking-tighter text-blue-400">{durs.active}</span>
                                             </div>
                                         </div>
                                     );
                                 })}
                             </div>
+
+                            {/* Manual Enrollment Modal Backdrop (Simplified implementation in-file) */}
+                            {showManual && (
+                                <div className="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-sm p-6 flex items-center justify-center">
+                                    <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                                        <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+                                            <div>
+                                                <h3 className="text-xl font-black text-slate-800 tracking-tight">Manual Attendance</h3>
+                                                <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mt-1">Admin Override Access</p>
+                                            </div>
+                                            <button onClick={()=>setShowManual(false)} className="p-3 bg-slate-50 rounded-2xl text-slate-400 hover:text-slate-900 transition-colors"><X size={20}/></button>
+                                        </div>
+                                        <div className="p-8 space-y-6">
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Select Period</label>
+                                                <input type="date" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none" value={manualDate} onChange={e=>setManualDate(e.target.value)} />
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">In Time</label>
+                                                    <input type="time" id="mIn" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none"/>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Out Time</label>
+                                                    <input type="time" id="mOut" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none"/>
+                                                </div>
+                                            </div>
+                                            <button 
+                                                onClick={async () => {
+                                                    const inT = document.getElementById('mIn').value;
+                                                    const outT = document.getElementById('mOut').value;
+                                                    if(!inT) return alert("At least In-time required");
+                                                    await handleAttendance('manual', { date: manualDate, checkIn: inT, checkOut: outT });
+                                                    setShowManual(false);
+                                                }}
+                                                className="w-full py-5 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-blue-200 active:scale-95 transition-all"
+                                            >
+                                                Post Record
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 

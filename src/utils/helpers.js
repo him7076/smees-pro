@@ -11,15 +11,21 @@ export const getNextId = (data, type) => {
   else if (type === 'estimate') { prefix = 'EST'; counterKey = 'estimate'; } 
   else if (type === 'task') { prefix = 'T'; counterKey = 'task'; } 
   else if (type === 'transaction') { prefix = 'TX'; counterKey = 'transaction'; }
+  else if (type === 'party') { prefix = 'P'; counterKey = 'party'; }
+  else if (type === 'item') { prefix = 'I'; counterKey = 'item'; }
+  else if (type === 'staff') { prefix = 'S'; counterKey = 'staff'; }
 
   const counters = (data && data.counters) ? data.counters : INITIAL_DATA.counters;
-  let num = counters[counterKey] || 1; 
+  let num = parseInt(counters[counterKey] || 1); 
   
   let newId = `${prefix}-${num}`;
   let isDuplicate = true;
   while(isDuplicate) {
       isDuplicate = (data.transactions && data.transactions.some(t => t.id === newId)) || 
-                    (data.tasks && data.tasks.some(t => t.id === newId));
+                    (data.tasks && data.tasks.some(t => t.id === newId)) ||
+                    (data.parties && data.parties.some(t => t.id === newId)) ||
+                    (data.items && data.items.some(t => t.id === newId)) ||
+                    (data.staff && data.staff.some(t => t.id === newId));
       if(isDuplicate) {
           num++; 
           newId = `${prefix}-${num}`;
@@ -50,30 +56,58 @@ export const getTransactionTotals = (tx) => {
 };
 
 export const getBillStats = (bill, transactions) => {
-    if (bill.type === 'estimate') return { ...getTransactionTotals(bill), status: 'ESTIMATE', pending: 0, paid: 0 };
-    const basic = getTransactionTotals(bill);
-    const totalLinkedToThis = transactions
+    const totalLinkedToThis = (transactions || [])
         .filter(t => t.status !== 'Cancelled' && t.linkedBills && t.id !== bill.id)
         .reduce((sum, t) => {
-             const link = t.linkedBills.find(l => l.billId === bill.id);
+             const link = t.linkedBills?.find(l => l.billId === bill.id);
              return sum + (link ? parseFloat(link.amount || 0) : 0);
         }, 0);
-    const totalLinkedByThis = (bill.linkedBills || []).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
 
+    const isPayment = bill.type === 'payment';
+    const amount = isPayment ? parseFloat(bill.amount || 0) : getTransactionTotals(bill).final;
+    const used = totalLinkedToThis;
+    const pending = Math.max(0, amount - used);
+    
     let status = 'UNPAID';
-    if(bill.type === 'payment') {
-         const totalUsed = totalLinkedToThis + totalLinkedByThis;
-         const totalAvailable = parseFloat(bill.amount || 0) + parseFloat(bill.discountValue || 0);
-         if (totalUsed >= totalAvailable - 0.1 && totalAvailable > 0) status = 'FULLY USED';
-         else if (totalUsed > 0.1) status = 'PARTIALLY USED';
-         else status = 'UNUSED';
-         return { ...basic, used: totalUsed, status, totalAvailable, amount: parseFloat(bill.amount || 0) }; 
-    }
+    if (pending <= 0.5) status = isPayment ? 'FULLY USED' : 'PAID';
+    else if (used > 0) status = 'PARTIAL';
 
-    const totalPaid = basic.paid + totalLinkedToThis + totalLinkedByThis;
-    if (totalPaid >= basic.final - 0.1) status = 'PAID';
-    else if (totalPaid > 0.1) status = 'PARTIAL';
-    return { ...basic, totalPaid, pending: basic.final - totalPaid, status, amount: basic.final };
+    return { amount, used, pending, status };
+};
+
+export const getAttendanceDurations = (att) => {
+    const getMins = (t) => {
+        if(!t) return null;
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+    };
+
+    const checkIn = getMins(att.checkIn);
+    const checkOut = getMins(att.checkOut);
+    const lunchStart = getMins(att.lunchStart);
+    const lunchEnd = getMins(att.lunchEnd);
+
+    let grossMins = 0;
+    if(checkIn !== null && checkOut !== null) grossMins = checkOut - checkIn;
+
+    let lunchMins = 0;
+    if(lunchStart !== null && lunchEnd !== null) lunchMins = lunchEnd - lunchStart;
+
+    const activeMins = Math.max(0, grossMins - lunchMins);
+
+    const formatMins = (m) => {
+        if(!m || m <= 0) return '-';
+        const h = Math.floor(m / 60);
+        const mins = m % 60;
+        return h > 0 ? `${h}h ${mins}m` : `${mins}m`;
+    };
+
+    return {
+        gross: formatMins(grossMins),
+        lunch: formatMins(lunchMins),
+        active: formatMins(activeMins),
+        activeMins
+    };
 };
 
 export const getPartyBalances = (data) => {
