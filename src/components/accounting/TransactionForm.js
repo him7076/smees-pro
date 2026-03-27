@@ -205,13 +205,13 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
 
         if (existingIdx >= 0) {
             if (amt <= 0) newLinked.splice(existingIdx, 1);
-            else newLinked[existingIdx].amount = amt;
+            else newLinked[existingIdx] = { ...newLinked[existingIdx], amount: amt };
         } else if (amt > 0) {
             newLinked.push({ billId, amount: amt });
         }
 
         const currentTotal = newLinked.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
-        if (currentTotal > maxLimit) return alert(`Limit exceeded: ${maxLimit}`);
+        if (currentTotal > maxLimit + 0.1) return alert(`Limit exceeded: ${maxLimit}`);
 
         setTx({ ...tx, linkedBills: newLinked });
     };
