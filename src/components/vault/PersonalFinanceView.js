@@ -144,7 +144,10 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal }) => {
                                         <div className="flex items-center gap-2 text-[9px] font-bold text-slate-400 uppercase tracking-widest">
                                             <span>{formatDate(t.date)}</span>
                                             <span>•</span>
-                                            <span className={isCC ? "text-purple-600 font-black" : "font-black"}>{t.paymentMode} {t.creditCardName ? `(${t.creditCardName})` : ""}</span>
+                                            <span className={`font-black uppercase ${isCC ? "text-purple-600" : "text-blue-500"}`}>
+                                                {t.account || t.accountId || t.paymentMode || 'Wallet'}
+                                                {t.creditCardName ? ` (${t.creditCardName})` : ""}
+                                            </span>
                                             {t.personName && <span className="text-blue-600 font-black">@ {t.personName}</span>}
                                         </div>
                                         {(t.notes || t.note) && <p className="text-[9px] text-slate-400 lowercase font-medium italic mt-1 truncate max-w-[180px] opacity-70 italic leading-none">"{t.notes || t.note}"</p>}

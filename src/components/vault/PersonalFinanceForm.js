@@ -29,7 +29,7 @@ const PersonalFinanceForm = ({ data, setData, record, onClose }) => {
         paymentMode: record.paymentMode || 'Cash',
         personName: record.personName || '',
         creditCardName: record.creditCardName || '',
-        accountId: record.accountId || record.account || accounts[0]?.id || 'Cash',
+        accountId: record.accountId || record.account || (accounts.length > 0 ? accounts[0].name : 'Cash'),
     } : {
         type: 'expense',
         amount: '',
