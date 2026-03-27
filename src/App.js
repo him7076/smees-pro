@@ -3,7 +3,9 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from './services/firebase';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
-import { checkPermission, formatCurrency } from './utils/helpers';
+import { checkPermission, formatCurrency, getPartyBalances, getItemStock, getBillStats, getFilteredAttendance } from './utils/helpers';
+import { doc, setDoc, getDoc, deleteDoc } from "firebase/firestore";
+import { db } from './services/firebase';
 
 // Layout & Auth
 import LoginScreen from './components/auth/LoginScreen';
@@ -26,6 +28,11 @@ import TaskForm from './components/tasks/TaskForm'; // Added TaskForm import
 // Views
 import PersonalFinanceView from './components/vault/PersonalFinanceView';
 import PersonalTasksView from './components/vault/PersonalTasksView';
+import TransactionDetailView from './components/accounting/TransactionDetailView';
+import TaskDetailView from './components/tasks/TaskDetailView';
+import ItemDetailView from './components/masters/ItemDetailView';
+import PartyProfileView from './components/masters/PartyProfileView';
+import StaffDetailView from './components/staff/StaffDetailView';
 
 const Dashboard = ({ data, setModal }) => {
     const stats = useMemo(() => {
@@ -117,6 +124,57 @@ const App = () => {
     const [modal, setModal] = useState(null); // { type: 'party', data: null }
     const [viewDetail, setViewDetail] = useState(null); // { type: 'party', id: 'P01' }
 
+    // Logic Calculations
+    const partyBalances = useMemo(() => getPartyBalances(data), [data]);
+    const itemStock = useMemo(() => getItemStock(data), [data]);
+
+    const deleteRecord = async (collectionName, id) => {
+        if (!window.confirm(`Are you sure you want to delete this ${collectionName}?`)) return;
+        try {
+            await deleteDoc(doc(db, collectionName, id.toString()));
+            setData(prev => ({
+                ...prev,
+                [collectionName]: prev[collectionName].filter(r => r.id !== id)
+            }));
+            setViewDetail(null);
+        } catch (e) {
+            console.error("Delete Error:", e);
+        }
+    };
+
+    const handleAttendance = async (staffId, type) => {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const timeStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const attId = `ATT-${staffId}-${todayStr}`;
+        
+        const existing = data.attendance.find(a => a.id === attId) || {
+            id: attId, staffId, date: todayStr, status: 'Present',
+            checkIn: '', checkOut: '', lunchStart: '', lunchEnd: ''
+        };
+
+        const updated = { ...existing, [type]: timeStr, updatedAt: new Date().toISOString() };
+        await setDoc(doc(db, "attendance", attId), updated, { merge: true });
+        setData(prev => ({
+            ...prev,
+            attendance: [...prev.attendance.filter(a => a.id !== attId), updated]
+        }));
+    };
+
+    const toggleTimer = async (staffId) => {
+        // Implementation for task timer
+        console.log("Toggle Timer for", staffId);
+    };
+
+    const refreshSingleRecord = async (collection, id) => {
+        const snap = await getDoc(doc(db, collection, id));
+        if (snap.exists()) {
+            setData(prev => ({
+                ...prev,
+                [collection]: [...prev[collection].filter(r => r.id !== id), snap.data()]
+            }));
+        }
+    };
+
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, (authUser) => {
             if (authUser) {
@@ -174,10 +232,81 @@ const App = () => {
             {/* Global Detail View Layer */}
             {viewDetail && (
                 <div className="fixed inset-0 z-[90] bg-white overflow-hidden">
-                    {/* Components will render full-screen inside here with their own Back button */}
                     {viewDetail.type === 'personalFinance' && <PersonalFinanceView data={data} setData={setData} onBack={() => setViewDetail(null)} accountId={viewDetail.accountId} />}
                     {viewDetail.type === 'personalTasks' && <PersonalTasksView data={data} setData={setData} onBack={() => setViewDetail(null)} />}
-                    {/* Other detailed views like PartyProfile or TransactionDetail can go here */}
+                    
+                    {viewDetail.type === 'transaction' && (
+                        <TransactionDetailView 
+                            transaction={data.transactions.find(t => t.id === viewDetail.id)}
+                            data={data}
+                            onBack={() => setViewDetail(null)}
+                            setViewDetail={setViewDetail}
+                            setModal={setModal}
+                            deleteRecord={deleteRecord}
+                        />
+                    )}
+
+                    {viewDetail.type === 'task' && (
+                        <TaskDetailView 
+                            task={data.tasks.find(t => t.id === viewDetail.id)}
+                            data={data}
+                            user={user}
+                            onBack={() => setViewDetail(null)}
+                            setViewDetail={setViewDetail}
+                            setModal={setModal}
+                            deleteRecord={deleteRecord}
+                            showToast={(msg) => console.log(msg)}
+                            toggleTimer={toggleTimer}
+                            checkPermission={checkPermission}
+                            refreshSingleRecord={refreshSingleRecord}
+                        />
+                    )}
+
+                    {viewDetail.type === 'party' && (
+                        <PartyProfileView 
+                            record={data.parties.find(p => p.id === viewDetail.id)}
+                            data={data}
+                            onBack={() => setViewDetail(null)}
+                            setViewDetail={setViewDetail}
+                            setModal={setModal}
+                            user={user}
+                            deleteRecord={deleteRecord}
+                            partyBalances={partyBalances}
+                            getBillStats={getBillStats}
+                        />
+                    )}
+
+                    {viewDetail.type === 'item' && (
+                        <ItemDetailView 
+                            item={data.items.find(i => i.id === viewDetail.id)}
+                            data={data}
+                            onBack={() => setViewDetail(null)}
+                            setViewDetail={setViewDetail}
+                            setModal={setModal}
+                            itemStock={itemStock}
+                        />
+                    )}
+
+                    {viewDetail.type === 'staff' && (
+                        <StaffDetailView 
+                            staff={data.staff.find(s => s.id === viewDetail.id)}
+                            data={data}
+                            user={user}
+                            onBack={() => setViewDetail(null)}
+                            setViewDetail={setViewDetail}
+                            setModal={setModal}
+                            deleteRecord={deleteRecord}
+                            handleAttendance={handleAttendance}
+                            attToday={data.attendance.find(a => a.staffId === viewDetail.id && a.date === new Date().toISOString().split('T')[0]) || {}}
+                            getFilteredAttendance={getFilteredAttendance}
+                            attStats={(() => {
+                                const filtered = getFilteredAttendance(data.staff.find(s => s.id === viewDetail.id), 'This Month', {}, data.attendance);
+                                return { count: filtered.length, mins: filtered.reduce((acc, a) => acc + 480, 0) }; // Simplified stats
+                            })()}
+                            workLogs={[]}
+                            formatDurationHrs={(m) => `${Math.floor(m/60)}h`}
+                        />
+                    )}
                 </div>
             )}
 

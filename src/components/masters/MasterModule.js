@@ -69,7 +69,7 @@ const MasterModule = ({ data, setModal, setViewDetail }) => {
                 ))}
 
                 {view === 'items' && filteredItems.map(i => (
-                    <div key={i.id} onClick={() => setModal({ type: 'item', data: i })} className="bg-white p-6 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-2xl hover:border-emerald-100 transition-all cursor-pointer group active:scale-95">
+                    <div key={i.id} onClick={() => setViewDetail({ type: 'item', id: i.id })} className="bg-white p-6 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-2xl hover:border-emerald-100 transition-all cursor-pointer group active:scale-95">
                         <div className="flex justify-between items-start mb-6">
                             <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-all">
                                 <Package size={24}/>
@@ -92,7 +92,7 @@ const MasterModule = ({ data, setModal, setViewDetail }) => {
                 ))}
 
                 {view === 'staff' && filteredStaff.map(s => (
-                    <div key={s.id} onClick={() => setModal({ type: 'staff', data: s })} className="bg-white p-6 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-2xl hover:border-indigo-100 transition-all cursor-pointer group active:scale-95">
+                    <div key={s.id} onClick={() => setViewDetail({ type: 'staff', id: s.id })} className="bg-white p-6 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-2xl hover:border-indigo-100 transition-all cursor-pointer group active:scale-95">
                         <div className="flex justify-between items-start mb-6">
                             <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-all">
                                 <ShieldCheck size={24}/>

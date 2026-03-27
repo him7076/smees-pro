@@ -73,7 +73,65 @@ export const getBillStats = (bill, transactions) => {
     const totalPaid = basic.paid + totalLinkedToThis + totalLinkedByThis;
     if (totalPaid >= basic.final - 0.1) status = 'PAID';
     else if (totalPaid > 0.1) status = 'PARTIAL';
-    return { ...basic, totalPaid, pending: basic.final - totalPaid, status };
+    return { ...basic, totalPaid, pending: basic.final - totalPaid, status, amount: basic.final };
+};
+
+export const getPartyBalances = (data) => {
+    const balances = {};
+    data.parties.forEach(p => balances[p.id] = (p.type === 'DR' || p.openingBalType === 'DR') ? parseFloat(p.openingBal || 0) : -parseFloat(p.openingBal || 0));
+    data.transactions.forEach(tx => {
+        if (tx.type === 'estimate' || tx.status === 'Cancelled') return;
+        const { final, paid } = getTransactionTotals(tx);
+        const unpaid = final - paid;
+
+        if (tx.type === 'sales') balances[tx.partyId] = (balances[tx.partyId] || 0) + unpaid;
+        if (tx.type === 'purchase' || (tx.type === 'expense' && tx.partyId)) {
+            balances[tx.partyId] = (balances[tx.partyId] || 0) - unpaid;
+        }
+
+        if (tx.type === 'payment') {
+            const payAmt = parseFloat(tx.amount || 0);
+            const payDisc = parseFloat(tx.discountValue || 0);
+            const totalCredit = payAmt + payDisc;
+            if (tx.subType === 'in') balances[tx.partyId] = (balances[tx.partyId] || 0) - totalCredit;
+            else balances[tx.partyId] = (balances[tx.partyId] || 0) + totalCredit;
+        }
+    });
+    return balances;
+};
+
+export const getItemStock = (data) => {
+    const stock = {};
+    data.items.forEach(i => stock[i.id] = parseFloat(i.openingStock || 0));
+    data.transactions.forEach(tx => {
+        if (tx.type === 'estimate' || tx.status === 'Cancelled') return;
+        tx.items?.forEach(line => {
+            if (tx.type === 'sales') stock[line.itemId] = (stock[line.itemId] || 0) - parseFloat(line.qty || 0);
+            if (tx.type === 'purchase') stock[line.itemId] = (stock[line.itemId] || 0) + parseFloat(line.qty || 0);
+        });
+    });
+    return stock;
+};
+
+export const getFilteredAttendance = (staff, filter, custom = { start: '', end: '' }, allAttendance = []) => {
+    const now = new Date();
+    return allAttendance.filter(a => {
+        if (a.staffId !== staff.id) return false;
+        const d = new Date(a.date);
+        if (filter === 'This Month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        if (filter === 'Last Month') {
+            const last = new Date(); last.setMonth(last.getMonth() - 1);
+            return d.getMonth() === last.getMonth() && d.getFullYear() === last.getFullYear();
+        }
+        if (filter === 'This Week') {
+            const start = new Date(now); start.setDate(now.getDate() - now.getDay()); start.setHours(0, 0, 0, 0);
+            return d >= start;
+        }
+        if (filter === 'Custom' && custom.start && custom.end) {
+            return d >= new Date(custom.start) && d <= new Date(custom.end);
+        }
+        return true;
+    }).sort((a, b) => new Date(b.date) - new Date(a.date));
 };
 
 export const sortData = (data, criterion) => {
