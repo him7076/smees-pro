@@ -120,10 +120,23 @@ body {
 }
 
 /* Scrollbar Hide but Keep Functionality */
-.no-scrollbar {
-  -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none; /* Firefox */
+/* High Density Design Utilities */
+.card-compact {
+  padding: 1rem !important;
+  border-radius: 20px !important;
 }
-.no-scrollbar::-webkit-scrollbar {
-  display: none; /* Chrome, Safari and Opera */
+
+.grid-compact {
+  gap: 0.75rem !important;
+}
+
+.text-compact {
+  font-size: 0.8rem !important;
+  line-height: 1.2 !important;
+}
+
+@media (max-width: 640px) {
+  .p-mobile-compact {
+    padding: 1rem !important;
+  }
 }

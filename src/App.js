@@ -54,32 +54,30 @@ const Dashboard = ({ data, setModal }) => {
     }, [data]);
 
     return (
-        <div className="space-y-10 animate-in fade-in duration-700 pb-20">
-            <div className="bg-slate-900 p-8 rounded-[48px] shadow-2xl space-y-8 text-white overflow-hidden relative">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+        <div className="space-y-6 animate-in fade-in duration-700 pb-20">
+            {/* Execution Suite (TOP) - Compact High Density */}
+            <div className="bg-slate-900 p-5 rounded-[32px] shadow-2xl space-y-6 text-white overflow-hidden relative">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
                 <div className="relative z-10">
-                    <div className="flex justify-between items-center mb-6">
-                        <h4 className="text-sm font-black text-white uppercase tracking-widest">Execution Suite</h4>
-                        <div className="flex gap-4">
-                            <button onClick={() => setModal({ type: 'sales' })} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all text-center whitespace-nowrap">+ Sale</button>
-                            <button onClick={() => setModal({ type: 'task' })} className="px-4 py-2 bg-white text-slate-900 rounded-xl text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all text-center whitespace-nowrap">+ Task</button>
-                        </div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h4 className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Execution Suite</h4>
+                        <button onClick={() => setModal({ type: 'task' })} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all">+ Task</button>
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-5 gap-2">
                         {[
                             { label: 'Sale', type: 'sales', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
-                            { label: 'Estimate', type: 'estimate', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
-                            { label: 'Purchase', type: 'purchase', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
-                            { label: 'Expense', type: 'expense', color: 'bg-rose-500/10 text-rose-400 border-rose-500/20' },
-                            { label: 'Payment', type: 'payment', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' }
+                            { label: 'Purch', type: 'purchase', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
+                            { label: 'Exp', type: 'expense', color: 'bg-rose-500/10 text-rose-400 border-rose-500/20' },
+                            { label: 'Pay', type: 'payment', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' },
+                            { label: 'Est', type: 'estimate', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' }
                         ].map(btn => (
                             <button 
                                 key={btn.label} 
                                 onClick={() => setModal({ type: btn.type })} 
-                                className={`p-4 rounded-3xl border ${btn.color} hover:bg-white/10 transition-all active:scale-90 flex flex-col items-center gap-2`}
+                                className={`py-4 rounded-2xl border ${btn.color} hover:bg-white/10 transition-all active:scale-90 flex flex-col items-center gap-1.5`}
                             >
-                                <Plus size={18}/>
-                                <span className="text-[8px] font-black uppercase tracking-widest">{btn.label}</span>
+                                <Plus size={16}/>
+                                <span className="text-[8px] font-black uppercase tracking-widest leading-none">{btn.label}</span>
                             </button>
                         ))}
                     </div>
@@ -93,18 +91,18 @@ const Dashboard = ({ data, setModal }) => {
                 </div>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                    { label: 'Active Pipeline', value: stats.activeTasks, sub: 'Work Orders', color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-100' },
-                    { label: 'Receivables', value: formatCurrency(stats.receivables), sub: 'To Collect', color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-100' },
-                    { label: 'Payables', value: formatCurrency(stats.payables), sub: 'To Pay', color: 'text-rose-600', bg: 'bg-rose-50 border-rose-100' },
-                    { label: 'Today\'s Revenue', value: formatCurrency(stats.todaySales), sub: 'Gross Sales', color: 'text-blue-600', bg: 'bg-blue-50 border-blue-100' }
+                    { label: 'Active Pipeline', value: stats.activeTasks, sub: 'Work Orders', color: 'text-indigo-600', bg: 'bg-white border-slate-100' },
+                    { label: 'Receivables', value: formatCurrency(stats.receivables), sub: 'To Collect', color: 'text-emerald-600', bg: 'bg-white border-slate-100' },
+                    { label: 'Payables', value: formatCurrency(stats.payables), sub: 'To Pay', color: 'text-rose-600', bg: 'bg-white border-slate-100' },
+                    { label: 'Today Revenue', value: formatCurrency(stats.todaySales), sub: 'Gross Daily', color: 'text-blue-600', bg: 'bg-white border-slate-100' }
                 ].map((card, i) => (
-                    <div key={i} className={`p-6 sm:p-8 rounded-[32px] sm:rounded-[40px] border shadow-sm ${card.bg} hover:shadow-2xl transition-all group cursor-pointer active:scale-95 relative overflow-hidden`}>
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-white/40 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 group-hover:text-slate-600 relative z-10">{card.label}</p>
-                        <h3 className={`text-2xl sm:text-3xl font-black ${card.color} tracking-tighter relative z-10`}>{card.value}</h3>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5 relative z-10">{card.sub}</p>
+                    <div key={i} className={`p-4 rounded-[28px] border shadow-sm ${card.bg} hover:shadow-xl transition-all group cursor-pointer active:scale-95 relative overflow-hidden`}>
+                        <div className="absolute top-0 right-0 w-12 h-12 bg-slate-50 rounded-bl-full -z-0"></div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 group-hover:text-slate-600 relative z-10">{card.label}</p>
+                        <h3 className={`text-sm font-black ${card.color} tracking-tight relative z-10`}>{card.value}</h3>
+                        <p className="text-[8px] font-bold text-slate-300 uppercase mt-0.5 relative z-10">{card.sub}</p>
                     </div>
                 ))}
             </div>
