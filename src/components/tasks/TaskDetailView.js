@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
     ArrowLeft, RefreshCw, MessageCircle, MoreHorizontal, Edit2, Trash2, 
     Clock, CheckCircle2, AlertCircle, Play, Square, MapPin, ChevronRight, 
-    ShieldCheck, Package, Phone, Share2, Plus, Info, Layout
+    ShieldCheck, Package, Phone, Share2, Plus, Info, Layout, ShoppingCart
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatTime, checkPermission } from '../../utils/helpers';
 
