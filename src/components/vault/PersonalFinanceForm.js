@@ -145,13 +145,14 @@ const PersonalFinanceForm = ({ data, setData, record, onClose }) => {
                         </div>
                     </div>
                     <div className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-sm space-y-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Account Sync</label>
-                        <div className="relative">
-                            <Info className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-300" size={16}/>
-                            <select className="w-full pl-6 bg-transparent text-sm font-black text-slate-800 outline-none appearance-none" value={form.accountId} onChange={e => setForm({...form, accountId: e.target.value})}>
-                                {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
-                            </select>
-                        </div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 leading-none">Account Sync</label>
+                        <SearchableSelect 
+                            options={accounts.map(acc => ({ id: acc.id || acc.name, name: acc.name }))} 
+                            value={form.accountId} 
+                            onChange={v => setForm({...form, accountId: v})} 
+                            onAddNew={v => setForm({...form, accountId: v})}
+                            placeholder="Select Master Ledger..."
+                        />
                     </div>
                 </div>
 
@@ -162,10 +163,14 @@ const PersonalFinanceForm = ({ data, setData, record, onClose }) => {
                         <div className="space-y-4">
                             <div className="bg-white/10 p-5 rounded-[28px] border border-white/10">
                                 <label className="text-[9px] font-black text-blue-100 uppercase tracking-widest ml-1">Destination Target</label>
-                                <select className="w-full bg-transparent text-white font-black text-sm outline-none mt-1" value={form.toAccountId} onChange={e => setForm({...form, toAccountId: e.target.value})}>
-                                    <option value="" className="text-slate-900">Select Target Account</option>
-                                    {accounts.map(acc => <option key={acc.id} value={acc.id} className="text-slate-900">{acc.name}</option>)}
-                                </select>
+                                <SearchableSelect 
+                                    options={accounts.map(acc => ({ id: acc.id || acc.name, name: acc.name }))} 
+                                    value={form.toAccountId} 
+                                    onChange={v => setForm({...form, toAccountId: v})} 
+                                    onAddNew={v => setForm({...form, toAccountId: v})}
+                                    placeholder="Destination Hub..."
+                                    className="bg-transparent border-none text-white placeholder:text-blue-300"
+                                />
                             </div>
                         </div>
                     </div>
