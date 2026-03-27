@@ -41,6 +41,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
 
     const [showLocPicker, setShowLocPicker] = useState(false);
     const [addBrandModal, setAddBrandModal] = useState(null);
+    const [showLinking, setShowLinking] = useState(false);
 
     const nextId = useMemo(() => {
         if (record) return record.id;
