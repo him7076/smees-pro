@@ -6,6 +6,7 @@ import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { checkPermission, formatCurrency, getPartyBalances, getItemStock, getBillStats, getFilteredAttendance } from './utils/helpers';
 import { doc, setDoc, getDoc, deleteDoc } from "firebase/firestore";
 import { db } from './services/firebase';
+import { Plus } from 'lucide-react';
 
 // Layout & Auth
 import LoginScreen from './components/auth/LoginScreen';
