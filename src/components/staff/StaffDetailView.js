@@ -284,13 +284,23 @@ const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, d
                                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Out Time</label>
                                                     <input type="time" id="mOut" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none"/>
                                                 </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-[9px] font-black text-orange-400 uppercase tracking-widest ml-1">Lunch Start</label>
+                                                    <input type="time" id="mLIn" className="w-full p-4 bg-orange-50/30 border border-orange-100 rounded-2xl font-bold outline-none"/>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-[9px] font-black text-orange-400 uppercase tracking-widest ml-1">Lunch End</label>
+                                                    <input type="time" id="mLOut" className="w-full p-4 bg-orange-50/30 border border-orange-100 rounded-2xl font-bold outline-none"/>
+                                                </div>
                                             </div>
                                             <button 
                                                 onClick={async () => {
                                                     const inT = document.getElementById('mIn').value;
                                                     const outT = document.getElementById('mOut').value;
+                                                    const lIn = document.getElementById('mLIn').value;
+                                                    const lOut = document.getElementById('mLOut').value;
                                                     if(!inT) return alert("At least In-time required");
-                                                    await handleAttendance('manual', { date: manualDate, checkIn: inT, checkOut: outT });
+                                                    await handleAttendance('manual', { date: manualDate, checkIn: inT, checkOut: outT, lunchStart: lIn, lunchEnd: lOut });
                                                     setShowManual(false);
                                                 }}
                                                 className="w-full py-5 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-blue-200 active:scale-95 transition-all"

@@ -55,14 +55,41 @@ const Dashboard = ({ data, setModal }) => {
 
     return (
         <div className="space-y-10 animate-in fade-in duration-700 pb-20">
+            <div className="bg-slate-900 p-8 rounded-[48px] shadow-2xl space-y-8 text-white overflow-hidden relative">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                <div className="relative z-10">
+                    <div className="flex justify-between items-center mb-6">
+                        <h4 className="text-sm font-black text-white uppercase tracking-widest">Execution Suite</h4>
+                        <div className="flex gap-4">
+                            <button onClick={() => setModal({ type: 'sales' })} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-95 transition-all text-center whitespace-nowrap">+ Sale</button>
+                            <button onClick={() => setModal({ type: 'task' })} className="px-4 py-2 bg-white text-slate-900 rounded-xl text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all text-center whitespace-nowrap">+ Task</button>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                        {[
+                            { label: 'Sale', type: 'sales', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+                            { label: 'Estimate', type: 'estimate', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
+                            { label: 'Purchase', type: 'purchase', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
+                            { label: 'Expense', type: 'expense', color: 'bg-rose-500/10 text-rose-400 border-rose-500/20' },
+                            { label: 'Payment', type: 'payment', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' }
+                        ].map(btn => (
+                            <button 
+                                key={btn.label} 
+                                onClick={() => setModal({ type: btn.type })} 
+                                className={`p-4 rounded-3xl border ${btn.color} hover:bg-white/10 transition-all active:scale-90 flex flex-col items-center gap-2`}
+                            >
+                                <Plus size={18}/>
+                                <span className="text-[8px] font-black uppercase tracking-widest">{btn.label}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                 <div>
                     <h1 className="text-4xl font-black text-slate-900 tracking-tighter">Command Center</h1>
                     <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] mt-2 ml-1">Live Intelligence & Growth Metrics</p>
-                </div>
-                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                    <button onClick={() => setModal({ type: 'sales' })} className="flex-1 px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-600/20 hover:scale-105 active:scale-95 transition-all text-center whitespace-nowrap">+ Quick Sale</button>
-                    <button onClick={() => setModal({ type: 'task' })} className="flex-1 px-6 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-slate-900/20 hover:scale-105 active:scale-95 transition-all text-center whitespace-nowrap">+ Quick Task</button>
                 </div>
             </div>
             
@@ -95,30 +122,6 @@ const Dashboard = ({ data, setModal }) => {
                                 <span className={`text-sm font-black ${t.type === 'sales' ? 'text-emerald-600' : 'text-slate-900'}`}>{formatCurrency(t.finalTotal || t.amount)}</span>
                             </div>
                         ))}
-                    </div>
-                </div>
-                <div className="bg-slate-900 p-10 rounded-[48px] shadow-2xl space-y-8 text-white overflow-hidden relative">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-                    <div className="relative z-10">
-                        <h4 className="text-sm font-black text-white uppercase tracking-widest border-b border-white/5 pb-4 mb-6">Execution Suite</h4>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                            {[
-                                { label: 'Sale', type: 'sales', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
-                                { label: 'Estimate', type: 'estimate', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
-                                { label: 'Purchase', type: 'purchase', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
-                                { label: 'Expense', type: 'expense', color: 'bg-rose-500/10 text-rose-400 border-rose-500/20' },
-                                { label: 'Payment', type: 'payment', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' }
-                            ].map(btn => (
-                                <button 
-                                    key={btn.label} 
-                                    onClick={() => setModal({ type: btn.type })} 
-                                    className={`p-4 rounded-3xl border ${btn.color} hover:bg-white/10 transition-all active:scale-90 flex flex-col items-center gap-2`}
-                                >
-                                    <Plus size={18}/>
-                                    <span className="text-[8px] font-black uppercase tracking-widest">{btn.label}</span>
-                                </button>
-                            ))}
-                        </div>
                     </div>
                 </div>
             </div>

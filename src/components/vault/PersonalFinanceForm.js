@@ -1,41 +1,52 @@
 import React, { useState } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
-import { TrendingUp, TrendingDown, RefreshCcw, Save, Calendar, Banknote, FileText } from 'lucide-react';
+import { TrendingUp, TrendingDown, RefreshCcw, Save, Calendar, Banknote, FileText, ArrowRight } from 'lucide-react';
 
 const PersonalFinanceForm = ({ data, setData, record, onClose }) => {
     const { saveRecord } = useDatabase(data, setData);
+    const accounts = data.personalAccounts || [
+        { id: 'Cash', name: 'Cash Wallet', type: 'cash' },
+        { id: 'Bank', name: 'Primary Bank', type: 'bank' }
+    ];
+
     const [form, setForm] = useState({
         type: 'expense',
         amount: '',
         category: '',
         notes: '',
         date: new Date().toISOString().split('T')[0],
-        paymentMode: 'Cash',
-        accountId: '',
+        accountId: accounts[0]?.id || 'Cash',
+        fromAccountId: '',
+        toAccountId: '',
         ...(record || {})
     });
 
     const handleSave = async () => {
         if (!form.amount || parseFloat(form.amount) <= 0) return alert("Enter valid amount");
-        if (!form.category) return alert("Select category");
-
+        
         const finalRecord = {
             ...form,
             amount: parseFloat(form.amount),
             updatedAt: new Date().toISOString()
         };
 
-        // Use 'personalTransactions' collection
+        if (form.type === 'transfer') {
+            if (!form.fromAccountId || !form.toAccountId) return alert("Select both accounts for transfer");
+            if (form.fromAccountId === form.toAccountId) return alert("From and To accounts must be different");
+        } else {
+            if (!form.category) return alert("Select category");
+        }
+
         await saveRecord('personalTransactions', finalRecord, 'personalTransaction');
         onClose();
     };
 
     const categories = form.type === 'income' 
-        ? ['Salary', 'Business', 'Investment', 'Gift', 'Other Income']
-        : ['Food', 'Rent', 'Travel', 'Shopping', 'Health', 'Bills', 'Udhar Given', 'Udhar Return', 'Other Expense'];
+        ? ['Salary', 'Business', 'Investment', 'Gift', 'Freelance', 'Rental', 'Other Income']
+        : ['Food', 'Rent', 'Travel', 'Shopping', 'Health', 'Bills', 'Udhar Given', 'Udhar Return', 'Fuel', 'Entertainment', 'Subscription', 'Tax', 'Other Expense'];
 
     return (
-        <div className="space-y-8 animate-in slide-in-from-bottom-5 duration-300">
+        <div className="space-y-8 animate-in slide-in-from-bottom-5 duration-300 pb-12">
             <div className="flex bg-slate-100 p-1.5 rounded-[28px] shadow-inner ring-1 ring-slate-200">
                 {[
                     { id: 'expense', label: 'Expense', icon: <TrendingDown size={14}/>, color: 'text-rose-600', active: 'bg-white text-rose-600 shadow-xl' },
@@ -44,7 +55,7 @@ const PersonalFinanceForm = ({ data, setData, record, onClose }) => {
                 ].map(t => (
                     <button 
                         key={t.id} 
-                        onClick={() => setForm({...form, type: t.id})} 
+                        onClick={() => setForm({...form, type: t.id, category: t.id === 'transfer' ? 'Transfer' : ''})} 
                         className={`flex-1 py-4 rounded-[22px] text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${form.type === t.id ? t.active : 'text-slate-400 hover:text-slate-600'}`}
                     >
                         {t.icon} {t.label}
@@ -75,29 +86,56 @@ const PersonalFinanceForm = ({ data, setData, record, onClose }) => {
                             <input type="date" className="w-full pl-12 pr-6 py-5 bg-white border border-slate-100 rounded-3xl text-sm font-bold shadow-sm outline-none" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
                         </div>
                     </div>
-                    <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Category</label>
-                        <select className="w-full p-5 bg-white border border-slate-100 rounded-3xl text-sm font-bold shadow-sm outline-none font-black text-slate-800" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
-                            <option value="">Select Category</option>
-                            {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                    </div>
+                    {form.type !== 'transfer' && (
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Category</label>
+                            <select className="w-full p-5 bg-white border border-slate-100 rounded-3xl text-sm font-bold shadow-sm outline-none font-black text-slate-800" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
+                                <option value="">Select Category</option>
+                                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                        </div>
+                    )}
                 </div>
 
-                <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Payment Hub</label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        {['Cash', 'Bank', 'UPI', 'Credit Card'].map(pm => (
-                            <button 
-                                key={pm} 
-                                onClick={() => setForm({...form, paymentMode: pm})}
-                                className={`py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${form.paymentMode === pm ? 'bg-slate-900 text-white border-slate-900 shadow-lg' : 'bg-white text-slate-400 border-slate-100 hover:bg-slate-50'}`}
-                            >
-                                {pm}
-                            </button>
-                        ))}
+                {form.type === 'transfer' ? (
+                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                        <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest ml-2">Inter-Account Bridge</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr,auto,1fr] items-center gap-4">
+                            <div className="space-y-2">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">From Account</label>
+                                <select className="w-full p-4 bg-white border border-slate-100 rounded-2xl text-xs font-black" value={form.fromAccountId} onChange={e => setForm({...form, fromAccountId: e.target.value})}>
+                                    <option value="">Select Source</option>
+                                    {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+                                </select>
+                            </div>
+                            <div className="flex items-center justify-center p-2 bg-blue-50 text-blue-600 rounded-full mt-4">
+                                <ArrowRight size={20}/>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">To Account</label>
+                                <select className="w-full p-4 bg-white border border-slate-100 rounded-2xl text-xs font-black" value={form.toAccountId} onChange={e => setForm({...form, toAccountId: e.target.value})}>
+                                    <option value="">Select Target</option>
+                                    {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+                                </select>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                ) : (
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Source Ledger</label>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            {accounts.map(acc => (
+                                <button 
+                                    key={acc.id} 
+                                    onClick={() => setForm({...form, accountId: acc.id})}
+                                    className={`py-4 px-2 rounded-2xl text-[9px] font-black uppercase tracking-widest border transition-all truncate ${form.accountId === acc.id ? 'bg-slate-900 text-white border-slate-900 shadow-lg' : 'bg-white text-slate-400 border-slate-100 hover:bg-slate-50'}`}
+                                >
+                                    {acc.name}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Journal Entries (Notes)</label>
@@ -114,14 +152,11 @@ const PersonalFinanceForm = ({ data, setData, record, onClose }) => {
             </div>
 
             <button onClick={handleSave} className="w-full bg-slate-900 text-white py-8 rounded-[40px] font-black text-xs uppercase tracking-[0.4em] shadow-[0_20px_50px_rgba(15,23,42,0.2)] active:scale-95 transition-all flex items-center justify-center gap-4">
-                <CheckCircle2 size={24}/>
+                <Save size={24}/>
                 Secure to Vault
             </button>
         </div>
     );
 };
-
-// Add dummy checkcircle2 since it is not imported
-const CheckCircle2 = ({size}) => <Save size={size} />;
 
 export default PersonalFinanceForm;

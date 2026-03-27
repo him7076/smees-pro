@@ -73,15 +73,37 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div onClick={() => { if(user?.role === 'admin' && task.partyId) setViewDetail({ type: 'party', id: task.partyId }); }} className={`p-6 bg-white rounded-[24px] border border-slate-100 shadow-sm transition-all ${user?.role === 'admin' ? 'cursor-pointer hover:bg-slate-50 active:scale-[0.98]' : ''}`}>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Client Info</p>
-                        <p className="font-black text-slate-800 tracking-tight">{party?.name || 'Walk-in Client'}</p>
-                        <p className="text-xs font-bold text-slate-500 mt-1">{party?.mobile || 'No contact'}</p>
-                        {party?.address && (
-                            <div className="flex items-start gap-2 mt-3 pt-3 border-t border-slate-50">
-                                <MapPin size={14} className="text-slate-400 shrink-0 mt-0.5"/>
-                                <p className="text-[10px] font-bold text-slate-500 leading-relaxed">{party.address}</p>
-                            </div>
+                    <div className="space-y-4">
+                        <div onClick={() => { if(user?.role === 'admin' && task.partyId) setViewDetail({ type: 'party', id: task.partyId }); }} className={`p-6 bg-white rounded-[24px] border border-slate-100 shadow-sm transition-all ${user?.role === 'admin' ? 'cursor-pointer hover:bg-slate-50 active:scale-[0.98]' : ''}`}>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Client Info</p>
+                            <p className="font-black text-slate-800 tracking-tight">{party?.name || 'Walk-in Client'}</p>
+                            <p className="text-xs font-bold text-slate-500 mt-1">{task.mobile || party?.mobile || 'No contact'}</p>
+                            {(task.address || party?.address) && (
+                                <div className="flex items-start gap-2 mt-3 pt-3 border-t border-slate-50">
+                                    <MapPin size={14} className="text-slate-400 shrink-0 mt-0.5"/>
+                                    <p className="text-[10px] font-bold text-slate-500 leading-relaxed">{task.address || party?.address}</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {task.location && (
+                            <a 
+                                href={`https://www.google.com/maps?q=${task.location.lat},${task.location.lng}`} 
+                                target="_blank" 
+                                rel="noreferrer"
+                                className="w-full flex items-center justify-between p-5 bg-emerald-50 border border-emerald-100 rounded-2xl hover:bg-emerald-100 active:scale-95 transition-all group"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-emerald-600 text-white rounded-xl flex items-center justify-center shadow-lg shadow-emerald-200">
+                                        <MapPin size={20}/>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-black text-emerald-900 tracking-tight">Navigate to Site</p>
+                                        <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">Get Live Directions</p>
+                                    </div>
+                                </div>
+                                <ChevronRight size={20} className="text-emerald-400 group-hover:translate-x-1 transition-transform"/>
+                            </a>
                         )}
                     </div>
 
