@@ -6,7 +6,7 @@ import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { checkPermission, formatCurrency, getPartyBalances, getItemStock, getBillStats, getFilteredAttendance } from './utils/helpers';
 import { doc, setDoc, getDoc, deleteDoc } from "firebase/firestore";
 import { db } from './services/firebase';
-import { Plus, TrendingUp, FileText, FileMinus, FileCheck } from 'lucide-react';
+import { Plus, TrendingUp, FileText, FileMinus, FileCheck, RefreshCw } from 'lucide-react';
 
 // Layout & Auth
 import LoginScreen from './components/auth/LoginScreen';
@@ -38,60 +38,80 @@ import StaffDetailView from './components/staff/StaffDetailView';
 
 const Dashboard = ({ data, setModal }) => {
     const [fType, setFType] = useState('Monthly');
-    const [fDate, setFDate] = useState(new Date().toISOString().split('T')[0]);
+    const [customRange, setCustomRange] = useState({ 
+        start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0], 
+        end: new Date().toISOString().split('T')[0] 
+    });
 
     const stats = useMemo(() => {
         const now = new Date();
-        const start = new Date();
+        let start = new Date();
+        let end = new Date();
+        end.setHours(23, 59, 59, 999);
+
         if(fType === 'Weekly') start.setDate(now.getDate() - now.getDay());
         else if(fType === 'Monthly') start.setMonth(now.getMonth(), 1);
         else if(fType === 'Yearly') start.setFullYear(now.getFullYear(), 0, 1);
+        else if(fType === 'Custom') {
+            start = new Date(customRange.start);
+            end = new Date(customRange.end);
+        }
         start.setHours(0,0,0,0);
 
-        const filtered = data.transactions.filter(t => new Date(t.date) >= start && t.status !== 'Cancelled');
+        const filtered = data.transactions.filter(t => {
+            const d = new Date(t.date);
+            return d >= start && d <= end && t.status !== 'Cancelled';
+        });
         
         const sales = filtered.filter(t => t.type === 'sales').reduce((s, t) => s + parseFloat(t.finalTotal || 0), 0);
         const expenses = filtered.filter(t => t.type === 'expense').reduce((s, t) => s + parseFloat(t.amount || t.finalTotal || 0), 0);
         
-        let cogs = 0;
+        let grossProfit = 0;
         filtered.filter(t => t.type === 'sales').forEach(s => {
-            (s.items || []).forEach(i => { cogs += (parseFloat(i.buyPrice || 0) * parseFloat(i.qty || 0)); });
+            (s.items || []).forEach(i => { 
+                const buy = parseFloat(i.buyPrice || 0);
+                const sell = parseFloat(i.price || 0);
+                const qty = parseFloat(i.qty || 1);
+                grossProfit += (sell - buy) * qty; 
+            });
         });
 
         const activeTasks = data.tasks.filter(t => t.status !== 'Done' && t.status !== 'Converted').length;
-        const grossProfit = sales - cogs;
 
         return { sales, expenses, activeTasks, grossProfit, filteredTxs: filtered };
-    }, [data, fType, fDate]);
+    }, [data, fType, customRange]);
 
     return (
         <div className="space-y-6 animate-in fade-in duration-700 pb-20">
             {/* Execution Suite (TOP) - Compact High Density */}
-            <div className="bg-slate-900 p-5 rounded-[32px] shadow-2xl space-y-6 text-white overflow-hidden relative">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+            <div className="bg-slate-900 p-5 rounded-[40px] shadow-2xl space-y-6 text-white overflow-hidden relative border border-white/5">
+                <div className="absolute top-0 right-0 w-48 h-48 bg-blue-600/10 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/2"></div>
                 <div className="relative z-10">
-                    <div className="flex justify-between items-center mb-4">
+                    <div className="flex justify-between items-center mb-6">
                         <div className="flex flex-col">
                             <h4 className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Execution Suite</h4>
-                            <p className="text-[7px] font-black text-blue-400 uppercase tracking-widest mt-1">Direct Operations</p>
+                            <div className="flex items-center gap-2 mt-1">
+                                <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest border border-blue-500/30 px-2 py-0.5 rounded-full">v2.1 Stable</p>
+                                <button onClick={() => window.location.reload()} className="p-1 px-2 bg-white/5 rounded-full text-[8px] font-black uppercase tracking-widest flex items-center gap-1 hover:bg-white/10 transition-all"><RefreshCw size={10} className="animate-spin-slow"/> Force Sync</button>
+                            </div>
                         </div>
-                        <button onClick={() => setModal({ type: 'task' })} className="px-5 py-3 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-blue-500/10">+ New Task</button>
+                        <button onClick={() => setModal({ type: 'task' })} className="px-6 py-3.5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.1em] active:scale-95 transition-all shadow-xl shadow-blue-500/20 hover:bg-blue-500">+ New Operation</button>
                     </div>
-                    <div className="grid grid-cols-5 gap-2">
+                    <div className="grid grid-cols-5 gap-2.5">
                         {[
-                            { label: 'Sale', type: 'sales', color: 'bg-white/5 text-emerald-400 border-emerald-500/20' },
-                            { label: 'Purch', type: 'purchase', color: 'bg-white/5 text-blue-400 border-blue-500/20' },
-                            { label: 'Exp', type: 'expense', color: 'bg-white/5 text-rose-400 border-rose-500/20' },
-                            { label: 'Pay', type: 'payment', color: 'bg-white/5 text-indigo-400 border-indigo-500/20' },
-                            { label: 'Est', type: 'estimate', color: 'bg-white/5 text-amber-400 border-amber-500/20' }
+                            { label: 'Sale', type: 'sales', color: 'bg-white/[0.03] text-emerald-400 border-emerald-500/10' },
+                            { label: 'Purch', type: 'purchase', color: 'bg-white/[0.03] text-blue-400 border-blue-500/10' },
+                            { label: 'Exp', type: 'expense', color: 'bg-white/[0.03] text-rose-400 border-rose-500/10' },
+                            { label: 'Pay', type: 'payment', color: 'bg-white/[0.03] text-indigo-400 border-indigo-500/10' },
+                            { label: 'Est', type: 'estimate', color: 'bg-white/[0.03] text-amber-400 border-amber-500/10' }
                         ].map(btn => (
                             <button 
                                 key={btn.label} 
                                 onClick={() => setModal({ type: btn.type })} 
-                                className={`py-4 rounded-3xl border ${btn.color} hover:bg-white/10 transition-all active:scale-90 flex flex-col items-center gap-1.5`}
+                                className={`py-5 rounded-[28px] border ${btn.color} hover:bg-white/10 transition-all active:scale-90 flex flex-col items-center gap-2 group`}
                             >
-                                <Plus size={16}/>
-                                <span className="text-[8px] font-black uppercase tracking-widest leading-none">{btn.label}</span>
+                                <div className="p-2 bg-white/5 rounded-xl group-hover:scale-110 transition-transform"><Plus size={16}/></div>
+                                <span className="text-[8px] font-black uppercase tracking-widest leading-none opacity-60">{btn.label}</span>
                             </button>
                         ))}
                     </div>
@@ -103,11 +123,20 @@ const Dashboard = ({ data, setModal }) => {
                     <h1 className="text-4xl font-black text-slate-900 tracking-tighter leading-none mb-1">Command</h1>
                     <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] ml-1">Dynamic Intelligence Hub</p>
                 </div>
-                <select className="bg-slate-100 px-4 py-2.5 rounded-2xl text-[10px] font-black text-slate-600 uppercase tracking-widest outline-none shadow-sm active:scale-95 transition-all" value={fType} onChange={e => setFType(e.target.value)}>
-                    <option value="Weekly">Weekly</option>
-                    <option value="Monthly">Monthly</option>
-                    <option value="Yearly">Yearly</option>
-                </select>
+                <div className="flex flex-col items-end gap-2">
+                    {fType === 'Custom' && (
+                        <div className="flex gap-2 animate-in slide-in-from-right-4 duration-300">
+                            <input type="date" value={customRange.start} onChange={e=>setCustomRange(p=>({...p, start:e.target.value}))} className="bg-slate-50 border border-slate-100 p-2 rounded-xl text-[9px] font-black uppercase outline-none"/>
+                            <input type="date" value={customRange.end} onChange={e=>setCustomRange(p=>({...p, end:e.target.value}))} className="bg-slate-50 border border-slate-100 p-2 rounded-xl text-[9px] font-black uppercase outline-none"/>
+                        </div>
+                    )}
+                    <select className="bg-white border border-slate-100 px-5 py-3 rounded-2xl text-[10px] font-black text-slate-600 uppercase tracking-widest outline-none shadow-sm active:scale-95 transition-all appearance-none cursor-pointer hover:bg-slate-50" value={fType} onChange={e => setFType(e.target.value)}>
+                        <option value="Weekly">Weekly</option>
+                        <option value="Monthly">Monthly</option>
+                        <option value="Yearly">Yearly</option>
+                        <option value="Custom">Custom Range</option>
+                    </select>
+                </div>
             </div>
             
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

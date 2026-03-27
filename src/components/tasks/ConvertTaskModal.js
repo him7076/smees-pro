@@ -7,12 +7,29 @@ const ConvertTaskModal = ({ task, data, setData, onClose }) => {
     const { saveRecord } = useDatabase(data, setData);
     const [type, setType] = useState('sales'); 
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-    const [selectedAsset, setSelectedAsset] = useState(task.linkedAssetStr || '');
-    const [nsDate, setNsDate] = useState('');
+    const [selectedAssets, setSelectedAssets] = useState([]); 
+    const [nsDates, setNsDates] = useState({}); 
     const [isConverting, setIsConverting] = useState(false);
 
     const party = data.parties.find(p => p.id === task.partyId);
     const assets = party?.assets || [];
+
+    const toggleAsset = (asset) => {
+        const isSelected = selectedAssets.includes(asset.name);
+        if (isSelected) {
+            setSelectedAssets(prev => prev.filter(a => a !== asset.name));
+            const newDates = { ...nsDates };
+            delete newDates[asset.name];
+            setNsDates(newDates);
+        } else {
+            setSelectedAssets(prev => [...prev, asset.name]);
+            if (asset.serviceInterval) {
+                const ns = new Date(date);
+                ns.setDate(ns.getDate() + parseInt(asset.serviceInterval));
+                setNsDates(prev => ({ ...prev, [asset.name]: ns.toISOString().split('T')[0] }));
+            }
+        }
+    };
 
     const handleConvert = async () => {
         setIsConverting(true);
@@ -48,12 +65,13 @@ const ConvertTaskModal = ({ task, data, setData, onClose }) => {
             const updatedTask = { ...task, status: 'Converted', generatedSaleId: txId, convertedDate: new Date().toISOString() };
             await saveRecord('tasks', updatedTask, 'task');
 
-            if (selectedAsset && nsDate && party) {
-                const updatedAssets = assets.map(a => 
-                    (a.name === selectedAsset || a.id === selectedAsset) 
-                    ? { ...a, lastServiceDate: date, nextServiceDate: nsDate } 
-                    : a
-                );
+            if (selectedAssets.length > 0 && party) {
+                const updatedAssets = assets.map(a => {
+                    if (selectedAssets.includes(a.name)) {
+                        return { ...a, lastServiceDate: date, nextServiceDate: nsDates[a.name] || '' };
+                    }
+                    return a;
+                });
                 await saveRecord('parties', { ...party, assets: updatedAssets }, 'party');
             }
 
@@ -97,20 +115,38 @@ const ConvertTaskModal = ({ task, data, setData, onClose }) => {
                             </div>
                         </div>
 
-                        <div className="space-y-1.5">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Link Customer Asset</label>
-                            <select value={selectedAsset} onChange={e=>setSelectedAsset(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none">
-                                <option value="">No Asset Linked</option>
-                                {assets.map((a,i) => <option key={i} value={a.name}>{a.name}</option>)}
-                            </select>
+                        <div className="space-y-3">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Link Customer Assets ({selectedAssets.length})</label>
+                            <div className="flex flex-wrap gap-2">
+                                {assets.map((a, i) => (
+                                    <button 
+                                        key={i} 
+                                        onClick={() => toggleAsset(a)}
+                                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
+                                            selectedAssets.includes(a.name) ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                        }`}
+                                    >
+                                        {a.name}
+                                    </button>
+                                ))}
+                                {assets.length === 0 && <p className="text-[10px] font-black text-slate-300 uppercase py-2 italic tracking-widest">No assets registered</p>}
+                            </div>
                         </div>
 
-                        {selectedAsset && (
-                            <div className="space-y-1.5 animate-in slide-in-from-top-2">
-                                <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest ml-1">Next Service Date</label>
-                                <input type="date" value={nsDate} onChange={e=>setNsDate(e.target.value)} className="w-full p-4 bg-rose-50 border border-rose-100 rounded-2xl text-xs font-bold outline-none"/>
+                        {selectedAssets.map(assetName => (
+                            <div key={assetName} className="p-4 bg-blue-50/50 border border-blue-100/10 rounded-[28px] space-y-2 animate-in slide-in-from-top-2">
+                                <div className="flex justify-between items-center text-[9px] font-black text-blue-600 uppercase tracking-widest">
+                                    <span>Next Service: {assetName}</span>
+                                    {assets.find(a=>a.name === assetName)?.serviceInterval && <span className="text-blue-400 italic">+{assets.find(a=>a.name === assetName).serviceInterval}d</span>}
+                                </div>
+                                <input 
+                                    type="date" 
+                                    value={nsDates[assetName] || ''} 
+                                    onChange={e => setNsDates(prev => ({ ...prev, [assetName]: e.target.value }))}
+                                    className="w-full p-3.5 bg-white border border-blue-100 rounded-2xl text-xs font-bold outline-none ring-offset-2 focus:ring-2 focus:ring-blue-500/20"
+                                />
                             </div>
-                        )}
+                        ))}
                     </div>
 
                     <div className="bg-blue-50 p-6 rounded-[32px] border border-blue-100">

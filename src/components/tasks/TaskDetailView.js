@@ -64,7 +64,14 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                     <button onClick={shareTask} className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl hover:bg-emerald-100 active:scale-95 transition-all">
                         <Share2 size={20}/>
                     </button>
-                    {task.status !== 'Converted' && (
+                    {task.status === 'Converted' ? (
+                        <button 
+                            onClick={() => setViewDetail({ type: 'transaction', id: task.generatedSaleId })}
+                            className="px-5 py-3 bg-emerald-600 text-white rounded-2xl shadow-xl shadow-emerald-100 active:scale-95 transition-all text-[10px] font-black uppercase tracking-widest flex items-center gap-2 animate-in fade-in zoom-in-95"
+                        >
+                            <ShoppingCart size={16}/> View Invoice
+                        </button>
+                    ) : (
                         <button 
                             onClick={() => setModal({ type: 'convertTask', data: task })}
                             className="px-5 py-3 bg-indigo-600 text-white rounded-2xl shadow-xl shadow-indigo-100 active:scale-95 transition-all text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
