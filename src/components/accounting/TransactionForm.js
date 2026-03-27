@@ -194,24 +194,34 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         const amt = parseFloat(value) || 0;
         let maxLimit = totals.final;
         if (type === 'payment') {
-            const baseAmt = parseFloat(tx.amount || 0);
-            const disc = parseFloat(tx.discountValue || 0);
-            maxLimit = baseAmt + disc;
+            maxLimit = parseFloat(tx.amount || 0) + (parseFloat(tx.discountValue || 0));
         }
-        if (maxLimit <= 0) return alert("Enter amount first");
+        
+        // If amount is not set for payment, we can't link
+        if (maxLimit <= 0) return alert("Please enter the total transaction amount first.");
 
         let newLinked = [...(tx.linkedBills || [])];
         const existingIdx = newLinked.findIndex(l => l.billId === billId);
+        
+        // Calculate total linked EXCEPT the current one
+        const currentOtherTotal = newLinked.reduce((sum, l, i) => i === existingIdx ? sum : sum + (parseFloat(l.amount) || 0), 0);
+        const available = Math.max(0, maxLimit - currentOtherTotal);
 
-        if (existingIdx >= 0) {
-            if (amt <= 0) newLinked.splice(existingIdx, 1);
-            else newLinked[existingIdx] = { ...newLinked[existingIdx], amount: amt };
-        } else if (amt > 0) {
-            newLinked.push({ billId, amount: amt });
+        let finalAmtToLink = amt;
+        if (amt > available) {
+            finalAmtToLink = available;
+            if (amt > 0) {
+                // Only alert if the user explicitly typed a too-large number
+                // if they just clicked the pill, we silent-cap it.
+            }
         }
 
-        const currentTotal = newLinked.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
-        if (currentTotal > maxLimit + 0.1) return alert(`Limit exceeded: ${maxLimit}`);
+        if (existingIdx >= 0) {
+            if (finalAmtToLink <= 0) newLinked.splice(existingIdx, 1);
+            else newLinked[existingIdx] = { ...newLinked[existingIdx], amount: finalAmtToLink };
+        } else if (finalAmtToLink > 0) {
+            newLinked.push({ billId, amount: finalAmtToLink });
+        }
 
         setTx({ ...tx, linkedBills: newLinked });
     };
@@ -475,7 +485,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                         <div className="flex justify-between items-baseline border-b border-white/5 pb-6">
                             <div>
                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Final Settlement</p>
-                                <h2 className="text-5xl font-black text-blue-400 tracking-tighter">{formatCurrency(totals.final)}</h2>
+                                <h2 className="text-5xl font-black text-blue-400 tracking-tighter">{formatCurrency(type === 'payment' ? (parseFloat(tx.amount||0)) : totals.final)}</h2>
                             </div>
                             <div className="text-right">
                                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Items: {tx.items.length}</p>
@@ -483,10 +493,24 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                             </div>
                         </div>
                         <div className="space-y-4">
-                            <div className="flex justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
-                                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest pt-1">{type === 'purchase' ? 'Amt Paid' : 'Amt Recv'}</span>
-                                <input type="number" className="w-32 bg-transparent text-right font-black text-emerald-400 text-xl outline-none" value={type === 'purchase' ? tx.paid : tx.received} onChange={e=>setTx({...tx, [type === 'purchase' ? 'paid' : 'received']: e.target.value})} />
-                            </div>
+                            {type === 'payment' && (
+                                <div className="space-y-4 animate-in slide-in-from-top-4">
+                                     <div className="bg-white/5 p-4 rounded-2xl flex gap-2">
+                                        <button onClick={() => setTx({...tx, subType: 'in'})} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tx.subType === 'in' ? 'bg-emerald-500 text-white shadow-xl' : 'bg-transparent text-slate-500'}`}>Payment In</button>
+                                        <button onClick={() => setTx({...tx, subType: 'out'})} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tx.subType === 'out' ? 'bg-rose-500 text-white shadow-xl' : 'bg-transparent text-slate-500'}`}>Payment Out</button>
+                                    </div>
+                                    <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                                        <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-2">Payment Amount</span>
+                                        <input type="number" className="w-full bg-transparent text-left font-black text-white text-3xl outline-none" value={tx.amount} onChange={e=>setTx({...tx, amount: e.target.value})} />
+                                    </div>
+                                </div>
+                            )}
+                            {['sales', 'purchase', 'expense'].includes(type) && (
+                                <div className="flex justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
+                                    <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest pt-1">{type === 'purchase' ? 'Amt Paid' : 'Amt Recv'}</span>
+                                    <input type="number" className="w-32 bg-transparent text-right font-black text-emerald-400 text-xl outline-none" value={type === 'purchase' ? tx.paid : tx.received} onChange={e=>setTx({...tx, [type === 'purchase' ? 'paid' : 'received']: e.target.value})} />
+                                </div>
+                            )}
                             {unpaidBills.length > 0 && (
                                 <button onClick={() => setShowLinking(true)} className="w-full flex items-center justify-between p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl text-indigo-400 font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all">
                                     <span className="flex items-center gap-2"><LinkIcon size={14}/> Link Pending Bills</span>

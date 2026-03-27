@@ -37,21 +37,26 @@ import PartyProfileView from './components/masters/PartyProfileView';
 import StaffDetailView from './components/staff/StaffDetailView';
 
 const Dashboard = ({ data, setModal }) => {
+    const [fType, setFType] = useState('Monthly');
+    const [fDate, setFDate] = useState(new Date().toISOString().split('T')[0]);
+
     const stats = useMemo(() => {
-        let receivables = 0, payables = 0;
-        data.parties.forEach(p => {
-            const bal = parseFloat(p.openingBal || 0);
-            if (p.type === 'DR') receivables += bal;
-            else payables += bal;
-        });
+        const now = new Date();
+        const start = new Date();
+        if(fType === 'Weekly') start.setDate(now.getDate() - now.getDay());
+        else if(fType === 'Monthly') start.setMonth(now.getMonth(), 1);
+        else if(fType === 'Yearly') start.setFullYear(now.getFullYear(), 0, 1);
+        start.setHours(0,0,0,0);
 
+        const filtered = data.transactions.filter(t => new Date(t.date) >= start);
+        
+        const sales = filtered.filter(t => t.type === 'sales' && t.status !== 'Cancelled').reduce((s, t) => s + parseFloat(t.finalTotal || 0), 0);
+        const expenses = filtered.filter(t => t.type === 'expense' && t.status !== 'Cancelled').reduce((s, t) => s + parseFloat(t.amount || t.finalTotal || 0), 0);
         const activeTasks = data.tasks.filter(t => t.status !== 'Done' && t.status !== 'Converted').length;
-        const todaySales = data.transactions
-            .filter(t => t.type === 'sales' && t.date === new Date().toISOString().split('T')[0])
-            .reduce((acc, t) => acc + parseFloat(t.finalTotal || 0), 0);
+        const totalPayments = filtered.filter(t => t.type === 'payment').length;
 
-        return { receivables, payables, activeTasks, todaySales };
-    }, [data]);
+        return { sales, expenses, activeTasks, totalPayments };
+    }, [data, fType, fDate]);
 
     return (
         <div className="space-y-6 animate-in fade-in duration-700 pb-20">
@@ -60,21 +65,24 @@ const Dashboard = ({ data, setModal }) => {
                 <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
                 <div className="relative z-10">
                     <div className="flex justify-between items-center mb-4">
-                        <h4 className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Execution Suite</h4>
-                        <button onClick={() => setModal({ type: 'task' })} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all">+ Task</button>
+                        <div className="flex flex-col">
+                            <h4 className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Execution Suite</h4>
+                            <p className="text-[7px] font-black text-blue-400 uppercase tracking-widest mt-1">Direct Operations</p>
+                        </div>
+                        <button onClick={() => setModal({ type: 'task' })} className="px-5 py-3 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-blue-500/10">+ New Task</button>
                     </div>
                     <div className="grid grid-cols-5 gap-2">
                         {[
-                            { label: 'Sale', type: 'sales', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
-                            { label: 'Purch', type: 'purchase', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
-                            { label: 'Exp', type: 'expense', color: 'bg-rose-500/10 text-rose-400 border-rose-500/20' },
-                            { label: 'Pay', type: 'payment', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' },
-                            { label: 'Est', type: 'estimate', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' }
+                            { label: 'Sale', type: 'sales', color: 'bg-white/5 text-emerald-400 border-emerald-500/20' },
+                            { label: 'Purch', type: 'purchase', color: 'bg-white/5 text-blue-400 border-blue-500/20' },
+                            { label: 'Exp', type: 'expense', color: 'bg-white/5 text-rose-400 border-rose-500/20' },
+                            { label: 'Pay', type: 'payment', color: 'bg-white/5 text-indigo-400 border-indigo-500/20' },
+                            { label: 'Est', type: 'estimate', color: 'bg-white/5 text-amber-400 border-amber-500/20' }
                         ].map(btn => (
                             <button 
                                 key={btn.label} 
                                 onClick={() => setModal({ type: btn.type })} 
-                                className={`py-4 rounded-2xl border ${btn.color} hover:bg-white/10 transition-all active:scale-90 flex flex-col items-center gap-1.5`}
+                                className={`py-4 rounded-3xl border ${btn.color} hover:bg-white/10 transition-all active:scale-90 flex flex-col items-center gap-1.5`}
                             >
                                 <Plus size={16}/>
                                 <span className="text-[8px] font-black uppercase tracking-widest leading-none">{btn.label}</span>
@@ -84,25 +92,30 @@ const Dashboard = ({ data, setModal }) => {
                 </div>
             </div>
 
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div className="flex justify-between items-end gap-6 pt-4 px-2">
                 <div>
-                    <h1 className="text-4xl font-black text-slate-900 tracking-tighter">Command Center</h1>
-                    <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] mt-2 ml-1">Live Intelligence & Growth Metrics</p>
+                    <h1 className="text-4xl font-black text-slate-900 tracking-tighter leading-none mb-1">Command</h1>
+                    <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] ml-1">Dynamic Intelligence Hub</p>
                 </div>
+                <select className="bg-slate-100 px-4 py-2.5 rounded-2xl text-[10px] font-black text-slate-600 uppercase tracking-widest outline-none shadow-sm active:scale-95 transition-all" value={fType} onChange={e => setFType(e.target.value)}>
+                    <option value="Weekly">Weekly</option>
+                    <option value="Monthly">Monthly</option>
+                    <option value="Yearly">Yearly</option>
+                </select>
             </div>
             
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                    { label: 'Active Pipeline', value: stats.activeTasks, sub: 'Work Orders', color: 'text-indigo-600', bg: 'bg-white border-slate-100' },
-                    { label: 'Receivables', value: formatCurrency(stats.receivables), sub: 'To Collect', color: 'text-emerald-600', bg: 'bg-white border-slate-100' },
-                    { label: 'Payables', value: formatCurrency(stats.payables), sub: 'To Pay', color: 'text-rose-600', bg: 'bg-white border-slate-100' },
-                    { label: 'Today Revenue', value: formatCurrency(stats.todaySales), sub: 'Gross Daily', color: 'text-blue-600', bg: 'bg-white border-slate-100' }
+                    { label: 'Net Sales', value: formatCurrency(stats.sales), sub: `${fType} Performance`, color: 'bg-emerald-500 shadow-emerald-500/20', clrType: 'sales' },
+                    { label: 'Expenses', value: formatCurrency(stats.expenses), sub: `Opex ${fType}`, color: 'bg-rose-500 shadow-rose-500/20', clrType: 'expense' },
+                    { label: 'Pipeline', value: stats.activeTasks, sub: 'Active Workloads', color: 'bg-indigo-600 shadow-indigo-500/20', clrType: 'tasks' },
+                    { label: 'Settlements', value: stats.totalPayments, sub: 'Ledger Updates', color: 'bg-slate-900 shadow-slate-900/10', clrType: 'payment' }
                 ].map((card, i) => (
-                    <div key={i} className={`p-4 rounded-[28px] border shadow-sm ${card.bg} hover:shadow-xl transition-all group cursor-pointer active:scale-95 relative overflow-hidden`}>
-                        <div className="absolute top-0 right-0 w-12 h-12 bg-slate-50 rounded-bl-full -z-0"></div>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 group-hover:text-slate-600 relative z-10">{card.label}</p>
-                        <h3 className={`text-sm font-black ${card.color} tracking-tight relative z-10`}>{card.value}</h3>
-                        <p className="text-[8px] font-bold text-slate-300 uppercase mt-0.5 relative z-10">{card.sub}</p>
+                    <div key={i} onClick={() => setModal({ type: 'transaction_list', filter: card.clrType })} className={`p-6 rounded-[36px] shadow-2xl ${card.color} text-white hover:scale-[1.02] transition-all cursor-pointer group active:scale-95 relative overflow-hidden`}>
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-white/10 rounded-bl-full -z-0"></div>
+                        <p className="text-[9px] font-black text-white/50 uppercase tracking-widest mb-2 group-hover:text-white relative z-10">{card.label}</p>
+                        <h3 className="text-xl font-black tracking-tighter relative z-10">{card.value}</h3>
+                        <p className="text-[8px] font-bold text-white/30 uppercase mt-0.5 relative z-10">{card.sub}</p>
                     </div>
                 ))}
             </div>
