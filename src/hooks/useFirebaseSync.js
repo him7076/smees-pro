@@ -54,19 +54,23 @@ export const useFirebaseSync = () => {
             console.error("Error syncing personal data:", error);
         }));
 
-        // 4. Sync Counters (Critical for Voucher Numbering)
-        const countersDocRef = doc(db, "settings", "counters");
-        unsubs.push(onSnapshot(countersDocRef, (docSnap) => {
-            if (docSnap.exists()) {
-                setData(prev => {
-                    const newData = { ...prev, counters: docSnap.data() };
-                    localStorage.setItem('smees_data', JSON.stringify(newData));
-                    return newData;
-                });
-            }
-        }, (error) => {
-            console.error("Error syncing counters:", error);
-        }));
+        // 4. Sync Settings (Counters, Categories, Company)
+        const settingsDocs = ['counters', 'categories', 'company'];
+        settingsDocs.forEach(sDoc => {
+            const docRef = doc(db, "settings", sDoc);
+            unsubs.push(onSnapshot(docRef, (snap) => {
+                if (snap.exists()) {
+                    setData(prev => {
+                        const newData = { ...prev, [sDoc]: snap.data() };
+                        localStorage.setItem('smees_data', JSON.stringify(newData));
+                        return newData;
+                    });
+                }
+            }, (error) => {
+                console.error(`Error syncing settings/${sDoc}:`, error);
+            }));
+        });
+
 
         setLoading(false);
         return () => unsubs.forEach(unsub => unsub());

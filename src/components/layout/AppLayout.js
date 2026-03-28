@@ -8,8 +8,10 @@ import {
   Lock,
   LogOut,
   Settings,
-  Package
+  Package,
+  RefreshCw
 } from 'lucide-react';
+
 import { signOut } from "firebase/auth";
 import { auth } from '../../services/firebase';
 
@@ -45,6 +47,13 @@ const AppLayout = ({ children, user }) => {
                         <Package className="text-white" size={20}/>
                     </div>
                     <h1 className="text-xl font-black tracking-tight text-slate-900">SMEES<span className="text-blue-600">PRO</span></h1>
+                    <button 
+                        onClick={() => window.location.reload()} 
+                        className="p-1.5 bg-slate-50 text-slate-400 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-all group"
+                        title="Force Sync"
+                    >
+                        <RefreshCw size={14} className="group-hover:rotate-180 transition-transform duration-700"/>
+                    </button>
                 </div>
 
                 <nav className="flex-1 space-y-2">
@@ -79,6 +88,12 @@ const AppLayout = ({ children, user }) => {
                             <Package className="text-white" size={14}/>
                         </div>
                         <h1 className="text-sm font-black tracking-tight text-slate-900">SMEES<span className="text-blue-600">PRO</span></h1>
+                        <button 
+                            onClick={() => window.location.reload()} 
+                            className="p-1 px-2 bg-blue-50 text-blue-600 rounded-full text-[8px] font-black uppercase tracking-widest flex items-center gap-1 active:scale-90 transition-all"
+                        >
+                            <RefreshCw size={10} className="animate-spin-slow"/> Sync
+                        </button>
                     </div>
                 </header>
 

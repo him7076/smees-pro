@@ -279,13 +279,20 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                         </div>
                         {type === 'expense' ? (
                             <SearchableSelect 
-                                options={['Salaries', 'Rent', 'Electricity', 'Internet', 'Marketing', 'Maintenance', 'Office Supply', 'Transport', 'Taxes', 'Other'].map(c => ({ id: c, name: c }))}
+                                options={(data.categories?.expense || []).map(c => ({ id: c, name: c }))}
                                 value={tx.category}
                                 onChange={v => setTx({...tx, category: v})}
                                 placeholder="Classification..."
-                                onAddNew={v => setTx({...tx, category: v})}
+                                onAddNew={async (v) => {
+                                    const newCats = [...(data.categories?.expense || []), v];
+                                    const updatedCategories = { ...data.categories, expense: newCats };
+                                    await setDoc(doc(db, "settings", "categories"), updatedCategories, { merge: true });
+                                    setData(prev => ({ ...prev, categories: updatedCategories }));
+                                    setTx({ ...tx, category: v });
+                                }}
                             />
                         ) : (
+
                             <SearchableSelect 
                                 options={data.parties.map(p => ({ id: p.id, name: p.name, subText: p.type === 'DR' ? 'Customer' : 'Vendor' }))}
                                 value={tx.partyId}

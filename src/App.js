@@ -70,12 +70,16 @@ const Dashboard = ({ data, setModal }) => {
         let grossProfit = 0;
         filtered.filter(t => t.type === 'sales').forEach(s => {
             (s.items || []).forEach(i => { 
-                const buy = parseFloat(i.buyPrice || 0);
+                const master = data.items.find(mi => mi.id === i.itemId);
+                const buy = parseFloat(i.buyPrice || master?.buyPrice || 0);
                 const sell = parseFloat(i.price || 0);
                 const qty = parseFloat(i.qty || 1);
                 grossProfit += (sell - buy) * qty; 
             });
+            // Net profit subtracts the invoice discount
+            grossProfit -= parseFloat(s.discountValue || 0);
         });
+
 
         const activeTasks = data.tasks.filter(t => t.status !== 'Done' && t.status !== 'Converted').length;
 
@@ -93,8 +97,8 @@ const Dashboard = ({ data, setModal }) => {
                             <h4 className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Execution Suite</h4>
                             <div className="flex items-center gap-2 mt-1">
                                 <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest border border-blue-500/30 px-2 py-0.5 rounded-full">v2.1 Stable</p>
-                                <button onClick={() => window.location.reload()} className="p-1 px-2 bg-white/5 rounded-full text-[8px] font-black uppercase tracking-widest flex items-center gap-1 hover:bg-white/10 transition-all"><RefreshCw size={10} className="animate-spin-slow"/> Force Sync</button>
                             </div>
+
                         </div>
                         <button onClick={() => setModal({ type: 'task' })} className="px-6 py-3.5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.1em] active:scale-95 transition-all shadow-xl shadow-blue-500/20 hover:bg-blue-500">+ New Operation</button>
                     </div>
@@ -356,38 +360,93 @@ const App = () => {
                             )}
                             {modal.type === 'dashboard_drilldown' && (
                                 <div className="space-y-4">
-                                    <div className="flex bg-slate-900 p-4 rounded-3xl justify-between items-center mb-6 shadow-xl">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center text-blue-400"><TrendingUp size={20}/></div>
+                                    <div className="flex bg-slate-900 px-6 py-6 rounded-[40px] justify-between items-center mb-6 shadow-2xl relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                                        <div className="flex items-center gap-4 relative z-10">
+                                            <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-blue-400 border border-white/5 shadow-inner"><TrendingUp size={24}/></div>
                                             <div>
-                                                <p className="text-[10px] font-black text-white/50 uppercase tracking-widest leading-none">Intelligence Drill-down</p>
-                                                <h4 className="text-sm font-black text-white tracking-tight mt-1">{modal.filter.toUpperCase()} Report</h4>
+                                                <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em] leading-none mb-1">Intelligence Insights</p>
+                                                <h4 className="text-lg font-black text-white tracking-tighter">{modal.filter === 'profit' ? 'Gross Profit' : modal.filter.toUpperCase()} Report</h4>
                                             </div>
                                         </div>
-                                        <div className="text-right">
-                                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">{modal.items.length} Entries</p>
+                                        <div className="text-right relative z-10">
+                                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">{modal.items.length} Data Points</p>
+                                            <p className="text-[8px] font-bold text-white/30 uppercase tracking-[0.2em] mt-1 italic">Audited Log</p>
                                         </div>
                                     </div>
-                                    <div className="space-y-3">
-                                        {modal.items.map(t => (
-                                            <div key={t.id} onClick={() => { setModal(null); setViewDetail({ type: 'transaction', id: t.id }); }} className="p-5 bg-slate-50 border border-slate-100 rounded-[28px] flex items-center justify-between hover:bg-white transition-all hover:shadow-xl cursor-pointer group active:scale-[0.98]">
-                                                <div className="flex items-center gap-4">
-                                                    <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 border border-slate-100 group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600 transition-all"><FileText size={20}/></div>
-                                                    <div>
-                                                        <p className="text-sm font-black text-slate-800 tracking-tight">{data.parties.find(p=>p.id===t.partyId)?.name || t.category || 'Direct Task'}</p>
-                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">#{t.id} • {t.date}</p>
+
+                                    <div className="space-y-4">
+                                        {modal.items.map(t => {
+                                            // Enhanced Profit Calculation Logic
+                                            let serviceP = 0, goodsP = 0;
+                                            (t.items || []).forEach(item => {
+                                                const master = data.items.find(i => i.id === item.itemId);
+                                                const type = master?.type || 'Goods';
+                                                const buy = parseFloat(item.buyPrice || master?.buyPrice || 0);
+                                                const sell = parseFloat(item.price || 0);
+                                                const qty = parseFloat(item.qty || 0);
+                                                const profit = (sell - buy) * qty;
+                                                
+                                                if (type === 'Service') serviceP += profit;
+                                                else goodsP += profit;
+                                            });
+                                            const netP = serviceP + goodsP - parseFloat(t.discountValue || 0);
+
+                                            return (
+                                                <div key={t.id} onClick={() => { setModal(null); setViewDetail({ type: 'transaction', id: t.id }); }} className="p-5 bg-white border border-slate-100 rounded-[36px] items-center justify-between hover:bg-slate-50 transition-all hover:shadow-2xl cursor-pointer group active:scale-[0.98] shadow-sm">
+                                                    <div className="flex justify-between items-start mb-4">
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 border border-slate-100 group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600 transition-all shadow-sm"><FileText size={20}/></div>
+                                                            <div>
+                                                                <p className="text-sm font-black text-slate-900 tracking-tight leading-none mb-1.5">{data.parties.find(p=>p.id===t.partyId)?.name || t.category || 'Direct Operation'}</p>
+                                                                <div className="flex items-center gap-2">
+                                                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-0.5 rounded-full">#{t.id}</p>
+                                                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{t.date}</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <p className="text-sm font-black text-slate-900 tracking-tighter">{formatCurrency(t.finalTotal || t.amount || 0)}</p>
+                                                            <div className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full mt-1.5 inline-block ${t.type === 'sales' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{t.type}</div>
+                                                        </div>
                                                     </div>
+
+                                                    {modal.filter === 'profit' && (
+                                                        <div className="mt-4 pt-4 border-t border-slate-50">
+                                                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                                                <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-100/50 text-center">
+                                                                    <p className="text-[8px] font-black text-emerald-600/60 uppercase tracking-widest mb-1">Material Profit</p>
+                                                                    <p className="text-xs font-black text-emerald-700">{formatCurrency(goodsP)}</p>
+                                                                </div>
+                                                                <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-100/50 text-center">
+                                                                    <p className="text-[8px] font-black text-blue-600/60 uppercase tracking-widest mb-1">Service Profit</p>
+                                                                    <p className="text-xs font-black text-blue-700">{formatCurrency(serviceP)}</p>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex justify-between items-center px-2">
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Realization</span>
+                                                                    {parseFloat(t.discountValue || 0) > 0 && (
+                                                                        <span className="text-[8px] font-bold text-rose-500 uppercase tracking-[0.1em] mt-0.5">Incl. {formatCurrency(t.discountValue)} Discount</span>
+                                                                    )}
+                                                                </div>
+                                                                <span className="text-xl font-black text-emerald-600 tracking-tighter">{formatCurrency(netP)}</span>
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                <div className="text-right">
-                                                    <p className="text-sm font-black text-slate-900">{formatCurrency(t.finalTotal || t.amount || 0)}</p>
-                                                    <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest">{t.paymentMode}</p>
-                                                </div>
+                                            );
+                                        })}
+                                        {modal.items.length === 0 && (
+                                            <div className="py-24 flex flex-col items-center justify-center opacity-30 grayscale scale-90">
+                                                <TrendingUp size={48} className="text-slate-300 mb-4"/>
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] italic">No Financial Trajectories Found</p>
                                             </div>
-                                        ))}
-                                        {modal.items.length === 0 && <p className="text-center py-12 text-[10px] font-black text-slate-400 uppercase tracking-widest italic opacity-50">No Data Points for this Period</p>}
+                                        )}
                                     </div>
                                 </div>
                             )}
+
                             {modal.type === 'personalFinance' && <PersonalFinanceForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             {modal.type === 'task' && <TaskForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             {modal.type === 'convertTask' && <ConvertTaskModal task={modal.data} data={data} setData={setData} onClose={() => setModal(null)} />}
