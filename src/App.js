@@ -24,6 +24,7 @@ import ItemForm from './components/masters/ItemForm';
 import StaffForm from './components/staff/StaffForm';
 import TransactionForm from './components/accounting/TransactionForm';
 import ConvertTaskModal from './components/tasks/ConvertTaskModal';
+import AssetForm from './components/masters/AssetForm';
 import TaskForm from './components/tasks/TaskForm';
 import PersonalFinanceForm from './components/vault/PersonalFinanceForm';
 
@@ -390,6 +391,7 @@ const App = () => {
                             {modal.type === 'personalFinance' && <PersonalFinanceForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             {modal.type === 'task' && <TaskForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             {modal.type === 'convertTask' && <ConvertTaskModal task={modal.data} data={data} setData={setData} onClose={() => setModal(null)} />}
+                            {modal.type === 'asset' && <AssetForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                         </div>
                     </div>
                 </div>

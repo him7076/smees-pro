@@ -245,7 +245,12 @@ const PartyProfileView = ({ record, data, onBack, setViewDetail, setModal, user,
                                                     {asset.nextServiceDate ? formatDate(asset.nextServiceDate) : 'NOT SET'}
                                                 </p>
                                             </div>
-                                            <button className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest">Details</button>
+                                            <button 
+                                                onClick={() => setModal({ type: 'asset', data: { ...asset, partyId: record.id, assetIndex: idx } })}
+                                                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"
+                                            >
+                                                Details
+                                            </button>
                                         </div>
                                     </div>
                                 ))}
