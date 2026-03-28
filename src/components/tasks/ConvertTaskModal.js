@@ -36,15 +36,15 @@ const ConvertTaskModal = ({ task, data, setData, onClose }) => {
         setIsConverting(true);
         try {
             const newTx = {
-                date: date,
-                partyId: task.partyId,
+                date: date || new Date().toISOString().split('T')[0],
+                partyId: task.partyId || '',
                 type: 'sales',
                 items: (task.itemsUsed || []).map(item => ({
-                    itemId: item.itemId,
-                    itemName: item.name,
-                    qty: item.qty || 1,
-                    price: item.price || 0,
-                    buyPrice: item.buyPrice || 0,
+                    itemId: item.itemId || '',
+                    itemName: item.name || 'Product',
+                    qty: parseFloat(item.qty || 1),
+                    price: parseFloat(item.price || 0),
+                    buyPrice: parseFloat(item.buyPrice || 0),
                     brand: item.brand || '',
                     description: item.description || ''
                 })),
@@ -52,9 +52,9 @@ const ConvertTaskModal = ({ task, data, setData, onClose }) => {
                 paid: 0,
                 discountValue: 0,
                 discountType: '₹',
-                notes: `Converted from Task #${task.id}: ${task.name}`,
-                convertedFromTask: task.id,
-                linkedAssets: linkedAssets,
+                notes: `Converted from Task #${task.id || 'N/A'}: ${task.name || 'N/A'}`,
+                convertedFromTask: task.id || '',
+                linkedAssets: linkedAssets || [],
                 paymentMode: 'Cash',
                 status: 'Unpaid'
             };
