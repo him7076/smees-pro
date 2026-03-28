@@ -5,14 +5,14 @@ import { formatCurrency, formatDate } from '../../utils/helpers';
 const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal, cancelTransaction, restoreTransaction, deleteRecord, checkPermission }) => {
     if (!tx) return null;
 
-    const party = data.parties.find(p => p.id === tx.partyId);
+    const party = data.parties.find(p => p.id && (p.id.toString() === tx.partyId?.toString()));
     const isPayment = tx.type === 'payment';
 
     const totals = {
-        gross: tx.grossTotal || tx.amount || 0,
-        discount: tx.discountValue || 0,
-        final: tx.finalTotal || tx.amount || 0,
-        received: tx.received || tx.paid || (tx.type === 'payment' ? tx.amount : 0)
+        gross: parseFloat(tx.grossTotal || tx.amount || 0),
+        discount: parseFloat(tx.discountValue || 0),
+        final: parseFloat(tx.finalTotal || tx.amount || 0),
+        received: parseFloat(tx.received || tx.paid || (tx.type === 'payment' ? tx.amount : 0) || 0)
     };
 
     const shareInvoice = () => {

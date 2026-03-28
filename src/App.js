@@ -402,7 +402,7 @@ const App = () => {
                     
                     {viewDetail.type === 'transaction' && (
                         <TransactionDetailView 
-                            tx={data.transactions.find(t => t.id === viewDetail.id)}
+                            tx={data.transactions.find(t => t.id && t.id.toString() === viewDetail.id?.toString())}
                             data={data}
                             user={user}
                             onBack={() => setViewDetail(null)}
