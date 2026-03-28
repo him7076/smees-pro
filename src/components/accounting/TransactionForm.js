@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     X, Plus, Trash2, Save, Calculator, Link as LinkIcon, ShoppingBag, 
     Package, Banknote, Calendar, ChevronRight, CheckCircle2, AlertCircle, 
-    TrendingUp, TrendingDown, Phone, MapPin, ShieldCheck, Info
+    TrendingUp, TrendingDown, Phone, MapPin, ShieldCheck, Info, Search
 } from 'lucide-react';
 import SearchableSelect from '../ui/SearchableSelect';
 import { useDatabase } from '../../hooks/useDatabase';
