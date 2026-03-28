@@ -240,6 +240,7 @@ const ConvertTaskModal = ({ task, data, setData, onClose }) => {
                     </div>
                 </div>
             )}
+        </div>
     );
 };
 
