@@ -187,6 +187,14 @@ const App = () => {
 
     const [modal, setModal] = useState(null); 
     const [viewDetail, setViewDetail] = useState(null); 
+    const [uiConfig, setUiConfig] = useState(() => {
+        const saved = localStorage.getItem('smees_ui_config');
+        return saved ? JSON.parse(saved) : { isCompact: false };
+    });
+
+    useEffect(() => {
+        localStorage.setItem('smees_ui_config', JSON.stringify(uiConfig));
+    }, [uiConfig]);
 
     const partyBalances = useMemo(() => getPartyBalances(data), [data]);
     const itemStock = useMemo(() => getItemStock(data), [data]);
@@ -233,9 +241,17 @@ const App = () => {
     const toggleTimer = async (taskId, staffId) => {
         try {
             const task = data.tasks.find(t => t.id === taskId);
-            if (!task) {
-                console.error("Task not found for timer:", taskId);
-                return;
+            if (!task) return;
+
+            // Capture Location if available
+            let location = null;
+            if (navigator.geolocation) {
+                try {
+                    const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 5000 }));
+                    location = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                } catch (e) {
+                    console.log("Location skipped or failed", e);
+                }
             }
 
             const now = new Date().toISOString();
@@ -244,14 +260,23 @@ const App = () => {
 
             if (activeLogIndex > -1) {
                 const duration = (new Date(now) - new Date(newLogs[activeLogIndex].start)) / 60000;
-                newLogs[activeLogIndex] = { ...newLogs[activeLogIndex], end: now, duration: duration.toFixed(2) };
+                newLogs[activeLogIndex] = { 
+                    ...newLogs[activeLogIndex], 
+                    end: now, 
+                    duration: duration.toFixed(2),
+                    endLocation: location 
+                };
             } else {
-                newLogs.push({ staffId, start: now, end: null, staffName: data.staff.find(s=>s.id===staffId)?.name || 'Unknown' });
+                newLogs.push({ 
+                    staffId, 
+                    start: now, 
+                    end: null, 
+                    staffName: data.staff.find(s=>s.id===staffId)?.name || 'Unknown',
+                    startLocation: location 
+                });
             }
 
             const updatedTask = { ...task, timeLogs: newLogs, updatedAt: now };
-            
-            // Optimistic Update
             setData(prev => ({
                 ...prev,
                 tasks: prev.tasks.map(t => t.id === taskId ? updatedTask : t)
@@ -260,7 +285,6 @@ const App = () => {
             await setDoc(doc(db, "tasks", taskId.toString()), updatedTask, { merge: true });
         } catch (e) {
             console.error("Timer Toggle Failed:", e);
-            alert("Timer Sync Error");
         }
     };
 
@@ -358,92 +382,123 @@ const App = () => {
                             {['sales', 'purchase', 'expense', 'payment', 'estimate'].includes(modal.type) && (
                                 <TransactionForm data={data} setData={setData} type={modal.type} record={modal.data} onClose={() => setModal(null)} />
                             )}
-                            {modal.type === 'dashboard_drilldown' && (
+                             {modal.type === 'dashboard_drilldown' && (
                                 <div className="space-y-4">
-                                    <div className="flex bg-slate-900 px-6 py-6 rounded-[40px] justify-between items-center mb-6 shadow-2xl relative overflow-hidden">
+                                    <div className="flex bg-slate-900 md:px-6 px-4 py-8 rounded-[40px] justify-between items-center mb-6 shadow-2xl relative overflow-hidden">
                                         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
                                         <div className="flex items-center gap-4 relative z-10">
-                                            <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-blue-400 border border-white/5 shadow-inner"><TrendingUp size={24}/></div>
+                                            <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center text-blue-400 border border-white/5"><TrendingUp size={20}/></div>
                                             <div>
-                                                <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em] leading-none mb-1">Intelligence Insights</p>
-                                                <h4 className="text-lg font-black text-white tracking-tighter">{modal.filter === 'profit' ? 'Gross Profit' : modal.filter.toUpperCase()} Report</h4>
+                                                <p className="text-[8px] font-black text-white/40 uppercase tracking-[0.3em] leading-none mb-1">Intelligence Insights</p>
+                                                <h4 className="text-sm font-black text-white tracking-tighter uppercase">{modal.filter === 'profit' ? 'Yield Analysis' : modal.filter} Dashboard</h4>
                                             </div>
                                         </div>
                                         <div className="text-right relative z-10">
-                                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">{modal.items.length} Data Points</p>
-                                            <p className="text-[8px] font-bold text-white/30 uppercase tracking-[0.2em] mt-1 italic">Audited Log</p>
+                                            <p className="text-[14px] font-black text-blue-400 tracking-tighter">
+                                                {formatCurrency(modal.items.reduce((sum, t) => sum + parseFloat(t.finalTotal || t.amount || 0), 0))}
+                                            </p>
+                                            <p className="text-[7px] font-black text-white/30 uppercase tracking-widest mt-1">Net Aggregation</p>
                                         </div>
                                     </div>
 
-                                    <div className="space-y-4">
-                                        {modal.items.map(t => {
-                                            // Enhanced Profit Calculation Logic
-                                            let serviceP = 0, goodsP = 0;
-                                            (t.items || []).forEach(item => {
-                                                const master = data.items.find(i => i.id === item.itemId);
-                                                const type = master?.type || 'Goods';
-                                                const buy = parseFloat(item.buyPrice || master?.buyPrice || 0);
-                                                const sell = parseFloat(item.price || 0);
-                                                const qty = parseFloat(item.qty || 0);
-                                                const profit = (sell - buy) * qty;
-                                                
-                                                if (type === 'Service') serviceP += profit;
-                                                else goodsP += profit;
-                                            });
-                                            const netP = serviceP + goodsP - parseFloat(t.discountValue || 0);
-
-                                            return (
-                                                <div key={t.id} onClick={() => { setModal(null); setViewDetail({ type: 'transaction', id: t.id }); }} className="p-5 bg-white border border-slate-100 rounded-[36px] items-center justify-between hover:bg-slate-50 transition-all hover:shadow-2xl cursor-pointer group active:scale-[0.98] shadow-sm">
-                                                    <div className="flex justify-between items-start mb-4">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 border border-slate-100 group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600 transition-all shadow-sm"><FileText size={20}/></div>
-                                                            <div>
-                                                                <p className="text-sm font-black text-slate-900 tracking-tight leading-none mb-1.5">{data.parties.find(p=>p.id===t.partyId)?.name || t.category || 'Direct Operation'}</p>
-                                                                <div className="flex items-center gap-2">
-                                                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-0.5 rounded-full">#{t.id}</p>
-                                                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{t.date}</p>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <div className="text-right">
-                                                            <p className="text-sm font-black text-slate-900 tracking-tighter">{formatCurrency(t.finalTotal || t.amount || 0)}</p>
-                                                            <div className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full mt-1.5 inline-block ${t.type === 'sales' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{t.type}</div>
-                                                        </div>
-                                                    </div>
-
-                                                    {modal.filter === 'profit' && (
-                                                        <div className="mt-4 pt-4 border-t border-slate-50">
-                                                            <div className="grid grid-cols-2 gap-3 mb-4">
-                                                                <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-100/50 text-center">
-                                                                    <p className="text-[8px] font-black text-emerald-600/60 uppercase tracking-widest mb-1">Material Profit</p>
-                                                                    <p className="text-xs font-black text-emerald-700">{formatCurrency(goodsP)}</p>
-                                                                </div>
-                                                                <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-100/50 text-center">
-                                                                    <p className="text-[8px] font-black text-blue-600/60 uppercase tracking-widest mb-1">Service Profit</p>
-                                                                    <p className="text-xs font-black text-blue-700">{formatCurrency(serviceP)}</p>
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex justify-between items-center px-2">
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Realization</span>
-                                                                    {parseFloat(t.discountValue || 0) > 0 && (
-                                                                        <span className="text-[8px] font-bold text-rose-500 uppercase tracking-[0.1em] mt-0.5">Incl. {formatCurrency(t.discountValue)} Discount</span>
-                                                                    )}
-                                                                </div>
-                                                                <span className="text-xl font-black text-emerald-600 tracking-tighter">{formatCurrency(netP)}</span>
-                                                            </div>
-                                                        </div>
-                                                    )}
+                                    {/* Category Aggregation for Expenses */}
+                                    {modal.filter === 'expense' && !modal.selectedCategory && (
+                                        <div className="grid grid-cols-1 gap-3 md:px-4">
+                                            <div 
+                                                onClick={() => setModal({...modal, selectedCategory: 'ALL'})}
+                                                className="p-5 bg-slate-900 text-white rounded-[24px] flex justify-between items-center cursor-pointer active:scale-95 transition-all shadow-xl shadow-slate-200"
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center"><Plus size={16}/></div>
+                                                    <p className="text-[10px] font-black uppercase tracking-widest">All Core Transactions</p>
                                                 </div>
-                                            );
-                                        })}
-                                        {modal.items.length === 0 && (
-                                            <div className="py-24 flex flex-col items-center justify-center opacity-30 grayscale scale-90">
-                                                <TrendingUp size={48} className="text-slate-300 mb-4"/>
-                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] italic">No Financial Trajectories Found</p>
+                                                <ChevronRight size={18} className="text-white/20"/>
                                             </div>
-                                        )}
-                                    </div>
+                                            
+                                            {/* Group by Category */}
+                                            {Object.entries(modal.items.reduce((acc, t) => {
+                                                const cat = t.category || 'Uncategorized';
+                                                acc[cat] = (acc[cat] || 0) + parseFloat(t.amount || t.finalTotal || 0);
+                                                return acc;
+                                            }, {})).sort((a,b) => b[1] - a[1]).map(([cat, val]) => (
+                                                <div 
+                                                    key={cat}
+                                                    onClick={() => setModal({...modal, selectedCategory: cat})}
+                                                    className="p-5 bg-white border border-slate-100 rounded-[24px] flex justify-between items-center cursor-pointer hover:bg-slate-50 active:scale-95 transition-all"
+                                                >
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center font-black text-[10px] uppercase">{cat[0]}</div>
+                                                        <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest leading-none">{cat}</p>
+                                                    </div>
+                                                    <p className="text-[10px] font-black text-slate-900">{formatCurrency(val)}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {/* Filtered List (or Sales/Profit List) */}
+                                    {(modal.filter !== 'expense' || modal.selectedCategory) && (
+                                        <div className="space-y-4">
+                                            {modal.filter === 'expense' && (
+                                                <div className="px-6 flex items-center justify-between mb-2">
+                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Filtering: {modal.selectedCategory}</p>
+                                                    <button onClick={() => setModal({...modal, selectedCategory: null})} className="text-[8px] font-black text-blue-600 uppercase tracking-widest">Back to Categories</button>
+                                                </div>
+                                            )}
+                                            
+                                            {modal.items
+                                            .filter(t => !modal.selectedCategory || modal.selectedCategory === 'ALL' || t.category === modal.selectedCategory)
+                                            .map(t => {
+                                                let serviceP = 0, goodsP = 0;
+                                                (t.items || []).forEach(item => {
+                                                    const master = data.items.find(i => i.id === item.itemId);
+                                                    const type = master?.type || 'Goods';
+                                                    const buy = parseFloat(item.buyPrice || master?.buyPrice || 0);
+                                                    const sell = parseFloat(item.price || 0);
+                                                    const qty = parseFloat(item.qty || 0);
+                                                    const profit = (sell - buy) * qty;
+                                                    if (type === 'Service' || (item.itemName||'').toLowerCase().includes('service')) serviceP += profit;
+                                                    else goodsP += profit;
+                                                });
+                                                const netP = serviceP + goodsP - parseFloat(t.discountValue || 0);
+
+                                                return (
+                                                    <div key={t.id} onClick={() => { setModal(null); setViewDetail({ type: 'transaction', id: t.id }); }} className="p-4 bg-white border border-slate-100 rounded-[32px] hover:bg-slate-50 transition-all cursor-pointer group active:scale-[0.98] shadow-sm">
+                                                        <div className="flex justify-between items-center mb-3">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 border border-slate-100 group-hover:bg-blue-600 group-hover:text-white transition-all"><FileText size={16}/></div>
+                                                                <div>
+                                                                    <p className="text-[10px] font-black text-slate-800 tracking-tight leading-none mb-1 uppercase">{data.parties.find(p=>p.id===t.partyId)?.name || t.category || 'Direct Cash'}</p>
+                                                                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">#{t.id} • {t.date}</p>
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <p className="text-[10px] font-black text-slate-900 tracking-tighter">{formatCurrency(t.finalTotal || t.amount || 0)}</p>
+                                                                <div className={`text-[7px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-full mt-1 inline-block ${t.type === 'sales' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{t.type}</div>
+                                                            </div>
+                                                        </div>
+
+                                                        {modal.filter === 'profit' && (
+                                                            <div className="mt-3 pt-3 border-t border-slate-100/50 flex justify-between items-center">
+                                                                <div className="flex gap-2">
+                                                                    <span className="text-[7px] font-black bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">MAT {formatCurrency(goodsP)}</span>
+                                                                    <span className="text-[7px] font-black bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">SER {formatCurrency(serviceP)}</span>
+                                                                </div>
+                                                                <span className="text-xs font-black text-emerald-600 tracking-tighter">Yield: {formatCurrency(netP)}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+
+                                    {modal.items.length === 0 && (
+                                        <div className="py-24 flex flex-col items-center justify-center opacity-30 grayscale scale-90">
+                                            <TrendingUp size={48} className="text-slate-300 mb-4"/>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] italic">No Operational Trajectories Found</p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -530,13 +585,7 @@ const App = () => {
                             attToday={data.attendance.find(a => a.staffId === viewDetail.id && a.date === new Date().toISOString().split('T')[0]) || {}}
                             getFilteredAttendance={getFilteredAttendance}
                             allAttendance={data.attendance}
-                            attStats={(() => {
-                                const staff = data.staff.find(s => s.id === viewDetail.id);
-                                const filtered = getFilteredAttendance(staff, 'This Month', {}, data.attendance);
-                                return { count: filtered.length, mins: filtered.length * 480 }; 
-                            })()}
                             workLogs={data.workLogs?.filter(w => w.staffId === viewDetail.id) || []}
-                            formatDurationHrs={(m) => `${Math.floor(m/60)}h`}
                         />
                     )}
                 </div>
@@ -544,24 +593,24 @@ const App = () => {
 
             <Routes>
                 <Route path="/login" element={!user ? <LoginScreen setUser={setUser} /> : <Navigate to="/" />} />
-                <Route path="/" element={user ? <AppLayout user={user}><Dashboard data={data} setModal={setModal} /></AppLayout> : <Navigate to="/login" />} />
+                <Route path="/" element={user ? <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))}><Dashboard data={data} setModal={setModal} /></AppLayout> : <Navigate to="/login" />} />
                 <Route path="/accounts" element={user ? (
-                    <AppLayout user={user}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))}>
                         <TransactionList data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} />
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/tasks" element={user ? (
-                    <AppLayout user={user}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))}>
                         <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} />
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/vault" element={user ? (
-                    <AppLayout user={user}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))}>
                         <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/masters" element={user?.role === 'admin' ? (
-                    <AppLayout user={user}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))}>
                         <MasterModule data={data} setData={setData} setModal={setModal} setViewDetail={setViewDetail} />
                     </AppLayout>
                 ) : <Navigate to="/" />} />

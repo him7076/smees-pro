@@ -140,3 +140,27 @@ body {
     padding: 1rem !important;
   }
 }
+
+/* UI COMPACT MODE SYSTEM */
+.ui-compact {
+  font-size: 0.85rem !important;
+}
+
+.ui-compact p, 
+.ui-compact h1, 
+.ui-compact h2, 
+.ui-compact h3, 
+.ui-compact h4, 
+.ui-compact span {
+  font-size: 0.9em !important;
+  letter-spacing: -0.01em !important;
+}
+
+.ui-compact .p-10 { padding: 1.5rem !important; }
+.ui-compact .p-8 { padding: 1.25rem !important; }
+.ui-compact .p-6 { padding: 1rem !important; }
+.ui-compact .rounded-[32px] { border-radius: 20px !important; }
+.ui-compact .rounded-[48px] { border-radius: 28px !important; }
+.ui-compact .space-y-6 > :not([hidden]) ~ :not([hidden]) { margin-top: 1rem !important; }
+.ui-compact .gap-8 { gap: 1.25rem !important; }
+.ui-compact .gap-6 { gap: 1rem !important; }
