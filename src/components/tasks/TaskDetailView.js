@@ -64,21 +64,6 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                     <button onClick={shareTask} className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl hover:bg-emerald-100 active:scale-95 transition-all">
                         <Share2 size={20}/>
                     </button>
-                    {task.status === 'Converted' ? (
-                        <button 
-                            onClick={() => setViewDetail({ type: 'transaction', id: task.generatedSaleId })}
-                            className="px-5 py-3 bg-emerald-600 text-white rounded-2xl shadow-xl shadow-emerald-100 active:scale-95 transition-all text-[10px] font-black uppercase tracking-widest flex items-center gap-2 animate-in fade-in zoom-in-95"
-                        >
-                            <ShoppingCart size={16}/> View Invoice
-                        </button>
-                    ) : (
-                        <button 
-                            onClick={() => setModal({ type: 'convertTask', data: task })}
-                            className="px-5 py-3 bg-indigo-600 text-white rounded-2xl shadow-xl shadow-indigo-100 active:scale-95 transition-all text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-                        >
-                            <ShoppingCart size={16}/> Convert to Sale
-                        </button>
-                    )}
                     {checkPermission(user, 'canEditTasks') && (
                         <div className="relative">
                             <button onClick={() => setShowMenu(!showMenu)} className="p-3 bg-slate-900 text-white rounded-2xl shadow-xl shadow-slate-200 active:scale-95 transition-all">
@@ -99,9 +84,9 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
 
             <div className="p-6 max-w-2xl mx-auto space-y-6 pb-24">
                 {/* PRIMARY INFO CARD */}
-                <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-6">
-                        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+                <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4">
+                        <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${
                             task.status === 'Done' ? 'bg-emerald-50 text-emerald-700 border-emerald-100 shadow-emerald-50 shadow-lg' :
                             task.status === 'In Progress' ? 'bg-blue-50 text-blue-700 border-blue-100 shadow-blue-50 shadow-lg' :
                             'bg-amber-50 text-amber-700 border-amber-100 shadow-amber-50 shadow-lg'
@@ -110,34 +95,34 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                         </span>
                     </div>
 
-                    <h1 className="text-3xl font-black text-slate-900 tracking-tighter mb-4 pr-32">{task.name}</h1>
+                    <h1 className="text-2xl font-black text-slate-900 tracking-tight mb-2 pr-24">{task.name}</h1>
                     
-                    <div className="flex flex-wrap gap-2 mb-6">
+                    <div className="flex flex-wrap gap-1.5 mb-4">
                         {task.priority && (
-                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                            <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border ${
                                 task.priority === 'High' ? 'bg-rose-50 text-rose-600 border-rose-100' :
                                 task.priority === 'Medium' ? 'bg-orange-50 text-orange-600 border-orange-100' :
                                 'bg-emerald-50 text-emerald-600 border-emerald-100'
                             }`}>
-                                {task.priority} Priority
+                                {task.priority}
                             </span>
                         )}
                         {task.estimateTime && (
-                           <span className="px-3 py-1 bg-slate-100 text-slate-500 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                               <Clock size={12}/> Est: {task.estimateTime}
+                           <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full text-[8px] font-black uppercase tracking-widest flex items-center gap-1">
+                               <Clock size={10}/> {task.estimateTime}
                            </span>
                         )}
                         {task.assignedStaff?.length > 0 && (
                             <div className="flex gap-1 items-center">
                                 {task.assignedStaff.map(sid => {
                                     const s = data.staff.find(sm => sm.id === sid);
-                                    return <span key={sid} className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[8px] font-black border border-indigo-100 uppercase truncate max-w-[80px]">{s?.name || 'User'}</span>;
+                                    return <span key={sid} className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded-full text-[7px] font-black border border-indigo-100 uppercase truncate max-w-[60px]">{s?.name || 'User'}</span>;
                                 })}
                             </div>
                         )}
                     </div>
 
-                    <p className="text-slate-600 leading-relaxed text-sm font-medium border-t border-slate-50 pt-6">{task.description || 'No brief provided.'}</p>
+                    <p className="text-slate-600 leading-snug text-xs font-medium border-t border-slate-50 pt-4">{task.description || 'No brief provided.'}</p>
                 </div>
 
                 {/* PARENT LINK if applicable */}
@@ -156,41 +141,42 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
 
                 {/* CLIENT CARD - MODULAR */}
                 {(party || task.address) && (
-                    <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm relative overflow-hidden transition-all">
-                        <div className="flex justify-between items-start mb-6 border-b border-slate-50 pb-6">
+                    <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm relative overflow-hidden transition-all">
+                        <div className="flex justify-between items-start mb-4 border-b border-slate-50 pb-4">
                             <div>
-                                <div className="flex items-center gap-2 mb-2">
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Client Interface</p>
-                                    {task.locationLabel && <span className="bg-blue-600 text-white px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-widest">{task.locationLabel}</span>}
+                                <div className="flex items-center gap-2 mb-1">
+                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Client Interface</p>
+                                    {task.locationLabel && <span className="bg-blue-600 text-white px-2 py-0.5 rounded-lg text-[7px] font-black uppercase tracking-widest">{task.locationLabel}</span>}
                                 </div>
-                                <h3 className="text-2xl font-black text-slate-900 tracking-tighter">{party?.name || 'Ad-hoc Client'}</h3>
+                                <h3 className="text-lg font-black text-slate-900 tracking-tight">{party?.name || 'Ad-hoc Client'}</h3>
                             </div>
                             {(task.location || party?.lat) && (
-                                <a href={`https://www.google.com/maps?q=${task.location?.lat || party?.lat},${task.location?.lng || party?.lng}`} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 bg-blue-600 text-white px-5 py-3 rounded-2xl shadow-xl shadow-blue-200 active:scale-95 transition-all text-[10px] font-black uppercase tracking-widest">
-                                    <MapPin size={18} fill="white"/> Navigate
+                                <a href={`https://www.google.com/maps?q=${task.location?.lat || party?.lat},${task.location?.lng || party?.lng}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl shadow-lg shadow-blue-100 active:scale-95 transition-all text-[9px] font-black uppercase tracking-widest">
+                                    <MapPin size={14} fill="white"/> Map
                                 </a>
                             )}
                         </div>
 
-                        {/* Contacts */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {((task.selectedContacts?.length > 0) ? task.selectedContacts : [{ label: 'Primary', number: party?.mobile }]).filter(c => c.number).map((c, i) => (
-                                <a key={i} href={`tel:${c.number}`} className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl hover:bg-slate-100 transition-all group">
-                                    <div className="w-10 h-10 bg-white text-slate-400 rounded-xl flex items-center justify-center shadow-sm group-hover:text-blue-600"><Phone size={18}/></div>
-                                    <div>
-                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{c.label}</p>
-                                        <p className="text-sm font-black text-slate-800">{c.number}</p>
-                                    </div>
-                                </a>
-                            ))}
-                        </div>
-
-                        {(task.address || party?.address) && (
-                            <div className="mt-6 flex items-start gap-3 bg-slate-50 p-6 rounded-[24px] border border-slate-100">
-                                <MapPin size={16} className="text-blue-500 mt-1 shrink-0"/>
-                                <p className="text-xs font-bold text-slate-600 leading-relaxed">{task.address || party?.address}</p>
+                        {/* Contacts & Address Split */}
+                        <div className="grid grid-cols-1 gap-2">
+                            <div className="flex flex-wrap gap-2">
+                                {((task.selectedContacts?.length > 0) ? task.selectedContacts : [{ label: 'Primary', number: party?.mobile }]).filter(c => c.number).map((c, i) => (
+                                    <a key={i} href={`tel:${c.number}`} className="flex-1 flex items-center gap-3 bg-slate-50 p-3 rounded-xl hover:bg-slate-100 transition-all group min-w-[140px]">
+                                        <div className="w-8 h-8 bg-white text-slate-400 rounded-lg flex items-center justify-center shadow-sm group-hover:text-blue-600"><Phone size={14}/></div>
+                                        <div>
+                                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-tight">{c.label}</p>
+                                            <p className="text-[11px] font-black text-slate-800">{c.number}</p>
+                                        </div>
+                                    </a>
+                                ))}
                             </div>
-                        )}
+                            {(task.address || party?.address) && (
+                                <div className="flex items-start gap-3 bg-slate-50 p-4 rounded-[20px] border border-slate-100">
+                                    <MapPin size={14} className="text-blue-500 mt-0.5 shrink-0"/>
+                                    <p className="text-[10px] font-bold text-slate-600 leading-tight">{task.address || party?.address}</p>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
 
@@ -369,6 +355,39 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                         </div>
                     </a>
                 )}
+
+                {/* CONVERSION INTERFACE - MOVED TO BOTTOM */}
+                <div className="pt-4 animate-in slide-in-from-bottom duration-500">
+                    {task.status === 'Converted' ? (
+                        <button 
+                            onClick={() => setViewDetail({ type: 'transaction', id: task.generatedSaleId })}
+                            className="w-full p-6 bg-emerald-600 text-white rounded-[32px] shadow-2xl shadow-emerald-200 active:scale-95 transition-all flex flex-col items-center gap-1 group"
+                        >
+                            <ShoppingCart size={24} className="mb-1 group-hover:scale-110 transition-transform"/>
+                            <span className="text-xs font-black uppercase tracking-[0.2em]">View Linked Invoice</span>
+                            <span className="text-[9px] opacity-60 font-black uppercase tracking-widest">Marked as Converted on {formatDate(task.convertedDate)}</span>
+                        </button>
+                    ) : (
+                        <button 
+                            onClick={() => setModal({ type: 'convertTask', data: task })}
+                            className="w-full p-8 bg-slate-900 text-white rounded-[40px] shadow-2xl shadow-slate-900/40 active:scale-[0.98] transition-all flex items-center justify-between group overflow-hidden relative"
+                        >
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-bl-full -z-0"></div>
+                            <div className="relative z-10 flex items-center gap-4">
+                                <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-500/20 group-hover:rotate-12 transition-transform">
+                                    <ShoppingCart size={24}/>
+                                </div>
+                                <div className="text-left">
+                                    <h4 className="text-lg font-black tracking-tight leading-none">Convert to Sale</h4>
+                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1.5 opacity-60">Generate tax invoice / receipt</p>
+                                </div>
+                            </div>
+                            <div className="relative z-10 w-12 h-12 bg-white/10 rounded-full flex items-center justify-center group-hover:translate-x-1 transition-transform">
+                                <ChevronRight size={24} className="text-white"/>
+                            </div>
+                        </button>
+                    )}
+                </div>
             </div>
         </div>
     );
