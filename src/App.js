@@ -226,49 +226,66 @@ const App = () => {
     };
 
     const toggleTimer = async (taskId, staffId) => {
-        const task = data.tasks.find(t => t.id === taskId);
-        if (!task) return;
+        try {
+            const task = data.tasks.find(t => t.id === taskId);
+            if (!task) {
+                console.error("Task not found for timer:", taskId);
+                return;
+            }
 
-        const now = new Date().toISOString();
-        let newLogs = [...(task.timeLogs || [])];
-        const activeLogIndex = newLogs.findIndex(l => l.staffId === staffId && !l.end);
+            const now = new Date().toISOString();
+            let newLogs = [...(task.timeLogs || [])];
+            const activeLogIndex = newLogs.findIndex(l => l.staffId === staffId && !l.end);
 
-        if (activeLogIndex > -1) {
-            newLogs[activeLogIndex] = { ...newLogs[activeLogIndex], end: now };
-        } else {
-            newLogs.push({ staffId, start: now, end: null });
+            if (activeLogIndex > -1) {
+                const duration = (new Date(now) - new Date(newLogs[activeLogIndex].start)) / 60000;
+                newLogs[activeLogIndex] = { ...newLogs[activeLogIndex], end: now, duration: duration.toFixed(2) };
+            } else {
+                newLogs.push({ staffId, start: now, end: null, staffName: data.staff.find(s=>s.id===staffId)?.name || 'Unknown' });
+            }
+
+            const updatedTask = { ...task, timeLogs: newLogs, updatedAt: now };
+            
+            // Optimistic Update
+            setData(prev => ({
+                ...prev,
+                tasks: prev.tasks.map(t => t.id === taskId ? updatedTask : t)
+            }));
+
+            await setDoc(doc(db, "tasks", taskId.toString()), updatedTask, { merge: true });
+        } catch (e) {
+            console.error("Timer Toggle Failed:", e);
+            alert("Timer Sync Error");
         }
-
-        const updatedTask = { ...task, timeLogs: newLogs, updatedAt: now };
-        await setDoc(doc(db, "tasks", taskId), updatedTask, { merge: true });
-        setData(prev => ({
-            ...prev,
-            tasks: prev.tasks.map(t => t.id === taskId ? updatedTask : t)
-        }));
     };
 
     const refreshSingleRecord = async (collection, id) => {
-        const snap = await getDoc(doc(db, collection, id));
-        if (snap.exists()) {
-            setData(prev => ({
-                ...prev,
-                [collection]: [...prev[collection].filter(r => r.id !== id), snap.data()]
-            }));
+        try {
+            if(!id) return;
+            const snap = await getDoc(doc(db, collection, id.toString()));
+            if (snap.exists()) {
+                setData(prev => ({
+                    ...prev,
+                    [collection]: [...prev[collection].filter(r => r.id !== id), snap.data()]
+                }));
+            }
+        } catch (e) {
+            console.error("Refresh Error:", e);
         }
     };
 
     useEffect(() => {
-        const handleBack = () => {
+        const handleBack = (e) => {
             if (modal) {
                 setModal(null);
-                window.history.pushState(null, '', '');
+                e.preventDefault();
             } else if (viewDetail) {
                 setViewDetail(null);
-                window.history.pushState(null, '', '');
+                e.preventDefault();
             }
         };
         if (modal || viewDetail) {
-            window.history.pushState(null, '', '');
+            window.history.pushState({ modal: true }, '', '');
             window.addEventListener('popstate', handleBack);
         }
         return () => window.removeEventListener('popstate', handleBack);

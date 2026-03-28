@@ -109,7 +109,7 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                             </div>
                         </div>
                     </div>
-                    <Chart income={stats.income} expense={stats.expense}/>
+                    <Chart income={stats.totalIncome} expense={stats.totalExpense}/>
                 </div>
             </div>
 

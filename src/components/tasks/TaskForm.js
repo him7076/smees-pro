@@ -200,36 +200,80 @@ const TaskForm = ({ data, setData, record, onClose }) => {
                         
                         {selectedParty && (selectedParty.locations?.length > 0 || selectedParty.mobileNumbers?.length > 0) && (
                             <div className="relative pt-2">
-                                <div className="flex justify-between items-center bg-blue-50/50 p-4 rounded-2xl border border-blue-100/50">
+                                <div className="flex justify-between items-center bg-blue-50/50 p-4 rounded-3xl border border-blue-100/50">
                                      <div className="text-[10px] text-slate-800 flex-1 min-w-0 pr-4">
-                                         <span className="font-black">Contact Points: </span> 
-                                         <div className="font-black text-blue-600 mt-1 truncate">
-                                            {(form.selectedContacts && form.selectedContacts.length > 0) ? form.selectedContacts.map(c => c.number).join(', ') : (form.mobile || selectedParty.mobile)}
+                                         <div className="flex items-center gap-1.5 mb-1.5">
+                                            <span className="font-black text-blue-400 uppercase tracking-widest text-[8px]">Selected Vector: </span> 
+                                            <span className="font-black bg-blue-600 text-white px-2 py-0.5 rounded-lg text-[8px] uppercase">{form.locationLabel || 'Default Handle'}</span>
                                          </div>
+                                         <div className="font-black text-slate-900 leading-tight">
+                                            {(form.selectedContacts && form.selectedContacts.length > 0) 
+                                                ? form.selectedContacts.map(c => `${c.label}: ${c.number}`).join(' | ') 
+                                                : (form.mobile || selectedParty.mobile)
+                                            }
+                                         </div>
+                                         <div className="truncate text-slate-500 mt-1 font-bold text-[9px]">{form.address || selectedParty.address}</div>
                                      </div>
-                                     <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[9px] font-black bg-white border px-4 py-2.5 rounded-xl shadow-sm text-blue-600 active:scale-95 transition-all">Interface</button>
+                                     <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[9px] font-black bg-white border border-blue-100 px-4 py-2.5 rounded-2xl shadow-sm text-blue-600 active:scale-95 transition-all uppercase tracking-widest">Interface</button>
                                 </div>
                                 {showLocPicker && (
-                                    <div className="absolute z-[120] w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 space-y-2 max-h-[300px] overflow-y-auto animate-in fade-in slide-in-from-top-2">
-                                        <div onClick={() => { setForm({ ...form, mobile: selectedParty.mobile, selectedContacts: [] }); setShowLocPicker(false); }} className="p-3 hover:bg-slate-50 border-b border-slate-50 cursor-pointer bg-slate-50 rounded-xl mb-1">
-                                            <span className="font-black text-[10px] text-slate-500 uppercase tracking-widest">Master Handle</span>
-                                            <div className="text-xs font-bold text-slate-900 mt-1">{selectedParty.mobile}</div>
+                                    <div className="absolute z-[120] w-full mt-2 bg-white border border-slate-200 rounded-[32px] shadow-2xl p-4 space-y-3 max-h-[400px] overflow-y-auto animate-in fade-in slide-in-from-top-4 origin-top">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Connectivity Options</p>
+                                            <button onClick={() => setShowLocPicker(false)} className="p-1.5 bg-slate-100 rounded-full text-slate-400"><X size={14}/></button>
                                         </div>
-                                        {selectedParty.mobileNumbers?.map((mob, idx) => {
-                                            const isSelected = form.selectedContacts?.some(c => c.number === mob.number);
-                                            return (
-                                                <div key={idx} onClick={(e) => { e.stopPropagation(); let current = [...(form.selectedContacts || [])]; if (isSelected) current = current.filter(c => c.number !== mob.number); else current.push(mob); setForm({ ...form, selectedContacts: current }); }} className={`p-3 cursor-pointer rounded-xl border flex justify-between items-center transition-all ${isSelected ? 'bg-emerald-50 border-emerald-100' : 'hover:bg-slate-50 border-transparent'}`}>
-                                                    <span className="text-xs font-bold">{mob.label}</span>
-                                                    <span className={`text-[11px] font-black ${isSelected ? 'text-emerald-700' : 'text-slate-500'}`}>{mob.number}</span>
-                                                </div>
-                                            );
-                                        })}
-                                        {selectedParty.locations?.map((loc, idx) => (
-                                            <div key={idx} onClick={() => handleLocationSelect(loc)} className="p-3 hover:bg-blue-50 cursor-pointer rounded-xl border border-transparent border-t border-slate-50 pt-3">
-                                                <span className="text-xs font-black text-blue-600 flex items-center gap-1"><MapPin size={10}/> {loc.label}</span>
-                                                <div className="text-[10px] font-black text-slate-500 truncate mt-0.5">{loc.address}</div>
+
+                                        <div onClick={() => { setForm({ ...form, address: selectedParty.address, mobile: selectedParty.mobile, selectedContacts: [], locationLabel: '', lat: selectedParty.lat || '', lng: selectedParty.lng || '' }); setShowLocPicker(false); }} className="p-4 hover:bg-slate-50 border border-slate-100 cursor-pointer bg-slate-50 rounded-2xl transition-all active:scale-[0.98]">
+                                            <div className="flex justify-between items-center">
+                                                <span className="font-black text-[10px] text-blue-600 uppercase tracking-widest">Master Direct</span>
+                                                <CheckCircle2 size={16} className={!form.locationLabel && !form.selectedContacts?.length ? 'text-blue-600' : 'text-slate-200'}/>
                                             </div>
-                                        ))}
+                                            <div className="text-xs font-black text-slate-900 mt-1">{selectedParty.mobile}</div>
+                                            <div className="text-[9px] font-bold text-slate-500 mt-0.5 truncate">{selectedParty.address}</div>
+                                        </div>
+
+                                        {selectedParty.mobileNumbers?.length > 0 && (
+                                            <div className="space-y-2 pt-2">
+                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Multi-Contact Selection</p>
+                                                <div className="grid grid-cols-1 gap-2">
+                                                    {selectedParty.mobileNumbers.map((mob, idx) => {
+                                                        const isSelected = form.selectedContacts?.some(c => c.number === mob.number);
+                                                        return (
+                                                            <div key={idx} onClick={(e) => { e.stopPropagation(); let current = [...(form.selectedContacts || [])]; if (isSelected) current = current.filter(c => c.number !== mob.number); else current.push(mob); setForm({ ...form, selectedContacts: current, locationLabel: current.length ? 'Multi-Contact' : '' }); }} className={`p-3.5 cursor-pointer rounded-2xl border flex justify-between items-center transition-all active:scale-[0.98] ${isSelected ? 'bg-emerald-50 border-emerald-100 shadow-sm' : 'hover:bg-slate-50 border-slate-100'}`}>
+                                                                <div>
+                                                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">{mob.label}</p>
+                                                                    <p className={`text-xs font-black ${isSelected ? 'text-emerald-700' : 'text-slate-900'}`}>{mob.number}</p>
+                                                                </div>
+                                                                <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all ${isSelected ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-200'}`}>
+                                                                    {isSelected && <CheckCircle2 size={14} strokeWidth={3}/>}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {selectedParty.locations?.length > 0 && (
+                                            <div className="space-y-2 pt-2">
+                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Strategic Locations</p>
+                                                <div className="grid grid-cols-1 gap-2">
+                                                    {selectedParty.locations.map((loc, idx) => {
+                                                        const isSelected = form.locationLabel === loc.label;
+                                                        return (
+                                                            <div key={idx} onClick={() => { handleLocationSelect(loc); setForm(prev => ({ ...prev, selectedContacts: [] })); }} className={`p-4 hover:bg-blue-50 cursor-pointer rounded-2xl border transition-all active:scale-[0.98] ${isSelected ? 'bg-blue-50 border-blue-200 shadow-sm' : 'border-slate-100'}`}>
+                                                                <div className="flex justify-between items-center mb-1">
+                                                                    <span className="text-[10px] font-black text-blue-600 flex items-center gap-1.5 uppercase tracking-widest"><MapPin size={12}/> {loc.label}</span>
+                                                                    {isSelected && <CheckCircle2 size={14} className="text-blue-600"/>}
+                                                                </div>
+                                                                <div className="text-[10px] font-black text-slate-500 leading-relaxed mb-1.5">{loc.address}</div>
+                                                                {loc.mobile && <div className="text-[10px] font-black text-emerald-600 flex items-center gap-1.5"><Phone size={10}/> {loc.mobile}</div>}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>

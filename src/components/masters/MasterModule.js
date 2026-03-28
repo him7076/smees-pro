@@ -10,9 +10,9 @@ const MasterModule = ({ data, setModal, setViewDetail }) => {
     const items = data.items || [];
     const staff = data.staff || [];
 
-    const filteredParties = parties.filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()) || String(p.mobile || '').includes(search));
-    const filteredItems = items.filter(i => !search || i.name.toLowerCase().includes(search.toLowerCase()));
-    const filteredStaff = staff.filter(s => !search || s.name.toLowerCase().includes(search.toLowerCase()));
+    const filteredParties = parties.filter(p => !search || (p.name || '').toLowerCase().includes(search.toLowerCase()) || String(p.mobile || '').includes(search));
+    const filteredItems = items.filter(i => !search || (i.name || '').toLowerCase().includes(search.toLowerCase()));
+    const filteredStaff = staff.filter(s => !search || (s.name || '').toLowerCase().includes(search.toLowerCase()));
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500 pb-32">

@@ -23,11 +23,10 @@ const ConvertTaskModal = ({ task, data, setData, onClose }) => {
             setNsDates(newDates);
         } else {
             setSelectedAssets(prev => [...prev, asset.name]);
-            if (asset.serviceInterval) {
-                const ns = new Date(date);
-                ns.setDate(ns.getDate() + parseInt(asset.serviceInterval));
-                setNsDates(prev => ({ ...prev, [asset.name]: ns.toISOString().split('T')[0] }));
-            }
+            const interval = parseInt(asset.serviceInterval || 3);
+            const ns = new Date(date);
+            ns.setMonth(ns.getMonth() + interval);
+            setNsDates(prev => ({ ...prev, [asset.name]: ns.toISOString().split('T')[0] }));
         }
     };
 
