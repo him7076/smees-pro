@@ -299,11 +299,5 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
     );
 };
 
-export default TransactionDetailView;
-
-            </div>
-        </div>
-    );
-};
 
 export default TransactionDetailView;
