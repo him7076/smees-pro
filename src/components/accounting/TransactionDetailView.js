@@ -3,20 +3,19 @@ import { ArrowLeft, Share2, MapPin, Package, ChevronRight, Link as LinkIcon, Ban
 import { formatCurrency, formatDate } from '../../utils/helpers';
 
 const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal, cancelTransaction, restoreTransaction, deleteRecord, checkPermission }) => {
-    if (!tx) return null;
-
-    const party = data.parties.find(p => p.id && (p.id.toString() === tx.partyId?.toString()));
-    const isPayment = tx.type === 'payment';
+    const party = React.useMemo(() => tx ? data.parties.find(p => p.id && (p.id.toString() === tx.partyId?.toString())) : null, [tx, data.parties]);
+    const isPayment = tx?.type === 'payment';
 
     const totals = {
-        gross: parseFloat(tx.grossTotal || tx.amount || 0),
-        discount: parseFloat(tx.discountValue || 0),
-        final: parseFloat(tx.finalTotal || tx.amount || 0),
-        received: parseFloat(tx.received || tx.paid || (tx.type === 'payment' ? tx.amount : 0) || 0)
+        gross: parseFloat(tx?.grossTotal || tx?.amount || 0),
+        discount: parseFloat(tx?.discountValue || 0),
+        final: parseFloat(tx?.finalTotal || tx?.amount || 0),
+        received: parseFloat(tx?.received || tx?.paid || (tx?.type === 'payment' ? tx?.amount : 0) || 0)
     };
 
     // Enhanced Profit Calculation Logic for Breakdown
     const profitData = React.useMemo(() => {
+        if (!tx) return { itemBreakdown: [], totalMaterialProfit:0, totalServiceProfit:0, grossProfit:0 };
         let totalMaterialProfit = 0;
         let totalServiceProfit = 0;
         
@@ -47,7 +46,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
         const grossProfit = totalMaterialProfit + totalServiceProfit - totals.discount;
 
         return { itemBreakdown, totalMaterialProfit, totalServiceProfit, grossProfit };
-    }, [tx.items, data.items, totals.discount]);
+    }, [tx?.items, data.items, totals.discount]);
 
     const shareInvoice = () => {
         const win = window.open('', '_blank');
@@ -143,6 +142,8 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
         win.document.write(html);
         win.document.close();
     };
+
+    if (!tx) return null;
 
     return (
         <div className="fixed inset-0 z-[100] bg-slate-50 overflow-y-auto animate-in slide-in-from-right duration-300">
