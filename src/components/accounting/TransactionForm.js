@@ -247,46 +247,74 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                 </div>
             </div>
 
-            <div className="p-4 md:p-8 space-y-8 max-w-5xl mx-auto w-full">
-                {/* Entity & Details */}
+            <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto w-full">
+                {/* PRIMARY INPUTS: Timeline & Identification */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div className="space-y-1.5 p-6 bg-white border border-slate-100 rounded-[32px] shadow-sm">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Calendar size={14}/> Timeline</label>
+                        <input type="date" className="w-full p-4 bg-slate-50 border border-slate-50 rounded-2xl text-sm font-black outline-none shadow-inner" value={tx.date} onChange={e => setTx({...tx, date: e.target.value})} />
+                     </div>
+                     <div className="space-y-1.5 p-6 bg-white border border-slate-100 rounded-[32px] shadow-sm">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Banknote size={14}/> Settlement Mode</label>
+                        <div className="flex gap-2">
+                             {['Cash', 'Bank', 'UPI', 'Credit'].map(m => (
+                                 <button key={m} onClick={() => setTx({...tx, paymentMode: m})} className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${tx.paymentMode === m ? 'bg-slate-900 text-white shadow-xl' : 'bg-slate-50 text-slate-400'}`}>
+                                     {m}
+                                 </button>
+                             ))}
+                        </div>
+                     </div>
+                </div>
+
+                {/* SECONDARY INPUTS: Counterparty & Details */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="p-6 bg-white border border-slate-100 rounded-[32px] shadow-sm space-y-4">
                         <div className="flex justify-between items-center">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><LinkIcon size={14}/> Entity Information</p>
-                            {selectedParty && (
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><LinkIcon size={14}/> {type === 'expense' ? 'Expense Category' : 'Counterparty Context'}</p>
+                            {selectedParty && type !== 'expense' && (
                                 <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-full ${partyBalances[tx.partyId] < 0 ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
                                     Bal: {formatCurrency(Math.abs(partyBalances[tx.partyId] || 0))} {partyBalances[tx.partyId] < 0 ? 'CR' : 'DR'}
                                 </span>
                             )}
                         </div>
-                        <SearchableSelect 
-                            options={data.parties.map(p => ({ id: p.id, name: p.name, subText: p.type === 'DR' ? 'Customer' : 'Vendor' }))}
-                            value={tx.partyId}
-                            onChange={v => setTx({...tx, partyId: v, locationLabel: '', address: ''})}
-                            placeholder="Select Client..."
-                        />
+                        {type === 'expense' ? (
+                            <SearchableSelect 
+                                options={['Salaries', 'Rent', 'Electricity', 'Internet', 'Marketing', 'Maintenance', 'Office Supply', 'Transport', 'Taxes', 'Other'].map(c => ({ id: c, name: c }))}
+                                value={tx.category}
+                                onChange={v => setTx({...tx, category: v})}
+                                placeholder="Classification..."
+                                onAddNew={v => setTx({...tx, category: v})}
+                            />
+                        ) : (
+                            <SearchableSelect 
+                                options={data.parties.map(p => ({ id: p.id, name: p.name, subText: p.type === 'DR' ? 'Customer' : 'Vendor' }))}
+                                value={tx.partyId}
+                                onChange={v => setTx({...tx, partyId: v, locationLabel: '', address: ''})}
+                                placeholder="Select Entity..."
+                            />
+                        )}
 
-                        {/* Mobile & Location Multi-Picker (LEGACY Parity) */}
-                        {selectedParty && (selectedParty.locations?.length > 0 || selectedParty.mobileNumbers?.length > 0) && (
+                        {/* Mobile & Location Picker */}
+                        {selectedParty && type !== 'expense' && (selectedParty.locations?.length > 0 || selectedParty.mobileNumbers?.length > 0) && (
                             <div className="relative pt-2">
                                 <div className="flex justify-between items-center bg-blue-50/50 p-3 rounded-2xl border border-blue-100/50">
                                      <div className="text-[10px] text-slate-800 flex-1 min-w-0">
-                                         <span className="font-black">Selected: </span> 
-                                         <span className="font-black bg-white px-2 py-0.5 rounded-lg border ml-1 text-blue-600">{tx.locationLabel || 'Default'}</span>
+                                         <span className="font-black">Direct: </span> 
+                                         <span className="font-black bg-white px-2 py-0.5 rounded-lg border ml-1 text-blue-600 truncate inline-block max-w-[100px]">{tx.locationLabel || 'Main'}</span>
                                          <div className="truncate text-slate-500 mt-1 font-bold">{tx.address || selectedParty.address}</div>
                                          <div className="font-black text-emerald-600 flex items-center gap-1 mt-0.5"><Phone size={10}/> {tx.mobile || selectedParty.mobile}</div>
                                      </div>
-                                     <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[9px] font-black bg-white border px-4 py-2.5 rounded-xl shadow-sm text-blue-600 active:scale-95 transition-all">Change Info</button>
+                                     <button onClick={() => setShowLocPicker(!showLocPicker)} className="text-[9px] font-black bg-white border px-4 py-2.5 rounded-xl shadow-sm text-blue-600 active:scale-95 transition-all">Relocate</button>
                                 </div>
                                 {showLocPicker && (
-                                    <div className="absolute z-[120] w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl p-3 space-y-2 max-h-[300px] overflow-y-auto animate-in fade-in slide-in-from-top-2">
+                                    <div className="absolute z-[120] w-full mt-2 bg-white border border-slate-200 rounded-3xl shadow-2xl p-4 space-y-2 max-h-[350px] overflow-y-auto animate-in fade-in slide-in-from-top-2">
                                         <div onClick={() => handleLocationSelect({ label: '', address: selectedParty.address, mobile: selectedParty.mobile })} className="p-3 hover:bg-slate-50 border-b border-slate-50 cursor-pointer bg-slate-50/50 rounded-xl mb-1">
-                                            <span className="font-black text-[10px] text-slate-500 uppercase tracking-widest">Main Details</span>
+                                            <span className="font-black text-[10px] text-slate-500 uppercase tracking-widest">Base Address</span>
                                             <div className="text-xs font-bold text-slate-900 mt-1">{selectedParty.mobile}</div>
                                         </div>
                                         {selectedParty.mobileNumbers?.length > 0 && (
                                             <div className="space-y-1">
-                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1">Select Contacts</p>
+                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1">Select Active Contacts</p>
                                                 {selectedParty.mobileNumbers.map((mob, idx) => {
                                                     const isSelected = tx.mobile?.includes(mob.number);
                                                     return (
@@ -305,7 +333,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                         )}
                                         {selectedParty.locations?.length > 0 && (
                                             <div className="space-y-1 pt-2 border-t border-slate-50">
-                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1">Site Addresses</p>
+                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1">Logistics / Site</p>
                                                 {selectedParty.locations.map((loc, idx) => (
                                                     <div key={idx} onClick={() => handleLocationSelect(loc)} className="p-3 hover:bg-blue-50 cursor-pointer rounded-xl border border-transparent">
                                                         <span className="text-xs font-black text-blue-600 flex items-center gap-1"><MapPin size={10}/> {loc.label}</span>
@@ -321,54 +349,44 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                     </div>
 
                     <div className="space-y-6">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Timeline</label>
-                                <div className="relative">
-                                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16}/>
-                                    <input type="date" className="w-full pl-12 pr-4 py-4 bg-white border border-slate-100 rounded-2xl text-sm font-bold shadow-sm outline-none font-black" value={tx.date} onChange={e => setTx({...tx, date: e.target.value})} />
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Mode</label>
-                                <select className="w-full p-4 bg-white border border-slate-100 rounded-2xl text-sm font-black outline-none shadow-sm" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}>
-                                    <option>Cash</option><option>Bank</option><option>UPI</option><option>Cheque</option><option>Credit</option>
-                                </select>
-                            </div>
-                        </div>
-
                         {/* AMC / Asset Linking (LEGACY Parity) */}
                         {['sales'].includes(type) && selectedParty?.assets?.length > 0 && (
-                            <div className="p-5 bg-indigo-50 border border-indigo-100 rounded-[28px] space-y-3">
+                            <div className="p-6 bg-indigo-50/50 border border-indigo-100 rounded-[32px] space-y-4">
                                 <div className="flex justify-between items-center">
-                                    <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2"><Package size={14}/> Asset/AMC Linkage</p>
-                                    <span className="text-[9px] font-black bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{tx.linkedAssets.length} ACTIVE</span>
+                                    <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2"><Package size={14}/> Asset Mapping</p>
+                                    <span className="text-[9px] font-black bg-indigo-600 text-white px-3 py-1 rounded-full">{tx.linkedAssets.length} LINKED</span>
                                 </div>
                                 <div className="space-y-2">
                                     {tx.linkedAssets.map((asset, idx) => (
-                                        <div key={idx} className="bg-white p-3 rounded-xl border border-indigo-100 flex justify-between items-center shadow-sm">
+                                        <div key={idx} className="bg-white p-4 rounded-2xl border border-indigo-100 flex justify-between items-center shadow-sm">
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-xs font-black text-indigo-900 truncate">{asset.name}</p>
-                                                <div className="flex items-center gap-3 mt-1.5 pt-1.5 border-t border-slate-50">
-                                                    <span className="text-[9px] font-black text-slate-400 uppercase">Service:</span>
-                                                    <input type="date" className="p-1 border-none bg-indigo-50/50 rounded text-[10px] font-black text-indigo-600 outline-none" value={asset.nextServiceDate} onChange={(e) => {
+                                                <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-50">
+                                                    <span className="text-[9px] font-black text-slate-400 uppercase">Service Interval:</span>
+                                                    <input type="date" className="p-1 border-none bg-slate-50 rounded text-[10px] font-black text-indigo-600 outline-none" value={asset.nextServiceDate} onChange={(e) => {
                                                         const na = [...tx.linkedAssets];
                                                         na[idx].nextServiceDate = e.target.value;
                                                         setTx({ ...tx, linkedAssets: na });
                                                     }} />
                                                 </div>
                                             </div>
-                                            <button onClick={() => setTx({...tx, linkedAssets: tx.linkedAssets.filter((_, i) => i !== idx)})} className="p-2 text-rose-300 hover:text-rose-500"><X size={16}/></button>
+                                            <button onClick={() => setTx({...tx, linkedAssets: tx.linkedAssets.filter((_, i) => i !== idx)})} className="p-2 text-rose-300 hover:text-rose-500 transition-colors"><X size={18}/></button>
                                         </div>
                                     ))}
                                 </div>
-                                <select className="w-full p-3 bg-white border border-indigo-200 rounded-xl text-[10px] font-black text-indigo-600 outline-none shadow-sm" value="" onChange={e => handleAddAsset(e.target.value)}>
-                                    <option value="">+ Link Another Asset</option>
+                                <select className="w-full p-4 bg-white border border-indigo-200 rounded-2xl text-xs font-black text-indigo-600 outline-none shadow-sm" value="" onChange={e => handleAddAsset(e.target.value)}>
+                                    <option value="">+ Connect Asset Data</option>
                                     {selectedParty.assets.map((a, i) => (
                                         <option key={i} value={a.name} disabled={tx.linkedAssets.some(la => la.name === a.name)}>{a.name} ({a.brand})</option>
                                     ))}
                                 </select>
                             </div>
+                        )}
+                        {!['sales'].includes(type) && (
+                             <div className="p-8 bg-slate-100 border border-slate-100 rounded-[40px] flex flex-col items-center justify-center text-center opacity-40">
+                                <Search size={32} className="text-slate-300 mb-2"/>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Context Panel</p>
+                             </div>
                         )}
                     </div>
                 </div>

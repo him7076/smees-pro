@@ -38,7 +38,9 @@ const SearchableSelect = ({ label, options = [], value, onChange, onAddNew, plac
                 </button>
 
                 {isOpen && (
-                    <div className="absolute z-[100] w-full mt-2 bg-white border border-slate-100 rounded-[28px] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 p-3 space-y-2">
+                    <div className={`absolute z-[200] w-full mt-2 bg-white border border-slate-100 rounded-[28px] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 p-3 space-y-2 ${
+                        wrapperRef.current && wrapperRef.current.getBoundingClientRect().bottom > window.innerHeight - 300 ? 'bottom-full mb-4' : 'top-full'
+                    }`}>
                         <div className="relative">
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={14}/>
                             <input 

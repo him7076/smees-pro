@@ -338,13 +338,15 @@ const App = () => {
     return (
         <BrowserRouter>
             {modal && (
-                <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-6 animate-in fade-in duration-300">
-                    <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-t-[48px] md:rounded-[48px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-10 h-full md:h-auto">
-                        <div className="p-8 border-b border-slate-50 flex justify-between items-center">
-                            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">{modal.type} Editor</h3>
-                            <button onClick={() => setModal(null)} className="p-3 bg-slate-100 rounded-full hover:bg-slate-200 transition-colors">Close</button>
+                <div className="fixed inset-0 z-[140] bg-white md:bg-slate-900/50 md:backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-6 animate-in fade-in duration-300">
+                    <div className="bg-white w-full md:max-w-4xl h-full md:max-h-[90vh] md:rounded-[48px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-10">
+                        <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-white sticky top-0 z-[150]">
+                            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">{modal.type} Specialist</h3>
+                            <button onClick={() => setModal(null)} className="p-3 bg-slate-100 text-slate-400 rounded-full hover:bg-slate-200 transition-colors">
+                                <X size={20}/>
+                            </button>
                         </div>
-                        <div className="p-8 overflow-y-auto max-h-[calc(90vh-120px)]">
+                        <div className="h-[calc(100%-88px)] overflow-y-auto scrollbar-hide">
                             {modal.type === 'party' && <PartyForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             {modal.type === 'item' && <ItemForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             {modal.type === 'staff' && <StaffForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
