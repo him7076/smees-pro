@@ -17,7 +17,7 @@ import {
 import { signOut } from "firebase/auth";
 import { auth } from '../../services/firebase';
 
-const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCompact, mode = 'business', onToggleMode, syncing, onSync }) => {
+const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCompact, mode = 'business', onToggleMode, syncing, onSync, setModal }) => {
     const navigate = useNavigate();
 
     const handleLogout = async () => {
@@ -29,15 +29,15 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
         }
     };
 
-    const navItems = [
+    const navItems = mode === 'business' ? [
         { to: '/', icon: <LayoutDashboard size={20}/>, label: 'Home' },
         { to: '/accounts', icon: <ReceiptText size={20}/>, label: 'Accounts' },
         { to: '/tasks', icon: <CheckSquare size={20}/>, label: 'Tasks' },
+        ...(user?.role === 'admin' ? [{ to: '/masters', icon: <Package size={20}/>, label: 'Masters' }] : [])
+    ] : [
+        { to: '/', icon: <Lock size={20}/>, label: 'Vault' },
+        { to: '/tasks', icon: <CheckSquare size={20}/>, label: 'Personal Tasks' },
     ];
-
-    if (user?.role === 'admin') {
-        navItems.splice(3, 0, { to: '/masters', icon: <Package size={20}/>, label: 'Masters' });
-    }
 
     return (
         <div className={`min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-900 ${uiConfig.isCompact ? 'ui-compact' : ''}`}>
@@ -77,7 +77,7 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
                 {/* Header for Mobile */}
                 <header className="bg-white border-b border-slate-100 px-4 py-3 flex justify-between items-center sticky top-0 z-40 backdrop-blur-xl bg-white/80">
                     <div className="flex items-center gap-3">
-                         <button className="p-2 bg-slate-50 rounded-xl text-slate-400 active:scale-95 transition-all">
+                         <button onClick={() => setModal({ type: 'backup' })} className="p-2 bg-slate-50 rounded-xl text-slate-400 active:scale-95 transition-all hover:bg-slate-100">
                              <Menu size={18}/>
                          </button>
                          <h1 className="hidden sm:block text-[12px] font-black tracking-tight text-slate-900 leading-none">SMEES<span className="text-blue-600">PRO</span></h1>
@@ -122,9 +122,7 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
                     {children}
                 </div>
 
-                {/* Bottom Nav for Mobile */}
-                {mode === 'business' && (
-                <nav className="md:hidden fixed bottom-6 left-6 right-6 bg-slate-900/90 backdrop-blur-2xl border border-white/10 rounded-[32px] p-2 flex justify-around items-center shadow-2xl z-50">
+                <nav className={`md:hidden fixed bottom-6 left-6 right-6 backdrop-blur-2xl border border-white/10 rounded-[32px] p-2 flex justify-around items-center shadow-2xl z-50 ${mode === 'business' ? 'bg-slate-900/90' : 'bg-slate-800/90'}`}>
                     {navItems.map(item => (
                         <NavLink 
                             key={item.to}
@@ -136,7 +134,6 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
                         </NavLink>
                     ))}
                 </nav>
-                )}
             </main>
         </div>
     );

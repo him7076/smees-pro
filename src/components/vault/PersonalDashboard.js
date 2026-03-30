@@ -89,6 +89,17 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                         </button>
                     </div>
 
+                    <div onClick={() => setPTab('tasks')} className="mx-1 p-5 bg-white border border-slate-100 rounded-[32px] flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-all active:scale-[0.98] shadow-sm">
+                        <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center border border-indigo-100 shadow-sm"><CheckSquare size={18}/></div>
+                            <div>
+                                <h4 className="text-[10px] font-black text-slate-800 uppercase tracking-widest leading-none mb-1">Private Tasks</h4>
+                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{tasks.filter(t => t.status !== 'Done').length} Items Remaining</p>
+                            </div>
+                        </div>
+                        <ChevronRight size={16} className="text-slate-300"/>
+                    </div>
+
                     <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden border-b-4 border-b-slate-100">
                         <div onClick={() => setViewDetail({ type: 'personalFinance' })} className="p-6 bg-slate-50/50 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors">
                             <div>
@@ -275,19 +286,47 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                         <button onClick={() => { setIsAddingCat(false); setNewCatName(''); }} className="p-3 bg-white text-slate-400 rounded-xl"><X size={14}/></button>
                                     </div>
                                 )}
-                                <div className="grid grid-cols-2 gap-2">
+                                 <div className="grid grid-cols-2 gap-2">
                                     {(categories[selectedCat] || []).map(cat => (
-                                        <div key={cat} className="p-4 bg-slate-50 rounded-2xl flex justify-between items-center group hover:bg-slate-100 transition-all">
-                                            <span className="text-[10px] font-black text-slate-700 uppercase truncate pr-2">{cat}</span>
-                                            <button 
-                                                onClick={async () => {
-                                                    if(window.confirm(`Delete "${cat}"?`)) {
-                                                        const next = { ...categories, [selectedCat]: categories[selectedCat].filter(c => c !== cat) };
-                                                        await updateDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: next });
-                                                    }
-                                                }}
-                                                className="opacity-0 group-hover:opacity-100 p-1.5 text-rose-400 hover:text-rose-600 transition-all"
-                                            ><Trash2 size={12}/></button>
+                                        <div key={cat} className="p-4 bg-slate-50 rounded-2xl flex flex-col gap-2 group hover:bg-slate-100 transition-all">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-[10px] font-black text-slate-700 uppercase truncate pr-2">{cat}</span>
+                                                <button 
+                                                    onClick={async () => {
+                                                        if(window.confirm(`Delete "${cat}"?`)) {
+                                                            const next = { ...categories, [selectedCat]: categories[selectedCat].filter(c => c !== cat) };
+                                                            await updateDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: next });
+                                                        }
+                                                    }}
+                                                    className="opacity-0 group-hover:opacity-100 p-1 text-rose-400 hover:text-rose-600 transition-all"
+                                                ><Trash2 size={12}/></button>
+                                            </div>
+                                            
+                                            {/* Sub-categories */}
+                                            <div className="space-y-1">
+                                                {(categories.sub?.[cat] || []).map(sub => (
+                                                    <div key={sub} className="flex justify-between items-center bg-white/50 px-2 py-1 rounded-lg text-[7px] font-bold text-slate-500 uppercase">
+                                                        <span>{sub}</span>
+                                                        <button 
+                                                            onClick={async () => {
+                                                                const nextSub = { ...categories.sub, [cat]: categories.sub[cat].filter(s => s !== sub) };
+                                                                await updateDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: { ...categories, sub: nextSub } });
+                                                            }}
+                                                            className="text-slate-300 hover:text-rose-500"
+                                                        ><X size={10}/></button>
+                                                    </div>
+                                                ))}
+                                                <button 
+                                                    onClick={() => {
+                                                        const n = prompt(`Add sub-category for ${cat}:`);
+                                                        if(n) {
+                                                            const nextSub = { ...categories.sub, [cat]: [...(categories.sub?.[cat] || []), n.trim()] };
+                                                            updateDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: { ...categories, sub: nextSub } });
+                                                        }
+                                                    }}
+                                                    className="w-full py-1 border border-dashed border-slate-200 rounded-lg text-[7px] font-black text-slate-400 uppercase hover:bg-white"
+                                                >+ Sub</button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>

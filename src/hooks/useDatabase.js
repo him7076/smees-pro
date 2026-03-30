@@ -34,19 +34,18 @@ export const useDatabase = (data, setData) => {
             localStorage.setItem('smees_data', JSON.stringify(newData));
 
             // 3. Update Firestore
-            // Save the record
+            // Save the separate record for both types
             await setDoc(doc(db, collectionName, finalRecord.id), finalRecord, { merge: true });
             
-            // Update counters in settings/counters (or wherever they are stored)
-            if (isNew) {
+            // 4. Critical: If it's a personal module, update the central company document
+            if (collectionName.startsWith('personal')) {
+                await setDoc(doc(db, "companies", "smees_pro_data"), { 
+                    [collectionName]: updatedList,
+                    counters: nextCounters 
+                }, { merge: true });
+            } else if (isNew) {
+                // Only update global counters if it's a new business record
                 await setDoc(doc(db, "settings", "counters"), nextCounters, { merge: true });
-                // Also update the personal data doc if it's a personal transaction/task
-                if (collectionName.startsWith('personal')) {
-                    await setDoc(doc(db, "companies", "smees_pro_data"), { 
-                        [collectionName]: updatedList,
-                        counters: nextCounters 
-                    }, { merge: true });
-                }
             }
 
             return finalRecord.id;

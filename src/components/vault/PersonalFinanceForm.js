@@ -39,11 +39,10 @@ const PersonalFinanceForm = ({ data, setData, record, onClose, intent }) => {
         
         const finalRecord = {
             ...form,
-            id: record ? record.id : Date.now().toString(),
+            id: record ? record.id : null,
             type: type,
             amount: parseFloat(form.amount || 0),
-            fee: parseFloat(form.fee || 0),
-            updatedAt: new Date().toISOString()
+            fee: parseFloat(form.fee || 0)
         };
 
         // If transfer with fee, handle double entry logic if needed (Legacy did this in handleSaveTransaction)

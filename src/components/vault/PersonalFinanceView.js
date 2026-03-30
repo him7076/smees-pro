@@ -160,7 +160,7 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
 
     return (
         <div className={`fixed inset-0 z-[100] bg-slate-50 overflow-y-auto animate-in slide-in-from-right duration-500 scrollbar-hide flex flex-col ${isIntegrated ? 'pb-24' : ''}`}>
-            {!isIntegrated && (
+            {(!isIntegrated && !selectedAccountForTx) && (
                 <div className="bg-slate-900 text-white pt-14 pb-0 px-4 shadow-lg shrink-0 overflow-hidden relative">
                     <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
                     <div className="flex justify-between items-center mb-4 relative z-10">
@@ -376,7 +376,11 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
 
                             <div className="space-y-3 pt-6 border-t border-slate-50">
                                 {categoryStats.sorted.map(([cat, amt], i) => (
-                                    <div key={i} className="flex items-center justify-between">
+                                    <div 
+                                        key={i} 
+                                        onClick={() => { setStatsTab(statsTab); setFinanceView('ledger'); /* We could filter ledger by category if we add cat filter state */ }}
+                                        className="flex items-center justify-between cursor-pointer hover:bg-slate-50 p-2 rounded-xl transition-all"
+                                    >
                                         <div className="flex items-center gap-3">
                                             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'][i % 8] }}></div>
                                             <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight">{cat}</span>
@@ -385,6 +389,7 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
                                     </div>
                                 ))}
                             </div>
+                            <button onClick={() => onBack()} className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-slate-900/10 active:scale-95 transition-all">Back to Dashboard</button>
                         </div>
                     </div>
                 )}

@@ -37,6 +37,7 @@ import TaskDetailView from './components/tasks/TaskDetailView';
 import ItemDetailView from './components/masters/ItemDetailView';
 import PartyProfileView from './components/masters/PartyProfileView';
 import StaffDetailView from './components/staff/StaffDetailView';
+import BackupRestore from './components/layout/BackupRestore';
 
 const Dashboard = ({ data, setModal }) => {
     const [fType, setFType] = useState('Monthly');
@@ -65,8 +66,8 @@ const Dashboard = ({ data, setModal }) => {
             return d >= start && d <= end && t.status !== 'Cancelled';
         });
         
-        const sales = filtered.filter(t => t.type === 'sales').reduce((s, t) => s + parseFloat(t.finalTotal || 0), 0);
-        const expenses = filtered.filter(t => t.type === 'expense').reduce((s, t) => s + parseFloat(t.amount || t.finalTotal || 0), 0);
+        const sales = filtered.filter(t => t.type === 'sales').reduce((s, t) => s + getTransactionTotals(t).final, 0);
+        const expenses = filtered.filter(t => t.type === 'expense').reduce((s, t) => s + getTransactionTotals(t).amount, 0);
         
         let grossProfit = 0;
         filtered.filter(t => t.type === 'sales').forEach(s => {
@@ -149,8 +150,7 @@ const Dashboard = ({ data, setModal }) => {
                 {[
                     { label: 'Total Sales Amount', value: formatCurrency(stats.sales), sub: `${fType} Billing`, color: 'bg-emerald-500 shadow-emerald-500/20', type: 'sales' },
                     { label: 'Opex Exp', value: formatCurrency(stats.expenses), sub: `Cost Center`, color: 'bg-rose-500 shadow-rose-500/20', type: 'expense' },
-                    { label: 'Gross Profit', value: formatCurrency(stats.grossProfit), sub: 'Period IQ', color: 'bg-blue-600 shadow-blue-500/20', type: 'profit' },
-                    { label: 'Pipeline', value: stats.activeTasks, sub: 'Active Load', color: 'bg-slate-900 shadow-slate-900/10', type: 'tasks' }
+                    { label: 'Gross Profit', value: formatCurrency(stats.grossProfit), sub: 'Period IQ', color: 'bg-blue-600 shadow-blue-500/20', type: 'profit' }
                 ].map((card, i) => (
                     <div key={i} onClick={() => setModal({ type: 'dashboard_drilldown', filter: card.type, items: stats.filteredTxs.filter(t => t.type === card.type || (card.type === 'profit' && t.type === 'sales')) })} className={`p-6 rounded-[36px] shadow-2xl ${card.color} text-white hover:scale-[1.02] transition-all cursor-pointer group active:scale-95 relative overflow-hidden`}>
                         <div className="absolute top-0 right-0 w-16 h-16 bg-white/10 rounded-bl-full -z-0"></div>
@@ -393,7 +393,8 @@ const App = () => {
                             {['sales', 'purchase', 'expense', 'payment', 'estimate'].includes(modal.type) && (
                                 <TransactionForm data={data} setData={setData} type={modal.type} record={modal.data} onClose={() => setModal(null)} />
                             )}
-                             {modal.type === 'dashboard_drilldown' && (
+                            {modal.type === 'backup' && <BackupRestore data={data} setData={setData} onClose={() => setModal(null)} />}
+                            {modal.type === 'dashboard_drilldown' && (
                                 <div className="space-y-4">
                                     <div className="flex bg-slate-900 md:px-6 px-4 py-8 rounded-[40px] justify-between items-center mb-6 shadow-2xl relative overflow-hidden">
                                         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
@@ -405,14 +406,25 @@ const App = () => {
                                             </div>
                                         </div>
                                         <div className="text-right relative z-10">
-                                            <p className="text-[14px] font-black text-blue-400 tracking-tighter">
-                                                {formatCurrency(modal.items.reduce((sum, t) => sum + parseFloat(t.finalTotal || t.amount || 0), 0))}
+                                             <p className="text-[14px] font-black text-blue-400 tracking-tighter">
+                                                {formatCurrency(modal.filter === 'profit' 
+                                                    ? modal.items.reduce((sum, t) => {
+                                                        const sTot = getTransactionTotals(t);
+                                                        let sProfit = 0;
+                                                        (t.items || []).forEach(i => {
+                                                            const master = data.items.find(mi => mi.id === i.itemId);
+                                                            const buy = parseFloat(i.buyPrice || master?.buyPrice || 0);
+                                                            const sell = parseFloat(i.price || 0);
+                                                            sProfit += (sell - buy) * parseFloat(i.qty || 1);
+                                                        });
+                                                        return sum + (sProfit - parseFloat(t.discountValue || 0));
+                                                    }, 0)
+                                                    : modal.items.reduce((sum, t) => sum + getTransactionTotals(t)[modal.filter === 'expense' ? 'amount' : 'final'], 0)
+                                                )}
                                             </p>
                                             <p className="text-[7px] font-black text-white/30 uppercase tracking-widest mt-1">Net Aggregation</p>
                                         </div>
                                     </div>
-
-                                    {/* Category Aggregation for Expenses */}
                                     {modal.filter === 'expense' && !modal.selectedCategory && (
                                         <div className="grid grid-cols-1 gap-3 md:px-4">
                                             <div 
@@ -607,22 +619,22 @@ const App = () => {
             <Routes>
                 <Route path="/login" element={!user ? <LoginScreen setUser={setUser} /> : <Navigate to="/" />} />
                 <Route path="/" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
                         {mode === 'business' ? <Dashboard data={data} setModal={setModal} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/accounts" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
                         {mode === 'business' ? <TransactionList data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/tasks" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData}>
-                        {mode === 'business' ? <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalTasksView data={data} setData={setData} onBack={() => setMode('business')} setModal={setModal} />}
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
+                        {mode === 'business' ? <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalTasksView data={data} setData={setData} onBack={() => navigate('/')} setModal={setModal} />}
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/masters" element={user?.role === 'admin' ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
                         <MasterModule data={data} setData={setData} setModal={setModal} setViewDetail={setViewDetail} />
                     </AppLayout>
                 ) : <Navigate to="/" />} />

@@ -14,6 +14,8 @@ export const getNextId = (data, type) => {
   else if (type === 'party') { prefix = 'P'; counterKey = 'party'; }
   else if (type === 'item') { prefix = 'I'; counterKey = 'item'; }
   else if (type === 'staff') { prefix = 'S'; counterKey = 'staff'; }
+  else if (type === 'personalTask') { prefix = 'PT'; counterKey = 'personalTask'; }
+  else if (type === 'personalTransaction') { prefix = 'PX'; counterKey = 'personalTransaction'; }
 
   const counters = (data && data.counters) ? data.counters : INITIAL_DATA.counters;
   let num = parseInt(counters[counterKey] || 1); 
@@ -25,7 +27,9 @@ export const getNextId = (data, type) => {
                     (data.tasks && data.tasks.some(t => t.id === newId)) ||
                     (data.parties && data.parties.some(t => t.id === newId)) ||
                     (data.items && data.items.some(t => t.id === newId)) ||
-                    (data.staff && data.staff.some(t => t.id === newId));
+                    (data.staff && data.staff.some(t => t.id === newId)) ||
+                    (data.personalTransactions && data.personalTransactions.some(t => t.id === newId)) ||
+                    (data.personalTasks && data.personalTasks.some(t => t.id === newId));
       if(isDuplicate) {
           num++; 
           newId = `${prefix}-${num}`;
