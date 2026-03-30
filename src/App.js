@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from './services/firebase';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
-import { checkPermission, formatCurrency, getPartyBalances, getItemStock, getBillStats, getFilteredAttendance } from './utils/helpers';
+import { checkPermission, formatCurrency, getPartyBalances, getItemStock, getBillStats, getFilteredAttendance, getTransactionTotals } from './utils/helpers';
 import { doc, setDoc, getDoc, deleteDoc } from "firebase/firestore";
 import { db } from './services/firebase';
 import { Plus, TrendingUp, FileText, FileMinus, FileCheck, RefreshCw, X, ChevronRight } from 'lucide-react';
@@ -40,6 +40,7 @@ import StaffDetailView from './components/staff/StaffDetailView';
 import BackupRestore from './components/layout/BackupRestore';
 
 const Dashboard = ({ data, setModal }) => {
+    const navigate = useNavigate();
     const [fType, setFType] = useState('Monthly');
     const [customRange, setCustomRange] = useState({ 
         start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0], 
@@ -182,6 +183,7 @@ const Dashboard = ({ data, setModal }) => {
 };
 
 const App = () => {
+    const navigate = useNavigate();
     const [user, setUser] = useState(null);
     const [authLoading, setAuthLoading] = useState(true);
     const { data, setData, syncing, syncData, loading: dataLoading } = useFirebaseSync();
@@ -639,8 +641,7 @@ const App = () => {
                     </AppLayout>
                 ) : <Navigate to="/" />} />
                 <Route path="*" element={<Navigate to="/" />} />
-            </Routes>
-        </BrowserRouter>
+        </Routes>
     );
 };
 
