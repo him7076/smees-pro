@@ -184,7 +184,7 @@ const Dashboard = ({ data, setModal }) => {
 const App = () => {
     const [user, setUser] = useState(null);
     const [authLoading, setAuthLoading] = useState(true);
-    const { data, setData, loading: dataLoading } = useFirebaseSync();
+    const { data, setData, syncing, syncData, loading: dataLoading } = useFirebaseSync();
 
     const [uiConfig, setUiConfig] = useState(() => {
         const saved = localStorage.getItem('smees_ui_config');
@@ -607,22 +607,22 @@ const App = () => {
             <Routes>
                 <Route path="/login" element={!user ? <LoginScreen setUser={setUser} /> : <Navigate to="/" />} />
                 <Route path="/" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData}>
                         {mode === 'business' ? <Dashboard data={data} setModal={setModal} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/accounts" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData}>
                         {mode === 'business' ? <TransactionList data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/tasks" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData}>
                         {mode === 'business' ? <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalTasksView data={data} setData={setData} onBack={() => setMode('business')} setModal={setModal} />}
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/masters" element={user?.role === 'admin' ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData}>
                         <MasterModule data={data} setData={setData} setModal={setModal} setViewDetail={setViewDetail} />
                     </AppLayout>
                 ) : <Navigate to="/" />} />

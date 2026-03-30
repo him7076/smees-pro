@@ -17,7 +17,7 @@ import {
 import { signOut } from "firebase/auth";
 import { auth } from '../../services/firebase';
 
-const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCompact, mode = 'business', onToggleMode }) => {
+const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCompact, mode = 'business', onToggleMode, syncing, onSync }) => {
     const navigate = useNavigate();
 
     const handleLogout = async () => {
@@ -102,10 +102,12 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
 
                     <div className="flex items-center gap-2">
                         <button 
-                            onClick={() => window.location.reload()} 
-                            className="p-2 bg-blue-50 text-blue-600 rounded-xl active:scale-90 transition-all"
+                            onClick={onSync} 
+                            disabled={syncing}
+                            className={`p-2 rounded-xl active:scale-90 transition-all flex items-center gap-2 ${syncing ? 'bg-slate-100 text-slate-400' : 'bg-blue-50 text-blue-600'}`}
                         >
-                            <RefreshCw size={16} className="animate-spin-slow"/>
+                            <RefreshCw size={16} className={syncing ? 'animate-spin' : ''}/>
+                            {syncing && <span className="text-[8px] font-black uppercase tracking-widest hidden md:block">Syncing...</span>}
                         </button>
                         <button 
                             onClick={handleLogout}

@@ -4,7 +4,7 @@ import {
   CheckSquare, Plus, ChevronRight, PieChart as PieIcon, 
   History, Landmark, CreditCard as CardIcon, Banknote,
   Search, Filter, ArrowUpRight, ArrowDownLeft, Settings,
-  ArrowRightLeft, List, Edit2, Trash2, X, PlusCircle
+  ArrowRightLeft, List, Edit2, Trash2, X, PlusCircle, ArrowLeft
 } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { doc, updateDoc, setDoc } from 'firebase/firestore';
