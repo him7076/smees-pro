@@ -9,12 +9,12 @@ import {
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import { useDatabase } from '../../hooks/useDatabase';
 
-const PersonalFinanceView = ({ data, setData, onBack, setModal }) => {
+const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => {
     const { deleteRecord } = useDatabase(data, setData);
     
     // Legacy Views: 'transactions', 'accounts', 'stats'
-    const [financeView, setFinanceView] = useState('transactions'); 
-    const [selectedAccountForTx, setSelectedAccountForTx] = useState(null);
+    const [financeView, setFinanceView] = useState(accountId ? 'accounts' : 'transactions'); 
+    const [selectedAccountForTx, setSelectedAccountForTx] = useState(accountId ? (data.personalAccounts?.find(a => a.name === accountId) || null) : null);
     const [search, setSearch] = useState('');
     const [statsTab, setStatsTab] = useState('expense');
 
@@ -300,8 +300,8 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal }) => {
                                 <button onClick={() => {
                                     const txs = transactions.filter(t => t.account === selectedAccountForTx.name || t.toAccount === selectedAccountForTx.name);
                                     sharePDF(`${selectedAccountForTx.name} Statement`, txs, selectedAccountForTx.name, selectedAccountForTx.initialBalance);
-                                }} className="flex items-center gap-2 px-5 py-3 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-500/20 active:scale-95">
-                                    <Download size={14}/> PDF Report
+                                }} className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-500/20 active:scale-95 transition-all">
+                                    <Download size={18}/>
                                 </button>
                             </div>
                             <h2 className="font-black text-slate-900 text-2xl uppercase tracking-tighter mb-1">{selectedAccountForTx.name}</h2>

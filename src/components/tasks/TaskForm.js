@@ -12,7 +12,9 @@ import {
 import { doc, setDoc } from "firebase/firestore";
 import { db } from '../../services/firebase';
 
-const TaskForm = ({ data, setData, record, onClose }) => {
+const TaskForm = ({ data, setData, record, onClose, context }) => {
+    const isPersonal = context === 'personal' || (record && (data.personalTasks?.some(t => t.id === record.id)));
+    const collection = isPersonal ? 'personalTasks' : 'tasks';
     const { saveRecord } = useDatabase(data, setData);
     const [form, setForm] = useState(record ? { 
         ...record, 
@@ -105,14 +107,14 @@ const TaskForm = ({ data, setData, record, onClose }) => {
 
     const handleSave = async () => {
         if (!form.name) return alert("Task Name required");
-        if (!form.partyId && !form.parentId) return alert("Client required");
+        if (!form.partyId && !form.parentId && !isPersonal) return alert("Client required");
         
-        await saveRecord('tasks', { 
+        await saveRecord(collection, { 
             ...form, 
             id: nextId, 
             updatedAt: new Date().toISOString(),
             createdAt: record?.createdAt || new Date().toISOString()
-        });
+        }, isPersonal ? 'task' : 'task'); // Both use 'task' as subType in useDatabase
         onClose();
     };
 

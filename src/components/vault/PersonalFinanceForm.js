@@ -5,14 +5,14 @@ import SearchableSelect from '../ui/SearchableSelect';
 import { db } from '../../services/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
-const PersonalFinanceForm = ({ data, setData, record, onClose }) => {
+const PersonalFinanceForm = ({ data, setData, record, onClose, intent }) => {
     const { saveRecord } = useDatabase(data, setData);
     
     // LEGACY: Categories & Accounts from direct data keys
     const categories = data.personalCategories || { income: ['Salary'], expense: ['Food'], transfer: [] };
     const accounts = data.personalAccounts || [{ id: 'cash', name: 'Cash', group: 'Cash', initialBalance: 0 }];
 
-    const [type, setType] = useState(record ? record.type : 'expense');
+    const [type, setType] = useState(record ? record.type : (intent || 'expense'));
     const [form, setForm] = useState(record ? {
         ...record,
         date: record.date || new Date().toISOString().split('T')[0],

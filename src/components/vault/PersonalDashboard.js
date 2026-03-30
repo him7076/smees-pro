@@ -16,19 +16,19 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
     const stats = useMemo(() => {
         let totalIncome = 0, totalExpense = 0;
         const accBals = {};
-        accounts.forEach(a => accBals[a.id] = parseFloat(a.initialBalance || 0));
+        accounts.forEach(a => accBals[a.name] = parseFloat(a.initialBalance || 0));
 
         transactions.forEach(t => {
             const amt = parseFloat(t.amount || 0);
             if (t.type === 'income') {
                 totalIncome += amt;
-                if (t.accountId) accBals[t.accountId] = (accBals[t.accountId] || 0) + amt;
+                if (t.account) accBals[t.account] = (accBals[t.account] || 0) + amt;
             } else if (t.type === 'expense') {
                 totalExpense += amt;
-                if (t.accountId) accBals[t.accountId] = (accBals[t.accountId] || 0) - amt;
+                if (t.account) accBals[t.account] = (accBals[t.account] || 0) - amt;
             } else if (t.type === 'transfer') {
-                if (t.fromAccountId) accBals[t.fromAccountId] = (accBals[t.fromAccountId] || 0) - amt;
-                if (t.toAccountId) accBals[t.toAccountId] = (accBals[t.toAccountId] || 0) + amt;
+                if (t.account) accBals[t.account] = (accBals[t.account] || 0) - amt;
+                if (t.toAccount) accBals[t.toAccount] = (accBals[t.toAccount] || 0) + amt;
             }
         });
         const totalBalance = Object.values(accBals).reduce((a, b) => a + b, 0);
@@ -73,7 +73,7 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                             <ArrowDownLeft className="text-rose-500 group-hover:scale-110 transition-transform" size={18}/>
                             <span className="text-[8px] font-black text-rose-700 uppercase tracking-widest">Expense</span>
                         </button>
-                        <button onClick={() => setModal({ type: 'personalTransfer' })} className="py-4 bg-blue-50 border border-blue-100 rounded-2xl flex flex-col items-center gap-1 active:scale-95 transition-all group">
+                        <button onClick={() => setModal({ type: 'personalTransaction', intent: 'transfer' })} className="py-4 bg-blue-50 border border-blue-100 rounded-2xl flex flex-col items-center gap-1 active:scale-95 transition-all group">
                             <ArrowRightLeft className="text-blue-500 group-hover:scale-110 transition-transform" size={18}/>
                             <span className="text-[8px] font-black text-blue-700 uppercase tracking-widest">Transfer</span>
                         </button>
@@ -81,20 +81,20 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
 
                     {/* HISTORY LIST */}
                     <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
-                        <div className="p-5 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
+                        <div onClick={() => setViewDetail({ type: 'personalFinance' })} className="p-5 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors">
                             <h3 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Complete Ledger History</h3>
-                            <button className="p-2 bg-white rounded-lg border border-slate-200 text-slate-400"><Filter size={12}/></button>
+                            <button className="p-2 bg-white rounded-lg border border-slate-200 text-slate-400"><History size={12}/></button>
                         </div>
                         <div className="divide-y divide-slate-50">
                             {transactions.sort((a,b) => new Date(b.date) - new Date(a.date)).map(t => (
-                                <div key={t.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                                <div key={t.id} onClick={() => setModal({ type: 'personalTransaction', data: t })} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer">
                                     <div className="flex items-center gap-4">
                                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${t.type === 'income' ? 'bg-emerald-50 text-emerald-600' : t.type === 'expense' ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'}`}>
                                             {t.type === 'income' ? <ArrowUpRight size={18}/> : t.type === 'expense' ? <ArrowDownLeft size={18}/> : <ArrowRightLeft size={18}/>}
                                         </div>
                                         <div>
-                                            <p className="text-[10px] font-black text-slate-800 tracking-tight leading-none mb-1">{t.category || t.description || 'General'}</p>
-                                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{t.date} • {accounts.find(a=>a.id===t.accountId)?.name || 'Private'}</p>
+                                            <p className="text-[10px] font-black text-slate-800 tracking-tight leading-none mb-1">{t.category || t.note || 'Transfer'}</p>
+                                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{t.date} • {t.account || 'Private'}</p>
                                         </div>
                                     </div>
                                     <p className={`text-xs font-black tracking-tighter ${t.type === 'income' ? 'text-emerald-600' : t.type === 'expense' ? 'text-rose-600' : 'text-blue-600'}`}>
@@ -161,14 +161,14 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                         </div>
                         <div className="grid grid-cols-1 gap-2">
                              {accounts.map(acc => (
-                                 <div key={acc.id} className="p-4 bg-slate-50 rounded-2xl flex justify-between items-center">
+                                 <div key={acc.id} onClick={() => setViewDetail({ type: 'personalFinance', accountId: acc.name })} className="p-4 bg-slate-50 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-all active:scale-95">
                                      <div className="flex items-center gap-3">
                                          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-slate-400">
                                              {acc.type === 'Bank' ? <Landmark size={14}/> : <CardIcon size={14}/>}
                                          </div>
                                          <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight">{acc.name}</span>
                                      </div>
-                                     <span className="text-[10px] font-black text-slate-900">{formatCurrency(stats.accBals[acc.id] || 0)}</span>
+                                     <span className="text-[10px] font-black text-slate-900">{formatCurrency(stats.accBals[acc.name] || 0)}</span>
                                  </div>
                              ))}
                         </div>

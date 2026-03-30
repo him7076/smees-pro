@@ -33,7 +33,6 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
         { to: '/', icon: <LayoutDashboard size={20}/>, label: 'Home' },
         { to: '/accounts', icon: <ReceiptText size={20}/>, label: 'Accounts' },
         { to: '/tasks', icon: <CheckSquare size={20}/>, label: 'Tasks' },
-        { to: '/vault', icon: <Lock size={20}/>, label: 'Vault' },
     ];
 
     if (user?.role === 'admin') {

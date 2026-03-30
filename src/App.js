@@ -27,6 +27,7 @@ import ConvertTaskModal from './components/tasks/ConvertTaskModal';
 import AssetForm from './components/masters/AssetForm';
 import TaskForm from './components/tasks/TaskForm';
 import PersonalFinanceForm from './components/vault/PersonalFinanceForm';
+import PersonalAccountForm from './components/vault/PersonalAccountForm';
 
 // Views
 import PersonalFinanceView from './components/vault/PersonalFinanceView';
@@ -512,7 +513,9 @@ const App = () => {
                                 </div>
                             )}
 
-                            {modal.type === 'personalFinance' && <PersonalFinanceForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
+                            {modal.type === 'personalTransaction' && <PersonalFinanceForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} intent={modal.intent} />}
+                            {modal.type === 'personalAccount' && <PersonalAccountForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
+                            {modal.type === 'personalFinance' && <PersonalFinanceView data={data} setData={setData} onBack={() => setViewDetail(null)} accountId={viewDetail?.accountId} setModal={setModal} />}
                             {modal.type === 'task' && <TaskForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             {modal.type === 'convertTask' && <ConvertTaskModal task={modal.data} data={data} setData={setData} onClose={() => setModal(null)} />}
                             {modal.type === 'asset' && <AssetForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
@@ -603,20 +606,19 @@ const App = () => {
 
             <Routes>
                 <Route path="/login" element={!user ? <LoginScreen setUser={setUser} /> : <Navigate to="/" />} />
-                <Route path="/" element={user ? <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}><Dashboard data={data} setModal={setModal} /></AppLayout> : <Navigate to="/login" />} />
+                <Route path="/" element={user ? (
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}>
+                        {mode === 'business' ? <Dashboard data={data} setModal={setModal} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
+                    </AppLayout>
+                ) : <Navigate to="/login" />} />
                 <Route path="/accounts" element={user ? (
                     <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}>
-                        <TransactionList data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} />
+                        {mode === 'business' ? <TransactionList data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/tasks" element={user ? (
                     <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}>
-                        <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} />
-                    </AppLayout>
-                ) : <Navigate to="/login" />} />
-                <Route path="/vault" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}>
-                        <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />
+                        {mode === 'business' ? <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalTasksView data={data} setData={setData} onBack={() => setMode('business')} setModal={setModal} />}
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/masters" element={user?.role === 'admin' ? (
