@@ -378,270 +378,273 @@ const App = () => {
     }
 
     return (
-        <BrowserRouter>
-            {modal && (
-                <div className="fixed inset-0 z-[140] bg-white md:bg-slate-900/50 md:backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-6 animate-in fade-in duration-300">
-                    <div className="bg-white w-full md:max-w-4xl h-full md:max-h-[90vh] md:rounded-[48px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-10">
-                        <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-white sticky top-0 z-[150]">
-                            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">{modal.type} Specialist</h3>
-                            <button onClick={() => setModal(null)} className="p-3 bg-slate-100 text-slate-400 rounded-full hover:bg-slate-200 transition-colors">
-                                <X size={20}/>
-                            </button>
-                        </div>
-                        <div className="h-[calc(100%-88px)] overflow-y-auto scrollbar-hide">
-                            {modal.type === 'party' && <PartyForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
-                            {modal.type === 'item' && <ItemForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
-                            {modal.type === 'staff' && <StaffForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
-                            {['sales', 'purchase', 'expense', 'payment', 'estimate'].includes(modal.type) && (
-                                <TransactionForm data={data} setData={setData} type={modal.type} record={modal.data} onClose={() => setModal(null)} />
-                            )}
-                            {modal.type === 'backup' && <BackupRestore data={data} setData={setData} onClose={() => setModal(null)} />}
-                            {modal.type === 'dashboard_drilldown' && (
-                                <div className="space-y-4">
-                                    <div className="flex bg-slate-900 md:px-6 px-4 py-8 rounded-[40px] justify-between items-center mb-6 shadow-2xl relative overflow-hidden">
-                                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-                                        <div className="flex items-center gap-4 relative z-10">
-                                            <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center text-blue-400 border border-white/5"><TrendingUp size={20}/></div>
-                                            <div>
-                                                <p className="text-[8px] font-black text-white/40 uppercase tracking-[0.3em] leading-none mb-1">Intelligence Insights</p>
-                                                <h4 className="text-sm font-black text-white tracking-tighter uppercase">{modal.filter === 'profit' ? 'Yield Analysis' : modal.filter} Dashboard</h4>
-                                            </div>
-                                        </div>
-                                        <div className="text-right relative z-10">
-                                             <p className="text-[14px] font-black text-blue-400 tracking-tighter">
-                                                {formatCurrency(modal.filter === 'profit' 
-                                                    ? modal.items.reduce((sum, t) => {
-                                                        const sTot = getTransactionTotals(t);
-                                                        let sProfit = 0;
-                                                        (t.items || []).forEach(i => {
-                                                            const master = data.items.find(mi => mi.id === i.itemId);
-                                                            const buy = parseFloat(i.buyPrice || master?.buyPrice || 0);
-                                                            const sell = parseFloat(i.price || 0);
-                                                            sProfit += (sell - buy) * parseFloat(i.qty || 1);
-                                                        });
-                                                        return sum + (sProfit - parseFloat(t.discountValue || 0));
-                                                    }, 0)
-                                                    : modal.items.reduce((sum, t) => sum + getTransactionTotals(t)[modal.filter === 'expense' ? 'amount' : 'final'], 0)
-                                                )}
-                                            </p>
-                                            <p className="text-[7px] font-black text-white/30 uppercase tracking-widest mt-1">Net Aggregation</p>
-                                        </div>
-                                    </div>
-                                    {modal.filter === 'expense' && !modal.selectedCategory && (
-                                        <div className="grid grid-cols-1 gap-3 md:px-4">
-                                            <div 
-                                                onClick={() => setModal({...modal, selectedCategory: 'ALL'})}
-                                                className="p-5 bg-slate-900 text-white rounded-[24px] flex justify-between items-center cursor-pointer active:scale-95 transition-all shadow-xl shadow-slate-200"
-                                            >
-                                                <div className="flex items-center gap-4">
-                                                    <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center"><Plus size={16}/></div>
-                                                    <p className="text-[10px] font-black uppercase tracking-widest">All Core Transactions</p>
+        <React.Fragment>
+            <div className="app-engine-root">
+                {modal && (
+                    <div className="fixed inset-0 z-[140] bg-white md:bg-slate-900/50 md:backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-6 animate-in fade-in duration-300">
+                        <div className="bg-white w-full md:max-w-4xl h-full md:max-h-[90vh] md:rounded-[48px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-10">
+                            <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-white sticky top-0 z-[150]">
+                                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">{modal.type} Specialist</h3>
+                                <button onClick={() => setModal(null)} className="p-3 bg-slate-100 text-slate-400 rounded-full hover:bg-slate-200 transition-colors">
+                                    <X size={20}/>
+                                </button>
+                            </div>
+                            <div className="h-[calc(100%-88px)] overflow-y-auto scrollbar-hide">
+                                {modal.type === 'party' && <PartyForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
+                                {modal.type === 'item' && <ItemForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
+                                {modal.type === 'staff' && <StaffForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
+                                {['sales', 'purchase', 'expense', 'payment', 'estimate'].includes(modal.type) && (
+                                    <TransactionForm data={data} setData={setData} type={modal.type} record={modal.data} onClose={() => setModal(null)} />
+                                )}
+                                {modal.type === 'backup' && <BackupRestore data={data} setData={setData} onClose={() => setModal(null)} />}
+                                {modal.type === 'dashboard_drilldown' && (
+                                    <div className="space-y-4">
+                                        <div className="flex bg-slate-900 md:px-6 px-4 py-8 rounded-[40px] justify-between items-center mb-6 shadow-2xl relative overflow-hidden">
+                                            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                                            <div className="flex items-center gap-4 relative z-10">
+                                                <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center text-blue-400 border border-white/5"><TrendingUp size={20}/></div>
+                                                <div>
+                                                    <p className="text-[8px] font-black text-white/40 uppercase tracking-[0.3em] leading-none mb-1">Intelligence Insights</p>
+                                                    <h4 className="text-sm font-black text-white tracking-tighter uppercase">{modal.filter === 'profit' ? 'Yield Analysis' : modal.filter} Dashboard</h4>
                                                 </div>
-                                                <ChevronRight size={18} className="text-white/20"/>
                                             </div>
-                                            
-                                            {/* Group by Category */}
-                                            {Object.entries(modal.items.reduce((acc, t) => {
-                                                const cat = t.category || 'Uncategorized';
-                                                acc[cat] = (acc[cat] || 0) + parseFloat(t.amount || t.finalTotal || 0);
-                                                return acc;
-                                            }, {})).sort((a,b) => b[1] - a[1]).map(([cat, val]) => (
+                                            <div className="text-right relative z-10">
+                                                 <p className="text-[14px] font-black text-blue-400 tracking-tighter">
+                                                    {formatCurrency(modal.filter === 'profit' 
+                                                        ? modal.items.reduce((sum, t) => {
+                                                            const sTot = getTransactionTotals(t);
+                                                            let sProfit = 0;
+                                                            (t.items || []).forEach(i => {
+                                                                const master = data.items.find(mi => mi.id === i.itemId);
+                                                                const buy = parseFloat(i.buyPrice || master?.buyPrice || 0);
+                                                                const sell = parseFloat(i.price || 0);
+                                                                sProfit += (sell - buy) * parseFloat(i.qty || 1);
+                                                            });
+                                                            return sum + (sProfit - parseFloat(t.discountValue || 0));
+                                                        }, 0)
+                                                        : modal.items.reduce((sum, t) => sum + getTransactionTotals(t)[modal.filter === 'expense' ? 'amount' : 'final'], 0)
+                                                    )}
+                                                </p>
+                                                <p className="text-[7px] font-black text-white/30 uppercase tracking-widest mt-1">Net Aggregation</p>
+                                            </div>
+                                        </div>
+                                        {modal.filter === 'expense' && !modal.selectedCategory && (
+                                            <div className="grid grid-cols-1 gap-3 md:px-4">
                                                 <div 
-                                                    key={cat}
-                                                    onClick={() => setModal({...modal, selectedCategory: cat})}
-                                                    className="p-5 bg-white border border-slate-100 rounded-[24px] flex justify-between items-center cursor-pointer hover:bg-slate-50 active:scale-95 transition-all"
+                                                    onClick={() => setModal({...modal, selectedCategory: 'ALL'})}
+                                                    className="p-5 bg-slate-900 text-white rounded-[24px] flex justify-between items-center cursor-pointer active:scale-95 transition-all shadow-xl shadow-slate-200"
                                                 >
                                                     <div className="flex items-center gap-4">
-                                                        <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center font-black text-[10px] uppercase">{cat[0]}</div>
-                                                        <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest leading-none">{cat}</p>
+                                                        <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center"><Plus size={16}/></div>
+                                                        <p className="text-[10px] font-black uppercase tracking-widest">All Core Transactions</p>
                                                     </div>
-                                                    <p className="text-[10px] font-black text-slate-900">{formatCurrency(val)}</p>
+                                                    <ChevronRight size={18} className="text-white/20"/>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* Filtered List (or Sales/Profit List) */}
-                                    {(modal.filter !== 'expense' || modal.selectedCategory) && (
-                                        <div className="space-y-4">
-                                            {modal.filter === 'expense' && (
-                                                <div className="px-6 flex items-center justify-between mb-2">
-                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Filtering: {modal.selectedCategory}</p>
-                                                    <button onClick={() => setModal({...modal, selectedCategory: null})} className="text-[8px] font-black text-blue-600 uppercase tracking-widest">Back to Categories</button>
-                                                </div>
-                                            )}
-                                            
-                                            {modal.items
-                                            .filter(t => !modal.selectedCategory || modal.selectedCategory === 'ALL' || t.category === modal.selectedCategory)
-                                            .map(t => {
-                                                let serviceP = 0, goodsP = 0;
-                                                (t.items || []).forEach(item => {
-                                                    const master = data.items.find(i => i.id === item.itemId);
-                                                    const type = master?.type || 'Goods';
-                                                    const buy = parseFloat(item.buyPrice || master?.buyPrice || 0);
-                                                    const sell = parseFloat(item.price || 0);
-                                                    const qty = parseFloat(item.qty || 0);
-                                                    const profit = (sell - buy) * qty;
-                                                    if (type === 'Service' || (item.itemName||'').toLowerCase().includes('service')) serviceP += profit;
-                                                    else goodsP += profit;
-                                                });
-                                                const netP = serviceP + goodsP - parseFloat(t.discountValue || 0);
-
-                                                return (
-                                                    <div key={t.id} onClick={() => { setModal(null); setViewDetail({ type: 'transaction', id: t.id }); }} className="p-4 bg-white border border-slate-100 rounded-[32px] hover:bg-slate-50 transition-all cursor-pointer group active:scale-[0.98] shadow-sm">
-                                                        <div className="flex justify-between items-center mb-3">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 border border-slate-100 group-hover:bg-blue-600 group-hover:text-white transition-all"><FileText size={16}/></div>
-                                                                <div>
-                                                                    <p className="text-[10px] font-black text-slate-800 tracking-tight leading-none mb-1 uppercase">{data.parties.find(p=>p.id===t.partyId)?.name || t.category || 'Direct Cash'}</p>
-                                                                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">#{t.id} • {t.date}</p>
-                                                                </div>
-                                                            </div>
-                                                            <div className="text-right">
-                                                                <p className="text-[10px] font-black text-slate-900 tracking-tighter">{formatCurrency(t.finalTotal || t.amount || 0)}</p>
-                                                                <div className={`text-[7px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-full mt-1 inline-block ${t.type === 'sales' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{t.type}</div>
-                                                            </div>
+                                                
+                                                {/* Group by Category */}
+                                                {Object.entries(modal.items.reduce((acc, t) => {
+                                                    const cat = t.category || 'Uncategorized';
+                                                    acc[cat] = (acc[cat] || 0) + parseFloat(t.amount || t.finalTotal || 0);
+                                                    return acc;
+                                                }, {})).sort((a,b) => b[1] - a[1]).map(([cat, val]) => (
+                                                    <div 
+                                                        key={cat}
+                                                        onClick={() => setModal({...modal, selectedCategory: cat})}
+                                                        className="p-5 bg-white border border-slate-100 rounded-[24px] flex justify-between items-center cursor-pointer hover:bg-slate-50 active:scale-95 transition-all"
+                                                    >
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center font-black text-[10px] uppercase">{cat[0]}</div>
+                                                            <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest leading-none">{cat}</p>
                                                         </div>
-
-                                                        {modal.filter === 'profit' && (
-                                                            <div className="mt-3 pt-3 border-t border-slate-100/50 flex justify-between items-center">
-                                                                <div className="flex gap-2">
-                                                                    <span className="text-[7px] font-black bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">MAT {formatCurrency(goodsP)}</span>
-                                                                    <span className="text-[7px] font-black bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">SER {formatCurrency(serviceP)}</span>
-                                                                </div>
-                                                                <span className="text-xs font-black text-emerald-600 tracking-tighter">Yield: {formatCurrency(netP)}</span>
-                                                            </div>
-                                                        )}
+                                                        <p className="text-[10px] font-black text-slate-900">{formatCurrency(val)}</p>
                                                     </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-
-                                    {modal.items.length === 0 && (
-                                        <div className="py-24 flex flex-col items-center justify-center opacity-30 grayscale scale-90">
-                                            <TrendingUp size={48} className="text-slate-300 mb-4"/>
-                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] italic">No Operational Trajectories Found</p>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {modal.type === 'personalTransaction' && <PersonalFinanceForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} intent={modal.intent} />}
-                            {modal.type === 'personalAccount' && <PersonalAccountForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
-                            {modal.type === 'personalFinance' && <PersonalFinanceView data={data} setData={setData} onBack={() => setViewDetail(null)} accountId={viewDetail?.accountId} setModal={setModal} />}
-                            {modal.type === 'task' && <TaskForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
-                            {modal.type === 'convertTask' && <ConvertTaskModal task={modal.data} data={data} setData={setData} onClose={() => setModal(null)} />}
-                            {modal.type === 'asset' && <AssetForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
+                                                ))}
+                                            </div>
+                                        )}
+    
+                                        {/* Filtered List (or Sales/Profit List) */}
+                                        {(modal.filter !== 'expense' || modal.selectedCategory) && (
+                                            <div className="space-y-4">
+                                                {modal.filter === 'expense' && (
+                                                    <div className="px-6 flex items-center justify-between mb-2">
+                                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Filtering: {modal.selectedCategory}</p>
+                                                        <button onClick={() => setModal({...modal, selectedCategory: null})} className="text-[8px] font-black text-blue-600 uppercase tracking-widest">Back to Categories</button>
+                                                    </div>
+                                                )}
+                                                
+                                                {modal.items
+                                                .filter(t => !modal.selectedCategory || modal.selectedCategory === 'ALL' || t.category === modal.selectedCategory)
+                                                .map(t => {
+                                                    let serviceP = 0, goodsP = 0;
+                                                    (t.items || []).forEach(item => {
+                                                        const master = data.items.find(i => i.id === item.itemId);
+                                                        const type = master?.type || 'Goods';
+                                                        const buy = parseFloat(item.buyPrice || master?.buyPrice || 0);
+                                                        const sell = parseFloat(item.price || 0);
+                                                        const qty = parseFloat(item.qty || 0);
+                                                        const profit = (sell - buy) * qty;
+                                                        if (type === 'Service' || (item.itemName||'').toLowerCase().includes('service')) serviceP += profit;
+                                                        else goodsP += profit;
+                                                    });
+                                                    const netP = serviceP + goodsP - parseFloat(t.discountValue || 0);
+    
+                                                    return (
+                                                        <div key={t.id} onClick={() => { setModal(null); setViewDetail({ type: 'transaction', id: t.id }); }} className="p-4 bg-white border border-slate-100 rounded-[32px] hover:bg-slate-50 transition-all cursor-pointer group active:scale-[0.98] shadow-sm">
+                                                            <div className="flex justify-between items-center mb-3">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 border border-slate-100 group-hover:bg-blue-600 group-hover:text-white transition-all"><FileText size={16}/></div>
+                                                                    <div>
+                                                                        <p className="text-[10px] font-black text-slate-800 tracking-tight leading-none mb-1 uppercase">{data.parties.find(p=>p.id===t.partyId)?.name || t.category || 'Direct Cash'}</p>
+                                                                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">#{t.id} • {t.date}</p>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <p className="text-[10px] font-black text-slate-900 tracking-tighter">{formatCurrency(t.finalTotal || t.amount || 0)}</p>
+                                                                    <div className={`text-[7px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-full mt-1 inline-block ${t.type === 'sales' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{t.type}</div>
+                                                                </div>
+                                                            </div>
+    
+                                                            {modal.filter === 'profit' && (
+                                                                <div className="mt-3 pt-3 border-t border-slate-100/50 flex justify-between items-center">
+                                                                    <div className="flex gap-2">
+                                                                        <span className="text-[7px] font-black bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">MAT {formatCurrency(goodsP)}</span>
+                                                                        <span className="text-[7px] font-black bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">SER {formatCurrency(serviceP)}</span>
+                                                                    </div>
+                                                                    <span className="text-xs font-black text-emerald-600 tracking-tighter">Yield: {formatCurrency(netP)}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+    
+                                        {modal.items.length === 0 && (
+                                            <div className="py-24 flex flex-col items-center justify-center opacity-30 grayscale scale-90">
+                                                <TrendingUp size={48} className="text-slate-300 mb-4"/>
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] italic">No Operational Trajectories Found</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+    
+                                {modal.type === 'personalTransaction' && <PersonalFinanceForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} intent={modal.intent} />}
+                                {modal.type === 'personalAccount' && <PersonalAccountForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
+                                {modal.type === 'personalFinance' && <PersonalFinanceView data={data} setData={setData} onBack={() => setViewDetail(null)} accountId={viewDetail?.accountId} setModal={setModal} />}
+                                {modal.type === 'task' && <TaskForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
+                                {modal.type === 'convertTask' && <ConvertTaskModal task={modal.data} data={data} setData={setData} onClose={() => setModal(null)} />}
+                                {modal.type === 'asset' && <AssetForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
-
-            {viewDetail && (
-                <div className="fixed inset-0 z-[90] bg-white overflow-hidden">
-                    {viewDetail.type === 'personalFinance' && <PersonalFinanceView data={data} setData={setData} onBack={() => setViewDetail(null)} accountId={viewDetail.accountId} setModal={setModal} />}
-                    {viewDetail.type === 'personalTasks' && <PersonalTasksView data={data} setData={setData} onBack={() => setViewDetail(null)} />}
-                    
-                    {viewDetail.type === 'transaction' && (
-                        <TransactionDetailView 
-                            tx={data.transactions.find(t => t.id && t.id.toString() === viewDetail.id?.toString())}
-                            data={data}
-                            user={user}
-                            onBack={() => setViewDetail(null)}
-                            setViewDetail={setViewDetail}
-                            setModal={setModal}
-                            cancelTransaction={cancelTransaction}
-                            restoreTransaction={restoreTransaction}
-                            deleteRecord={deleteRecord}
-                            checkPermission={checkPermission}
-                        />
-                    )}
-
-                    {viewDetail.type === 'task' && (
-                        <TaskDetailView 
-                            task={data.tasks.find(t => t.id === viewDetail.id)}
-                            data={data}
-                            user={user}
-                            onBack={() => setViewDetail(null)}
-                            setViewDetail={setViewDetail}
-                            setModal={setModal}
-                            deleteRecord={deleteRecord}
-                            showToast={(msg) => console.log(msg)}
-                            toggleTimer={toggleTimer}
-                            checkPermission={checkPermission}
-                            refreshSingleRecord={refreshSingleRecord}
-                        />
-                    )}
-
-                    {viewDetail.type === 'party' && (
-                        <PartyProfileView 
-                            record={data.parties.find(p => p.id === viewDetail.id)}
-                            data={data}
-                            onBack={() => setViewDetail(null)}
-                            setViewDetail={setViewDetail}
-                            setModal={setModal}
-                            user={user}
-                            deleteRecord={deleteRecord}
-                            partyBalances={partyBalances}
-                            getBillStats={getBillStats}
-                        />
-                    )}
-
-                    {viewDetail.type === 'item' && (
-                        <ItemDetailView 
-                            item={data.items.find(i => i.id === viewDetail.id)}
-                            data={data}
-                            onBack={() => setViewDetail(null)}
-                            setViewDetail={setViewDetail}
-                            setModal={setModal}
-                            itemStock={itemStock}
-                        />
-                    )}
-
-                    {viewDetail.type === 'staff' && (
-                        <StaffDetailView 
-                            staff={data.staff.find(s => s.id === viewDetail.id)}
-                            data={data}
-                            user={user}
-                            onBack={() => setViewDetail(null)}
-                            setViewDetail={setViewDetail}
-                            setModal={setModal}
-                            deleteRecord={deleteRecord}
-                            handleAttendance={(type, manual) => handleAttendance(viewDetail.id, type, manual)}
-                            attToday={data.attendance.find(a => a.staffId === viewDetail.id && a.date === new Date().toISOString().split('T')[0]) || {}}
-                            getFilteredAttendance={getFilteredAttendance}
-                            allAttendance={data.attendance}
-                            workLogs={data.workLogs?.filter(w => w.staffId === viewDetail.id) || []}
-                        />
-                    )}
-                </div>
-            )}
-
-            <Routes>
-                <Route path="/login" element={!user ? <LoginScreen setUser={setUser} /> : <Navigate to="/" />} />
-                <Route path="/" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
-                        {mode === 'business' ? <Dashboard data={data} setModal={setModal} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
-                    </AppLayout>
-                ) : <Navigate to="/login" />} />
-                <Route path="/accounts" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
-                        {mode === 'business' ? <TransactionList data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
-                    </AppLayout>
-                ) : <Navigate to="/login" />} />
-                <Route path="/tasks" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
-                        {mode === 'business' ? <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalTasksView data={data} setData={setData} onBack={() => navigate('/')} setModal={setModal} />}
-                    </AppLayout>
-                ) : <Navigate to="/login" />} />
-                <Route path="/masters" element={user?.role === 'admin' ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
-                        <MasterModule data={data} setData={setData} setModal={setModal} setViewDetail={setViewDetail} />
-                    </AppLayout>
-                ) : <Navigate to="/" />} />
-                <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
+                )}
+    
+                {viewDetail && (
+                    <div className="fixed inset-0 z-[90] bg-white overflow-hidden">
+                        {viewDetail.type === 'personalFinance' && <PersonalFinanceView data={data} setData={setData} onBack={() => setViewDetail(null)} accountId={viewDetail.accountId} setModal={setModal} />}
+                        {viewDetail.type === 'personalTasks' && <PersonalTasksView data={data} setData={setData} onBack={() => setViewDetail(null)} />}
+                        
+                        {viewDetail.type === 'transaction' && (
+                            <TransactionDetailView 
+                                tx={data.transactions.find(t => t.id && t.id.toString() === viewDetail.id?.toString())}
+                                data={data}
+                                user={user}
+                                onBack={() => setViewDetail(null)}
+                                setViewDetail={setViewDetail}
+                                setModal={setModal}
+                                cancelTransaction={cancelTransaction}
+                                restoreTransaction={restoreTransaction}
+                                deleteRecord={deleteRecord}
+                                checkPermission={checkPermission}
+                            />
+                        )}
+    
+                        {viewDetail.type === 'task' && (
+                            <TaskDetailView 
+                                task={data.tasks.find(t => t.id === viewDetail.id)}
+                                data={data}
+                                user={user}
+                                onBack={() => setViewDetail(null)}
+                                setViewDetail={setViewDetail}
+                                setModal={setModal}
+                                deleteRecord={deleteRecord}
+                                showToast={(msg) => console.log(msg)}
+                                toggleTimer={toggleTimer}
+                                checkPermission={checkPermission}
+                                refreshSingleRecord={refreshSingleRecord}
+                            />
+                        )}
+    
+                        {viewDetail.type === 'party' && (
+                            <PartyProfileView 
+                                record={data.parties.find(p => p.id === viewDetail.id)}
+                                data={data}
+                                onBack={() => setViewDetail(null)}
+                                setViewDetail={setViewDetail}
+                                setModal={setModal}
+                                user={user}
+                                deleteRecord={deleteRecord}
+                                partyBalances={partyBalances}
+                                getBillStats={getBillStats}
+                            />
+                        )}
+    
+                        {viewDetail.type === 'item' && (
+                            <ItemDetailView 
+                                item={data.items.find(i => i.id === viewDetail.id)}
+                                data={data}
+                                onBack={() => setViewDetail(null)}
+                                setViewDetail={setViewDetail}
+                                setModal={setModal}
+                                itemStock={itemStock}
+                            />
+                        )}
+    
+                        {viewDetail.type === 'staff' && (
+                            <StaffDetailView 
+                                staff={data.staff.find(s => s.id === viewDetail.id)}
+                                data={data}
+                                user={user}
+                                onBack={() => setViewDetail(null)}
+                                setViewDetail={setViewDetail}
+                                setModal={setModal}
+                                deleteRecord={deleteRecord}
+                                handleAttendance={(type, manual) => handleAttendance(viewDetail.id, type, manual)}
+                                attToday={data.attendance.find(a => a.staffId === viewDetail.id && a.date === new Date().toISOString().split('T')[0]) || {}}
+                                getFilteredAttendance={getFilteredAttendance}
+                                allAttendance={data.attendance}
+                                workLogs={data.workLogs?.filter(w => w.staffId === viewDetail.id) || []}
+                            />
+                        )}
+                    </div>
+                )}
+    
+                <Routes>
+                    <Route path="/login" element={!user ? <LoginScreen setUser={setUser} /> : <Navigate to="/" />} />
+                    <Route path="/" element={user ? (
+                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
+                            {mode === 'business' ? <Dashboard data={data} setModal={setModal} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
+                        </AppLayout>
+                    ) : <Navigate to="/login" />} />
+                    <Route path="/accounts" element={user ? (
+                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
+                            {mode === 'business' ? <TransactionList data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
+                        </AppLayout>
+                    ) : <Navigate to="/login" />} />
+                    <Route path="/tasks" element={user ? (
+                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
+                            {mode === 'business' ? <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalTasksView data={data} setData={setData} onBack={() => navigate('/')} setModal={setModal} />}
+                        </AppLayout>
+                    ) : <Navigate to="/login" />} />
+                    <Route path="/masters" element={user?.role === 'admin' ? (
+                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
+                            <MasterModule data={data} setData={setData} setModal={setModal} setViewDetail={setViewDetail} />
+                        </AppLayout>
+                    ) : <Navigate to="/" />} />
+                    <Route path="*" element={<Navigate to="/" />} />
+                </Routes>
+            </div>
+        </React.Fragment>
     );
 };
 
