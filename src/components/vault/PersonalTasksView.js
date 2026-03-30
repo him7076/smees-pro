@@ -14,8 +14,10 @@ const PersonalTasksView = ({ data, setData, onBack, setModal }) => {
     const tasks = data.personalTasks || [];
     
     const filteredTasks = tasks.filter(t => {
-        const matchesSearch = t.name.toLowerCase().includes(search.toLowerCase()) || 
-                             t.description.toLowerCase().includes(search.toLowerCase());
+        const name = (t.name || t.title || '').toLowerCase();
+        const desc = (t.description || '').toLowerCase();
+        const searchText = search.toLowerCase();
+        const matchesSearch = name.includes(searchText) || desc.includes(searchText);
         const matchesStatus = statusFilter === 'All' ? true : t.status === statusFilter;
         return matchesSearch && matchesStatus;
     });

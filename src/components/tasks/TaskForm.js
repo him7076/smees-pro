@@ -148,6 +148,14 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                         </div>
                     </div>
 
+                    <div className="space-y-1.5 pt-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Timeline Deadline</label>
+                        <div className="relative">
+                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16}/>
+                            <input type="date" className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} />
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Priority Level</label>
@@ -167,8 +175,18 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Est. Window</label>
                             <div className="relative">
-                                <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16}/>
-                                <input className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none" placeholder="2 hrs / 3 days" value={form.estimateTime} onChange={e => setForm({...form, estimateTime: e.target.value})} />
+                                <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 z-10" size={16}/>
+                                <select className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none appearance-none cursor-pointer hover:bg-slate-100 transition-colors" value={form.estimateTime} onChange={e => setForm({...form, estimateTime: e.target.value})}>
+                                    <option value="">Select Duration</option>
+                                    <option value="15 mins">15 mins</option>
+                                    <option value="30 mins">30 mins</option>
+                                    <option value="1 hr">1 hr</option>
+                                    <option value="2 hrs">2 hrs</option>
+                                    <option value="4 hrs">4 hrs</option>
+                                    <option value="1 day">1 day</option>
+                                    <option value="2 days">2 days</option>
+                                    <option value="1 week">1 week</option>
+                                </select>
                             </div>
                         </div>
                     </div>

@@ -32,12 +32,15 @@ import PersonalAccountForm from './components/vault/PersonalAccountForm';
 // Views
 import PersonalFinanceView from './components/vault/PersonalFinanceView';
 import PersonalTasksView from './components/vault/PersonalTasksView';
+import PersonalSettingsView from './components/vault/PersonalSettingsView';
 import TransactionDetailView from './components/accounting/TransactionDetailView';
 import TaskDetailView from './components/tasks/TaskDetailView';
 import ItemDetailView from './components/masters/ItemDetailView';
 import PartyProfileView from './components/masters/PartyProfileView';
 import StaffDetailView from './components/staff/StaffDetailView';
 import BackupRestore from './components/layout/BackupRestore';
+import SystemMenu from './components/layout/SystemMenu';
+import TaskSettings from './components/tasks/TaskSettings';
 
 const Dashboard = ({ data, setModal }) => {
     const navigate = useNavigate();
@@ -397,6 +400,8 @@ const App = () => {
                                     <TransactionForm data={data} setData={setData} type={modal.type} record={modal.data} onClose={() => setModal(null)} />
                                 )}
                                 {modal.type === 'backup' && <BackupRestore data={data} setData={setData} onClose={() => setModal(null)} />}
+                                {modal.type === 'systemMenu' && <SystemMenu setModal={setModal} onClose={() => setModal(null)} />}
+                                {modal.type === 'taskSettings' && <TaskSettings data={data} setData={setData} onClose={() => setModal(null)} />}
                                 {modal.type === 'dashboard_drilldown' && (
                                     <div className="space-y-4">
                                         <div className="flex bg-slate-900 md:px-6 px-4 py-8 rounded-[40px] justify-between items-center mb-6 shadow-2xl relative overflow-hidden">
@@ -531,7 +536,7 @@ const App = () => {
                                 {modal.type === 'personalTransaction' && <PersonalFinanceForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} intent={modal.intent} />}
                                 {modal.type === 'personalAccount' && <PersonalAccountForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                                 {modal.type === 'personalFinance' && <PersonalFinanceView data={data} setData={setData} onBack={() => setViewDetail(null)} accountId={viewDetail?.accountId} setModal={setModal} />}
-                                {modal.type === 'task' && <TaskForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
+                                {modal.type === 'task' && <TaskForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} context={modal.context} />}
                                 {modal.type === 'convertTask' && <ConvertTaskModal task={modal.data} data={data} setData={setData} onClose={() => setModal(null)} />}
                                 {modal.type === 'asset' && <AssetForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                             </div>
@@ -634,6 +639,11 @@ const App = () => {
                     <Route path="/tasks" element={user ? (
                         <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
                             {mode === 'business' ? <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalTasksView data={data} setData={setData} onBack={() => navigate('/')} setModal={setModal} />}
+                        </AppLayout>
+                    ) : <Navigate to="/login" />} />
+                    <Route path="/settings" element={user ? (
+                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
+                            <PersonalSettingsView data={data} setData={setData} setModal={setModal} onBack={() => navigate('/')} />
                         </AppLayout>
                     ) : <Navigate to="/login" />} />
                     <Route path="/masters" element={user?.role === 'admin' ? (

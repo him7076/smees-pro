@@ -288,6 +288,52 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                     </div>
                 )}
 
+                {/* Linked Records Section */}
+                {(() => {
+                    const linkedRecords = isPayment 
+                        ? (tx.linkedBills || []).map(link => ({
+                            id: link.billId,
+                            amount: link.amount,
+                            data: data.transactions.find(t => t.id === link.billId)
+                        }))
+                        : data.transactions
+                            .filter(t => t.status !== 'Cancelled' && t.type === 'payment')
+                            .map(p => {
+                                const link = p.linkedBills?.find(l => l.billId === tx.id);
+                                return link ? { id: p.id, amount: link.amount, data: p } : null;
+                            })
+                            .filter(Boolean);
+
+                    if (linkedRecords.length === 0) return null;
+
+                    return (
+                        <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm p-6 space-y-4">
+                            <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 leading-none"><LinkIcon size={14}/> Associated Ledger Records</h4>
+                            <div className="space-y-2">
+                                {linkedRecords.map((rec, i) => (
+                                    <div key={i} onClick={() => setViewDetail({ type: 'transaction', id: rec.id })} className="p-4 bg-slate-50 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-all border border-transparent hover:border-slate-200">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 bg-white rounded-xl flex items-center justify-center text-slate-400 shadow-sm border border-slate-100">
+                                                {rec.data?.type === 'payment' ? <Banknote size={14}/> : <Package size={14}/>}
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] font-black text-slate-800 uppercase tracking-tight leading-none mb-1">
+                                                    {rec.data?.type || 'Record'} #{rec.id}
+                                                </p>
+                                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{rec.data?.date}</p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-xs font-black text-slate-900">{formatCurrency(rec.amount)}</p>
+                                            <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Linked Value</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })()}
+
                 {/* Memo */}
                 {tx.notes && (
                     <div className="bg-amber-50 p-4 rounded-[24px] border border-amber-100">

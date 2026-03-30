@@ -181,7 +181,7 @@ const TaskModule = ({ data, setData, user, setViewDetail, setModal }) => {
                         <div className="relative group">
                             <button className="p-3 bg-white border border-gray-100 text-gray-600 rounded-2xl hover:bg-gray-50 shadow-sm transition-all focus:ring-4 focus:ring-gray-100"><Settings size={22} /></button>
                             <div className="absolute right-0 top-14 mt-1 hidden group-hover:block bg-white border border-gray-100 rounded-3xl shadow-2xl w-64 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
-                                <button onClick={() => setModal({ type: 'taskSettings' })} className="w-full text-left px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-600 hover:bg-gray-50 flex items-center gap-3 transition-colors border-b border-gray-50"><Settings size={16}/> Pipeline Settings</button>
+                                <button onClick={() => setModal({ type: 'taskSettings' })} className="w-full text-left px-6 py-4 text-xs font-black uppercase tracking-widest text-gray-600 hover:bg-gray-50 flex items-center gap-3 transition-colors border-b border-gray-50"><Settings size={16}/> Settings</button>
                             </div>
                         </div>
                     </>
@@ -328,12 +328,14 @@ const TaskModule = ({ data, setData, user, setViewDetail, setModal }) => {
                                     >
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-center gap-3 mb-1.5">
-                                                <span className="font-black text-slate-900 truncate group-hover:text-indigo-600 transition-colors uppercase tracking-tight">{item.asset.name}</span>
-                                                {item.isOverdue && <span className="text-[10px] bg-rose-600 text-white px-3 py-0.5 rounded-full font-black tracking-widest uppercase shadow-lg shadow-rose-500/20">Critical Overdue</span>}
+                                                <span className="font-black text-slate-900 group-hover:text-indigo-600 transition-colors uppercase tracking-tight break-words">{item.asset.name}</span>
                                             </div>
                                             <p className="text-xs text-slate-600 font-extrabold uppercase tracking-tight">{item.party.name}</p>
                                             <div className="flex items-center gap-3 mt-2">
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1.5"><Calendar size={12}/> {formatDate(item.date)}</p>
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1.5">
+                                                    <Calendar size={12}/> {formatDate(item.date)}
+                                                    {item.isOverdue && <span className="text-rose-600 ml-2 font-black">[Overdue]</span>}
+                                                </p>
                                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-100">{item.asset.brand}</p>
                                             </div>
                                         </div>
@@ -372,7 +374,7 @@ const TaskModule = ({ data, setData, user, setViewDetail, setModal }) => {
                                                     }}
                                                     className="px-6 py-2.5 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-500/20 active:scale-95 transition-all hover:bg-indigo-700"
                                                 >
-                                                    Task Tech
+                                                    Create Task
                                                 </button>
                                             )}
                                         </div>

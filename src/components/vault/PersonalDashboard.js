@@ -59,13 +59,12 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                         <Lock className="text-white" size={16}/>
                     </div>
                     <div>
-                        <h1 className="text-xl font-black text-slate-900 tracking-tight leading-none text-[14px] uppercase opacity-40">The Vault</h1>
+                        <h1 className="text-xl font-black text-slate-900 tracking-tight leading-none text-[10px] uppercase opacity-40">Personal Finance</h1>
                         <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-0.5">#{stats.totalBalance.toLocaleString()}</p>
                     </div>
                 </div>
                 <div className="flex gap-2">
                     <button onClick={() => setPTab('ledger')} className={`p-2 rounded-xl transition-all ${pTab === 'ledger' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><List size={16}/></button>
-                    <button onClick={() => setPTab('tasks')} className={`p-2 rounded-xl transition-all ${pTab === 'tasks' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><CheckSquare size={16}/></button>
                     <button onClick={() => setPTab('stats')} className={`p-2 rounded-xl transition-all ${pTab === 'stats' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><PieIcon size={16}/></button>
                     <button onClick={() => setPTab('manage')} className={`p-2 rounded-xl transition-all ${pTab === 'manage' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><Settings size={16}/></button>
                 </div>
@@ -89,16 +88,6 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                         </button>
                     </div>
 
-                    <div onClick={() => setPTab('tasks')} className="mx-1 p-5 bg-white border border-slate-100 rounded-[32px] flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-all active:scale-[0.98] shadow-sm">
-                        <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center border border-indigo-100 shadow-sm"><CheckSquare size={18}/></div>
-                            <div>
-                                <h4 className="text-[10px] font-black text-slate-800 uppercase tracking-widest leading-none mb-1">Private Tasks</h4>
-                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{tasks.filter(t => t.status !== 'Done').length} Items Remaining</p>
-                            </div>
-                        </div>
-                        <ChevronRight size={16} className="text-slate-300"/>
-                    </div>
 
                     <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden border-b-4 border-b-slate-100">
                         <div onClick={() => setViewDetail({ type: 'personalFinance' })} className="p-6 bg-slate-50/50 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors">
@@ -134,18 +123,18 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                 <div className="space-y-6 animate-in slide-in-from-right-4 duration-500">
                     <div className="flex justify-between items-center px-2">
                         <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Private Tasks</h3>
-                        <button onClick={() => setModal({ type: 'task' })} className="p-2.5 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-500/20 active:scale-90 transition-all"><Plus size={16}/></button>
+                        <button onClick={() => setModal({ type: 'task', context: 'personal' })} className="p-2.5 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-500/20 active:scale-90 transition-all"><Plus size={16}/></button>
                     </div>
                     
                     <div className="space-y-3">
                         {tasks.filter(t => t.status !== 'Done').sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).map(t => (
-                            <div key={t.id} onClick={() => setModal({ type: 'task', data: t })} className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all">
+                            <div key={t.id} onClick={() => setModal({ type: 'task', data: t, context: 'personal' })} className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all">
                                 <div className="flex items-center gap-4">
                                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${t.priority === 'High' ? 'bg-rose-50 text-rose-500' : t.priority === 'Medium' ? 'bg-amber-50 text-amber-500' : 'bg-slate-50 text-slate-400'}`}>
                                         <CheckSquare size={18}/>
                                     </div>
                                     <div>
-                                        <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight mb-0.5">{t.title}</p>
+                                        <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight mb-0.5">{t.name || t.title}</p>
                                         <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{t.dueDate ? `Due: ${t.dueDate}` : 'No Deadline'}</p>
                                     </div>
                                 </div>
@@ -158,72 +147,115 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
 
             {pTab === 'stats' && (
                 <div className="space-y-6 animate-in slide-in-from-right-4 duration-500 pb-10">
-                    <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-xl overflow-hidden relative">
-                         <div className="bg-slate-50 p-1.5 rounded-2xl flex mb-10 shadow-inner">
+                    <div className="bg-white p-6 rounded-[40px] border border-slate-100 shadow-xl overflow-hidden relative">
+                         <div className="bg-slate-50 p-1.5 rounded-2xl flex mb-6 shadow-inner">
                             <button onClick={() => { setStatsType('expense'); setSubCatDrillDown(null); }} className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest rounded-xl transition-all ${statsType === 'expense' ? 'bg-white text-rose-600 shadow-md' : 'text-slate-400'}`}>Expense Breakdown</button>
                             <button onClick={() => { setStatsType('income'); setSubCatDrillDown(null); }} className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest rounded-xl transition-all ${statsType === 'income' ? 'bg-white text-emerald-600 shadow-md' : 'text-slate-400'}`}>Income Breakdown</button>
                          </div>
 
-                         {/* LEGACY SVG PIE CHART WITH DRILLDOWN */}
-                         <div className="flex flex-col items-center mb-8">
-                             {(() => {
-                                 const chartData = transactions.filter(t => t.type === statsType && (!subCatDrillDown || t.category === subCatDrillDown));
-                                 const groupByKey = subCatDrillDown ? 'subCategory' : 'category';
-                                 const statsMap = {};
-                                 chartData.forEach(t => { 
-                                     const key = t[groupByKey] || 'Other';
-                                     statsMap[key] = (statsMap[key] || 0) + parseFloat(t.amount || 0);
-                                 });
-                                 const total = Object.values(statsMap).reduce((a,b)=>a+b, 0) || 1;
-                                 const itemsSorted = Object.entries(statsMap).sort((a,b)=>b[1]-a[1]);
+                         {/* LEGACY SVG PIE CHART WITH DRILLDOWN & LABELS */}
+                         {(() => {
+                             const currentTxs = transactions.filter(t => t.type === statsType && (!subCatDrillDown || t.category === subCatDrillDown));
+                             const groupByKey = subCatDrillDown ? 'subCategory' : 'category';
+                             const statsMap = {};
+                             currentTxs.forEach(t => { 
+                                 const key = t[groupByKey] || 'Other';
+                                 statsMap[key] = (statsMap[key] || 0) + parseFloat(t.amount || 0);
+                             });
+                             const totalAmount = Object.values(statsMap).reduce((a, b) => a + b, 0) || 1;
+                             const sortedCats = Object.entries(statsMap).sort((a,b) => b[1] - a[1]);
+                             
+                             const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+                             
+                             // SVG Settings
+                             const cx = 120, cy = 120, radius = 55;
+                             let currentAngle = -Math.PI / 2;
 
-                                 return (
-                                     <>
-                                        <div className="relative w-56 h-56 group/chart">
-                                            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90 drop-shadow-2xl">
-                                                {(() => {
-                                                    let cumulativePercent = 0;
-                                                    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
-                                                    return itemsSorted.map(([key, value], i) => {
-                                                        const p = value / total;
-                                                        const startX = Math.cos(2 * Math.PI * cumulativePercent);
-                                                        const startY = Math.sin(2 * Math.PI * cumulativePercent);
-                                                        cumulativePercent += p;
-                                                        const endX = Math.cos(2 * Math.PI * cumulativePercent);
-                                                        const endY = Math.sin(2 * Math.PI * cumulativePercent);
-                                                        const largeArcFlag = p > 0.5 ? 1 : 0;
-                                                        const pathData = [`M 50 50`, `L ${50 + 40 * startX} ${50 + 40 * startY}`, `A 40 40 0 ${largeArcFlag} 1 ${50 + 40 * endX} ${50 + 40 * endY}`, `Z`].join(' ');
-                                                        return <path key={key} d={pathData} fill={colors[i%8]} stroke="white" strokeWidth="1" className="hover:scale-105 transition-transform cursor-pointer" onClick={() => !subCatDrillDown && setSubCatDrillDown(key)} />;
-                                                    });
-                                                })()}
-                                            </svg>
-                                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/20 backdrop-blur-[1px] rounded-full scale-50 pointer-events-none">
-                                                <p className="text-[10px] font-black text-slate-900 uppercase tracking-widest">{subCatDrillDown ? 'Sub' : 'Main'}</p>
-                                            </div>
-                                        </div>
+                             const slices = sortedCats.map(([key, amt], i) => {
+                                 const percent = amt / totalAmount;
+                                 const angle = percent * Math.PI * 2;
+                                 const nextAngle = currentAngle + angle;
+                                 const midAngle = currentAngle + angle / 2;
+                                 
+                                 const x1 = cx + radius * Math.cos(currentAngle);
+                                 const y1 = cy + radius * Math.sin(currentAngle);
+                                 
+                                 let pathData;
+                                 if (percent > 0.999) {
+                                     pathData = `M ${cx} ${cy - radius} A ${radius} ${radius} 0 1 1 ${cx} ${cy + radius} A ${radius} ${radius} 0 1 1 ${cx} ${cy - radius} Z`;
+                                 } else {
+                                     const x2 = cx + radius * Math.cos(nextAngle);
+                                     const y2 = cy + radius * Math.sin(nextAngle);
+                                     const largeArc = angle > Math.PI ? 1 : 0;
+                                     pathData = `M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+                                 }
 
-                                        <div className="w-full mt-10 space-y-3">
-                                            {subCatDrillDown && (
-                                                <button onClick={()=>setSubCatDrillDown(null)} className="flex items-center gap-2 mb-4 text-[9px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-3 py-2 rounded-xl"><ArrowLeft size={14}/> Back to Categories</button>
-                                            )}
-                                            <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">{subCatDrillDown ? `Sub-categories of ${subCatDrillDown}` : 'Category Analytics'}</h4>
-                                            {itemsSorted.map(([key, value], i) => (
-                                                <div key={key} onClick={() => !subCatDrillDown && setSubCatDrillDown(key)} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl hover:bg-slate-100 transition-all cursor-pointer group">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'][i%8] }}></div>
-                                                        <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight">{key}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-3">
-                                                         <span className="text-xs font-black text-slate-900">{formatCurrency(value)}</span>
-                                                         {!subCatDrillDown && <ChevronRight size={14} className="text-slate-300 group-hover:text-blue-500 transition-colors"/>}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                     </>
-                                 );
-                             })()}
-                         </div>
+                                 const labelRadius = radius + 15;
+                                 const lineX = cx + labelRadius * Math.cos(midAngle);
+                                 const lineY = cy + labelRadius * Math.sin(midAngle);
+                                 const isRight = Math.cos(midAngle) >= 0;
+                                 const textX = lineX + (isRight ? 10 : -10);
+                                 const textAnchor = isRight ? "start" : "end";
+
+                                 const sliceData = { key, amt, percent: (percent * 100).toFixed(1), pathData, lineX, lineY, textX, textAnchor, color: colors[i % colors.length], midAngle };
+                                 currentAngle = nextAngle;
+                                 return sliceData;
+                             });
+
+                             return (
+                                 <div className="flex flex-col items-center">
+                                     <div className="text-center mb-4">
+                                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total {statsType}</p>
+                                         <p className={`text-2xl font-black ${statsType === 'income' ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totalAmount)}</p>
+                                     </div>
+
+                                     {sortedCats.length > 0 ? (
+                                         <svg viewBox="0 0 240 240" className="w-full h-64 font-sans drop-shadow-sm">
+                                             {slices.map((slice, i) => (
+                                                 <g key={slice.key} onClick={() => !subCatDrillDown && setSubCatDrillDown(slice.key)} className="cursor-pointer group">
+                                                     <path d={slice.pathData} fill={slice.color} stroke="#fff" strokeWidth="1.5" className="group-hover:scale-[1.02] transition-transform origin-[120px_120px]" />
+                                                     {parseFloat(slice.percent) > 2 && (
+                                                         <>
+                                                             <polyline 
+                                                                 points={`${cx + (radius-5) * Math.cos(slice.midAngle)},${cy + (radius-5) * Math.sin(slice.midAngle)} ${slice.lineX},${slice.lineY} ${slice.textX},${slice.lineY}`} 
+                                                                 fill="none" stroke={slice.color} strokeWidth="1" opacity="0.4"
+                                                             />
+                                                             <text x={slice.textX + (slice.textAnchor==='start'?3:-3)} y={slice.lineY - 3} fontSize="8" fontWeight="900" fill="#1e293b" textAnchor={slice.textAnchor} className="uppercase tracking-tighter">
+                                                                 {slice.key.length > 12 ? slice.key.substring(0,12)+'..' : slice.key}
+                                                             </text>
+                                                             <text x={slice.textX + (slice.textAnchor==='start'?3:-3)} y={slice.lineY + 7} fontSize="7" fontWeight="bold" fill={slice.color} textAnchor={slice.textAnchor}>
+                                                                 {slice.percent}% • {formatCurrency(slice.amt).replace('.00','')}
+                                                             </text>
+                                                         </>
+                                                     )}
+                                                 </g>
+                                             ))}
+                                         </svg>
+                                     ) : (
+                                         <div className="py-20 text-[10px] font-black text-slate-300 uppercase tracking-widest">No data for chart</div>
+                                     )}
+
+                                     <div className="w-full mt-4 space-y-3">
+                                         {subCatDrillDown && (
+                                             <button onClick={()=>setSubCatDrillDown(null)} className="flex items-center gap-2 mb-4 text-[9px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-4 py-2 rounded-2xl border border-blue-100 active:scale-95 transition-all"><ArrowLeft size={14}/> Back to Summary</button>
+                                         )}
+                                         <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 pl-2">{subCatDrillDown ? `Breakdown: ${subCatDrillDown}` : 'Distribution Analysis'}</h4>
+                                         {slices.map((slice, i) => (
+                                             <div key={slice.key} onClick={() => !subCatDrillDown && setSubCatDrillDown(slice.key)} className="flex items-center justify-between p-4 bg-slate-50/50 rounded-2xl hover:bg-white hover:shadow-md hover:border-slate-100 border border-transparent transition-all cursor-pointer group">
+                                                 <div className="flex items-center gap-3">
+                                                     <div className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: slice.color }}></div>
+                                                     <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight">{slice.key}</span>
+                                                 </div>
+                                                 <div className="flex items-center gap-3">
+                                                      <span className="text-xs font-black text-slate-900">{formatCurrency(slice.amt)}</span>
+                                                      {!subCatDrillDown && <ChevronRight size={14} className="text-slate-300 group-hover:text-blue-500 transition-colors"/>}
+                                                 </div>
+                                             </div>
+                                         ))}
+                                     </div>
+                                 </div>
+                             );
+                         })()}
                     </div>
                 </div>
             )}

@@ -140,14 +140,39 @@ export const getPartyBalances = (data) => {
 
 export const getItemStock = (data) => {
     const stock = {};
-    data.items.forEach(i => stock[i.id] = parseFloat(i.openingStock || 0));
-    data.transactions.forEach(tx => {
+    if (!data.items) return stock;
+
+    // 1. Initialize with Opening Stock
+    data.items.forEach(i => {
+        if (i.id) stock[i.id.toString()] = parseFloat(i.openingStock || 0);
+    });
+
+    // 2. Process Transactions (Sales / Purchase)
+    (data.transactions || []).forEach(tx => {
         if (tx.type === 'estimate' || tx.status === 'Cancelled') return;
         tx.items?.forEach(line => {
-            if (tx.type === 'sales') stock[line.itemId] = (stock[line.itemId] || 0) - parseFloat(line.qty || 0);
-            if (tx.type === 'purchase') stock[line.itemId] = (stock[line.itemId] || 0) + parseFloat(line.qty || 0);
+            const itemId = (line.itemId || '').toString();
+            if (itemId && stock.hasOwnProperty(itemId)) {
+                const qty = parseFloat(line.qty || 0);
+                if (tx.type === 'sales') stock[itemId] -= qty;
+                if (tx.type === 'purchase') stock[itemId] += qty;
+            }
         });
     });
+
+    // 3. Process Tasks (Include items used in active/done tasks that aren't sales yet)
+    (data.tasks || []).forEach(task => {
+        // Skip if already converted (the resulting sale transaction handles stock)
+        if (task.status === 'Cancelled' || task.status === 'Converted') return;
+        
+        task.itemsUsed?.forEach(line => {
+            const itemId = (line.itemId || '').toString();
+            if (itemId && stock.hasOwnProperty(itemId)) {
+                stock[itemId] -= parseFloat(line.qty || 0);
+            }
+        });
+    });
+
     return stock;
 };
 

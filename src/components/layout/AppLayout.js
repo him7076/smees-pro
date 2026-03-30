@@ -35,8 +35,9 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
         { to: '/tasks', icon: <CheckSquare size={20}/>, label: 'Tasks' },
         ...(user?.role === 'admin' ? [{ to: '/masters', icon: <Package size={20}/>, label: 'Masters' }] : [])
     ] : [
-        { to: '/', icon: <Lock size={20}/>, label: 'Vault' },
+        { to: '/', icon: <Lock size={20}/>, label: 'Personal Finance' },
         { to: '/tasks', icon: <CheckSquare size={20}/>, label: 'Personal Tasks' },
+        { to: '/settings', icon: <Settings size={20}/>, label: 'Settings' },
     ];
 
     return (
@@ -77,11 +78,12 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
                 {/* Header for Mobile */}
                 <header className="bg-white border-b border-slate-100 px-4 py-3 flex justify-between items-center sticky top-0 z-40 backdrop-blur-xl bg-white/80">
                     <div className="flex items-center gap-3">
-                         <button onClick={() => setModal({ type: 'backup' })} className="p-2 bg-slate-50 rounded-xl text-slate-400 active:scale-95 transition-all hover:bg-slate-100">
+                         <button onClick={() => setModal({ type: 'systemMenu' })} className="p-2 bg-slate-50 rounded-xl text-slate-400 active:scale-95 transition-all hover:bg-slate-100">
                              <Menu size={18}/>
                          </button>
                          <h1 className="hidden sm:block text-[12px] font-black tracking-tight text-slate-900 leading-none">SMEES<span className="text-blue-600">PRO</span></h1>
                     </div>
+
 
                     {/* Mode Toggle Switcher - Top Middle */}
                     <div className="bg-slate-100 p-1 rounded-full flex items-center shadow-inner relative">
