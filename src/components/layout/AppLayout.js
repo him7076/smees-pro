@@ -42,6 +42,7 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
     return (
         <div className={`min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-900 ${uiConfig.isCompact ? 'ui-compact' : ''}`}>
             {/* Sidebar for Desktop */}
+            {mode === 'business' && (
             <aside className="hidden md:flex flex-col w-64 bg-white border-r border-slate-200 h-screen sticky top-0 p-8 shadow-sm">
                 <div className="flex items-center gap-3 mb-10">
                     <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
@@ -69,6 +70,7 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
                     </button>
                 </div>
             </aside>
+            )}
 
             {/* Main Content Area */}
             <main className="flex-1 flex flex-col min-h-screen relative">
@@ -119,6 +121,7 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
                 </div>
 
                 {/* Bottom Nav for Mobile */}
+                {mode === 'business' && (
                 <nav className="md:hidden fixed bottom-6 left-6 right-6 bg-slate-900/90 backdrop-blur-2xl border border-white/10 rounded-[32px] p-2 flex justify-around items-center shadow-2xl z-50">
                     {navItems.map(item => (
                         <NavLink 
@@ -131,6 +134,7 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
                         </NavLink>
                     ))}
                 </nav>
+                )}
             </main>
         </div>
     );

@@ -152,17 +152,26 @@ export const getFilteredAttendance = (staff, filter, custom = { start: '', end: 
     return allAttendance.filter(a => {
         if (a.staffId !== staff.id) return false;
         const d = new Date(a.date);
+        
+        // Use time-agnostic date objects for comparison
+        const dDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        const nowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
         if (filter === 'This Month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
         if (filter === 'Last Month') {
-            const last = new Date(); last.setMonth(last.getMonth() - 1);
+            const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
             return d.getMonth() === last.getMonth() && d.getFullYear() === last.getFullYear();
         }
         if (filter === 'This Week') {
-            const start = new Date(now); start.setDate(now.getDate() - now.getDay()); start.setHours(0, 0, 0, 0);
-            return d >= start;
+            const start = new Date(nowDate); 
+            start.setDate(nowDate.getDate() - nowDate.getDay());
+            return dDate >= start;
         }
-        if (filter === 'Custom' && custom.start && custom.end) {
-            return d >= new Date(custom.start) && d <= new Date(custom.end);
+        if (filter === 'Custom Range' && custom.start && custom.end) {
+            const s = new Date(custom.start);
+            const e = new Date(custom.end);
+            return dDate >= new Date(s.getFullYear(), s.getMonth(), s.getDate()) && 
+                   dDate <= new Date(e.getFullYear(), e.getMonth(), e.getDate());
         }
         return true;
     }).sort((a, b) => new Date(b.date) - new Date(a.date));

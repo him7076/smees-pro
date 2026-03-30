@@ -12,21 +12,18 @@ import { useDatabase } from '../../hooks/useDatabase';
 const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => {
     const { deleteRecord } = useDatabase(data, setData);
     
-    // Legacy Views: 'transactions', 'accounts', 'stats'
     const [financeView, setFinanceView] = useState(accountId ? 'accounts' : 'transactions'); 
     const [selectedAccountForTx, setSelectedAccountForTx] = useState(accountId ? (data.personalAccounts?.find(a => a.name === accountId) || null) : null);
     const [search, setSearch] = useState('');
     const [statsTab, setStatsTab] = useState('expense');
 
-    // LEGACY DURATION FILTERING
     const [filterType, setFilterType] = useState('Monthly');
     const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
     const [filterCustom, setFilterCustom] = useState({ start: '', end: '' });
 
     const transactions = data.personalTransactions || [];
-    const accounts = data.personalAccounts || [{ id: 'cash', name: 'Cash', group: 'Cash', initialBalance: 0 }];
+    const accounts = data.personalAccounts || [];
 
-    // 1. DURATION FILTERING LOGIC
     const filteredByDuration = useMemo(() => {
         return transactions.filter(t => {
             const tDate = new Date(t.date);
@@ -63,7 +60,6 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
         }).sort((a, b) => new Date(b.date) - new Date(a.date));
     }, [filteredByDuration, search]);
 
-    // 2. AGGREGATE STATS
     const { accountGroups, totalBalance, incomeTotal, expenseTotal } = useMemo(() => {
         const groups = {}; 
         const bals = {};
@@ -75,7 +71,6 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
             bals[a.name] = parseFloat(a.initialBalance || 0);
         });
         
-        // Use all transactions for account balance, but filtered ones for summary
         transactions.forEach(t => {
             const amt = parseFloat(t.amount || 0);
             if (t.type === 'income') bals[t.account] = (bals[t.account] || 0) + amt;
@@ -100,7 +95,6 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
         return { accountGroups: groups, totalBalance: total, incomeTotal: inc, expenseTotal: exp };
     }, [transactions, accounts, filteredByDuration]);
 
-    // 3. LEGACY PDF GENERATOR
     const sharePDF = (title, txList, accountName = null, initialBal = 0) => {
         let runningBal = initialBal;
         let html = `<html><head><title>${title}</title><style>
@@ -115,7 +109,6 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
         </style></head><body>`;
         
         html += `<div class="header"><div><div class="title">SMEES PRIVATE VAULT</div><div style="font-size:12px;color:#64748b;margin-top:4px;">${title} • Generated on ${new Date().toLocaleString()}</div></div></div>`;
-        
         html += `<table><thead><tr><th>Date</th><th>Description</th><th>Type</th><th class="text-right">In (+)</th><th class="text-right">Out (-)</th><th class="text-right">Balance</th></tr></thead><tbody>`;
         
         if (accountName) {
@@ -143,8 +136,7 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
             </tr>`;
         });
         
-        html += `</tbody></table>`;
-        html += `<div class="footer">Confidential Financial Record • SMEES ERP PRO SYSTEM</div></body></html>`;
+        html += `</tbody></table><div class="footer">Confidential Financial Record • SMEES ERP PRO SYSTEM</div></body></html>`;
         
         const win = window.open('', '_blank');
         win.document.write(html);
@@ -152,7 +144,6 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
         setTimeout(() => win.print(), 500);
     };
 
-    // 4. CATEGORY BREAKDOWN LOGIC (For Pie Chart)
     const categoryStats = useMemo(() => {
         const currentTxs = filteredByDuration.filter(t => t.type === statsTab);
         const totals = {};
@@ -165,35 +156,36 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
         return { sorted, totalAmt };
     }, [filteredByDuration, statsTab]);
 
+    const isIntegrated = !!accountId;
+
     return (
-        <div className="fixed inset-0 z-[100] bg-slate-50 overflow-y-auto animate-in slide-in-from-right duration-500 scrollbar-hide flex flex-col">
-            {/* STICKY HEADER - PREMIUM HIGH DENSITY */}
-            <div className="bg-slate-900 text-white pt-14 pb-0 px-4 shadow-lg shrink-0 overflow-hidden relative">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-                <div className="flex justify-between items-center mb-4 relative z-10">
-                    <div className="flex items-center gap-3">
-                        <button onClick={onBack} className="p-2 bg-white/10 rounded-2xl hover:bg-white/20 transition-all"><ArrowLeft size={18}/></button>
-                        <div>
-                            <h2 className="text-xl font-black flex items-center gap-2 tracking-tighter uppercase">🔐 My Vault</h2>
-                            <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.3em] leading-none">Security Standard 2026</p>
+        <div className={`fixed inset-0 z-[100] bg-slate-50 overflow-y-auto animate-in slide-in-from-right duration-500 scrollbar-hide flex flex-col ${isIntegrated ? 'pb-24' : ''}`}>
+            {!isIntegrated && (
+                <div className="bg-slate-900 text-white pt-14 pb-0 px-4 shadow-lg shrink-0 overflow-hidden relative">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                    <div className="flex justify-between items-center mb-4 relative z-10">
+                        <div className="flex items-center gap-3">
+                            <button onClick={onBack} className="p-2 bg-white/10 rounded-2xl hover:bg-white/20 transition-all"><ArrowLeft size={18}/></button>
+                            <div>
+                                <h2 className="text-xl font-black flex items-center gap-2 tracking-tighter uppercase">🔐 My Vault</h2>
+                                <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.3em] leading-none">Security Standard 2026</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => setModal({ type: 'personalFinance' })} className="w-11 h-11 bg-blue-600 rounded-2xl shadow-xl shadow-blue-500/20 active:scale-90 transition-all flex items-center justify-center font-black"><Plus size={20}/></button>
                         </div>
                     </div>
-                    <div className="flex gap-2">
-                        <button onClick={() => setModal({ type: 'personalFinance' })} className="w-11 h-11 bg-blue-600 rounded-2xl shadow-xl shadow-blue-500/20 active:scale-90 transition-all flex items-center justify-center font-black"><Plus size={20}/></button>
+                    <div className="flex relative z-10">
+                        <button onClick={() => setFinanceView('transactions')} className={`flex-1 py-4 text-[10px] font-black tracking-widest uppercase border-b-4 transition-all ${financeView === 'transactions' ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>Ledgers</button>
+                        <button onClick={() => { setFinanceView('accounts'); setSelectedAccountForTx(null); }} className={`flex-1 py-4 text-[10px] font-black tracking-widest uppercase border-b-4 transition-all ${financeView === 'accounts' ? 'border-purple-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>Wallets</button>
+                        <button onClick={() => setFinanceView('stats')} className={`flex-1 py-4 text-[10px] font-black tracking-widest uppercase border-b-4 transition-all ${financeView === 'stats' ? 'border-emerald-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>Analysis</button>
                     </div>
                 </div>
-                <div className="flex relative z-10">
-                    <button onClick={() => setFinanceView('transactions')} className={`flex-1 py-4 text-[10px] font-black tracking-widest uppercase border-b-4 transition-all ${financeView === 'transactions' ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>Ledgers</button>
-                    <button onClick={() => { setFinanceView('accounts'); setSelectedAccountForTx(null); }} className={`flex-1 py-4 text-[10px] font-black tracking-widest uppercase border-b-4 transition-all ${financeView === 'accounts' ? 'border-purple-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>Wallets</button>
-                    <button onClick={() => setFinanceView('stats')} className={`flex-1 py-4 text-[10px] font-black tracking-widest uppercase border-b-4 transition-all ${financeView === 'stats' ? 'border-emerald-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>Analysis</button>
-                </div>
-            </div>
+            )}
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-40">
-                {/* 1. LEDGERS VIEW */}
-                {financeView === 'transactions' && (
+            <div className={`flex-1 overflow-y-auto ${!isIntegrated ? 'p-4' : 'p-2'} space-y-4 pb-40`}>
+                {financeView === 'transactions' && !isIntegrated && (
                     <div className="space-y-4">
-                        {/* DURATION SELECTOR - LEGACY PARITY */}
                         <div className="bg-white p-4 rounded-[32px] border border-slate-100 shadow-sm space-y-3">
                             <div className="flex gap-2">
                                 <div className="flex-1 relative">
@@ -225,7 +217,6 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
                             </div>
                         </div>
 
-                        {/* SUMMARY CARDS */}
                         <div className="grid grid-cols-2 gap-3">
                             <div className="bg-emerald-500 p-5 rounded-[28px] text-white space-y-1 shadow-lg shadow-emerald-500/10">
                                 <p className="text-[9px] font-black text-emerald-200 uppercase tracking-widest">Inflow</p>
@@ -237,7 +228,6 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
                             </div>
                         </div>
 
-                        {/* LIST */}
                         <div className="space-y-2">
                             {filtered.map((t, idx) => (
                                 <div key={idx} onClick={() => setModal({ type: 'personalFinance', data: t })} className="bg-white p-4 rounded-[24px] border border-slate-100 shadow-sm flex items-center justify-between active:scale-[0.98] transition-all">
@@ -262,7 +252,6 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
                     </div>
                 )}
 
-                {/* 2. WALLETS VIEW */}
                 {financeView === 'accounts' && !selectedAccountForTx && (
                     <div className="space-y-6">
                         <div className="bg-slate-900 p-8 rounded-[40px] text-white space-y-4 shadow-xl relative overflow-hidden">
@@ -291,12 +280,11 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
                     </div>
                 )}
 
-                {/* 3. LEDGER ACCOUNT DETAILS (WITH PDF SHARE) */}
-                {financeView === 'accounts' && selectedAccountForTx && (
+                {(financeView === 'accounts' || isIntegrated) && selectedAccountForTx && (
                     <div className="space-y-4 animate-in slide-in-from-right duration-300">
                         <div className="bg-white p-6 rounded-[36px] shadow-sm border border-slate-100">
                             <div className="flex justify-between items-start mb-6">
-                                <button onClick={() => setSelectedAccountForTx(null)} className="p-3 bg-slate-50 text-slate-400 rounded-2xl"><ArrowLeft size={18}/></button>
+                                <button onClick={() => isIntegrated ? onBack() : setSelectedAccountForTx(null)} className="p-3 bg-slate-50 text-slate-400 rounded-2xl"><ArrowLeft size={18}/></button>
                                 <button onClick={() => {
                                     const txs = transactions.filter(t => t.account === selectedAccountForTx.name || t.toAccount === selectedAccountForTx.name);
                                     sharePDF(`${selectedAccountForTx.name} Statement`, txs, selectedAccountForTx.name, selectedAccountForTx.initialBalance);
@@ -318,7 +306,7 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
                             {transactions.filter(t => t.account === selectedAccountForTx.name || t.toAccount === selectedAccountForTx.name).sort((a,b)=>new Date(b.date)-new Date(a.date)).map(tx => {
                                 const isIncoming = (tx.type === 'income' && tx.account === selectedAccountForTx.name) || (tx.type === 'transfer' && tx.toAccount === selectedAccountForTx.name);
                                 return (
-                                <div key={tx.id} onClick={() => setModal({ type: 'personalFinance', data: tx })} className="p-4 bg-white rounded-[24px] border border-slate-100 flex justify-between items-center shadow-sm active:scale-95 transition-all">
+                                <div key={tx.id} onClick={() => setModal({ type: 'personalFinance', data: tx })} className="p-4 bg-white rounded-[24px] border border-slate-100 flex justify-between items-center shadow-sm active:scale-[0.98] transition-all">
                                     <div className="flex items-center gap-4">
                                         <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${isIncoming ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
                                             {isIncoming ? <TrendingUp size={16} /> : <ShoppingCart size={16} />}
@@ -337,10 +325,8 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
                     </div>
                 )}
 
-                {/* 4. PERFORMANCE ANALYSIS (LEGACY STATS + PIE CHART) */}
-                {financeView === 'stats' && (
+                {financeView === 'stats' && !isIntegrated && (
                     <div className="space-y-6">
-                        {/* CHART CARD */}
                         <div className="bg-white p-6 rounded-[40px] border border-slate-100 shadow-sm space-y-6">
                             <div className="flex justify-between items-center">
                                 <div>
@@ -355,7 +341,6 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
                                 <button onClick={() => setStatsTab('expense')} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${statsTab === 'expense' ? 'bg-white text-rose-600 shadow-lg' : 'text-slate-400'}`}>Expense</button>
                             </div>
 
-                            {/* LEGACY SVG PIE CHART */}
                             <div className="flex flex-col items-center py-6">
                                 {categoryStats.totalAmt > 0 ? (
                                     <div className="relative w-48 h-48">
