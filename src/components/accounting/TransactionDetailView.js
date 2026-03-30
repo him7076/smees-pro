@@ -179,17 +179,17 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
 
             <div className={`p-4 max-w-2xl mx-auto space-y-6 pb-32 ${tx.status === 'Cancelled' ? 'opacity-60 grayscale' : ''}`}>
                 {/* Header Card (COMPACT VERSION) */}
-                <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm text-center relative overflow-hidden">
+                <div className="bg-white p-4 rounded-[32px] border border-slate-100 shadow-sm text-center relative overflow-hidden">
                     <div className={`absolute top-0 left-0 w-full h-1.5 ${['sales','payment'].includes(tx.type) ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
-                    <div className="flex justify-center mb-4">
+                    <div className="flex justify-center mb-2">
                         <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border transition-all ${
                             tx.status === 'Cancelled' ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'
                         }`}>
                             {tx.status || 'Active'}
                         </span>
                     </div>
-                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Total Amount</p>
-                    <h1 className="text-4xl font-black text-slate-900 tracking-tighter mb-4">{formatCurrency(totals.final)}</h1>
+                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-0.5">Total Amount</p>
+                    <h1 className="text-2xl font-black text-slate-900 tracking-tighter mb-2">{formatCurrency(totals.final)}</h1>
                     <div className="flex justify-center gap-2 text-[8px] font-black text-slate-500 uppercase tracking-widest">
                         <span className="bg-slate-50 px-3 py-1 rounded-xl border border-slate-100">{formatDate(tx.date)}</span>
                         <span className="bg-slate-50 px-3 py-1 rounded-xl border border-slate-100">{tx.paymentMode || 'Standard'}</span>
