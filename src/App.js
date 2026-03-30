@@ -147,7 +147,7 @@ const Dashboard = ({ data, setModal }) => {
                 </div>
             </div>
             
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                 {[
                     { label: 'Total Sales Amount', value: formatCurrency(stats.sales), sub: `${fType} Billing`, color: 'bg-emerald-500 shadow-emerald-500/20', type: 'sales' },
                     { label: 'Opex Exp', value: formatCurrency(stats.expenses), sub: `Cost Center`, color: 'bg-rose-500 shadow-rose-500/20', type: 'expense' },

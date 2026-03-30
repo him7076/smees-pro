@@ -54,6 +54,7 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
 
     const filtered = useMemo(() => {
         return filteredByDuration.filter(t => {
+            if (selectedAccountForTx && t.account !== selectedAccountForTx.name && t.toAccount !== selectedAccountForTx.name) return false;
             const searchTerm = (t.category || '').toLowerCase() + (t.subCategory || '').toLowerCase() + (t.note || '').toLowerCase() + (t.account || '').toLowerCase();
             if (search && !searchTerm.includes(search.toLowerCase())) return false;
             return true;
