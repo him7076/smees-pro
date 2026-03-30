@@ -111,7 +111,7 @@ const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, d
                         <div className="space-y-6">
                             <div className="bg-indigo-50 border border-indigo-100 rounded-[32px] p-6 space-y-6 text-center">
                                 <p className="text-[9px] font-black text-indigo-600 uppercase tracking-[0.2em] flex items-center justify-center gap-2"><UserCheck size={14}/> Session Control</p>
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-2 gap-3 mb-3">
                                     <button 
                                         onClick={() => handleAttendance('checkIn')} 
                                         disabled={!!attToday.checkIn} 
@@ -123,12 +123,32 @@ const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, d
                                     </button>
                                     <button 
                                         onClick={() => handleAttendance('checkOut')} 
-                                        disabled={!!attToday.checkOut} 
+                                        disabled={!attToday.checkIn || !!attToday.checkOut} 
                                         className="p-5 bg-white border border-indigo-100 rounded-2xl flex flex-col items-center justify-center gap-1 active:scale-95 transition-all text-slate-800 disabled:opacity-40"
                                     >
                                         <Clock size={20} className="text-rose-500"/>
                                         <p className="font-black text-[9px] uppercase tracking-widest">Check Out</p>
                                         <p className="text-xs font-bold opacity-60">{attToday.checkOut || '--:--'}</p>
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button 
+                                        onClick={() => handleAttendance('lunchStart')} 
+                                        disabled={!attToday.checkIn || !!attToday.lunchStart || !!attToday.checkOut} 
+                                        className="p-4 bg-amber-50 border border-amber-100 rounded-2xl flex flex-col items-center justify-center gap-1 active:scale-95 transition-all text-slate-800 disabled:opacity-40"
+                                    >
+                                        <Coffee size={18} className="text-amber-500"/>
+                                        <p className="font-black text-[8px] uppercase tracking-widest leading-none">Lunch Start</p>
+                                        <p className="text-[10px] font-bold opacity-60">{attToday.lunchStart || '--:--'}</p>
+                                    </button>
+                                    <button 
+                                        onClick={() => handleAttendance('lunchEnd')} 
+                                        disabled={!attToday.lunchStart || !!attToday.lunchEnd || !!attToday.checkOut} 
+                                        className="p-4 bg-orange-50 border border-orange-100 rounded-2xl flex flex-col items-center justify-center gap-1 active:scale-95 transition-all text-slate-800 disabled:opacity-40"
+                                    >
+                                        <Coffee size={18} className="text-orange-500"/>
+                                        <p className="font-black text-[8px] uppercase tracking-widest leading-none">Lunch Stop</p>
+                                        <p className="text-[10px] font-bold opacity-60">{attToday.lunchEnd || '--:--'}</p>
                                     </button>
                                 </div>
                             </div>

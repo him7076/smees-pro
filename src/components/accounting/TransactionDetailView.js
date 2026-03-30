@@ -112,7 +112,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                         </tr>
                     </thead>
                     <tbody>
-                        ${(tx.items || [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount }]).map(i => `
+                        ${(profitData.itemBreakdown.length > 0 ? profitData.itemBreakdown : [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount }]).map(i => `
                             <tr>
                                 <td>${i.itemName} ${i.brand ? `<br><small style="color:#888">${i.brand}</small>` : ''}</td>
                                 <td style="text-align:center">${i.qty}</td>
@@ -126,7 +126,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                 <div class="totals-area">
                     <div class="totals-table">
                         <div><span>Subtotal</span> <span>${(parseFloat(tx.grossTotal || tx.amount || 0)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>
-                        ${tx.discountValue > 0 ? `<div><span>Discount</span> <span>-${(parseFloat(tx.discountValue)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>` : ''}
+                        ${tx.discountValue > 0 ? `<div><span>Discount</span> <span>- ${(parseFloat(tx.discountValue)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>` : ''}
                         <div class="grand"><span>Grand Total</span> <span>₹${(parseFloat(tx.finalTotal || tx.amount || 0)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>
                     </div>
                 </div>
@@ -147,19 +147,19 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
 
     return (
         <div className="fixed inset-0 z-[100] bg-slate-50 overflow-y-auto animate-in slide-in-from-right duration-300">
-            {/* STICKY ACTION BAR */}
-            <div className="sticky top-0 bg-white/80 backdrop-blur-xl border-b border-slate-100 p-4 flex items-center justify-between shadow-sm z-[110]">
-                <div className="flex items-center gap-4">
-                    <button onClick={onBack} className="p-3 bg-slate-100 text-slate-400 rounded-2xl hover:bg-slate-200 active:scale-95 transition-all"><ArrowLeft size={20}/></button>
+            {/* STICKY ACTION BAR - COMPACT */}
+            <div className="sticky top-0 bg-white/80 backdrop-blur-xl border-b border-slate-100 px-4 py-3 flex items-center justify-between shadow-sm z-[110]">
+                <div className="flex items-center gap-3">
+                    <button onClick={onBack} className="p-2 bg-slate-100 text-slate-400 rounded-xl hover:bg-slate-200 active:scale-95 transition-all"><ArrowLeft size={16}/></button>
                     <div>
-                        <h2 className="font-black text-slate-900 tracking-tight leading-none text-[10px] uppercase">Intelligence</h2>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Ref ID: {tx.id}</p>
+                        <h2 className="font-black text-slate-900 tracking-tight leading-none text-[8px] uppercase opacity-40">Intelligence Hub</h2>
+                        <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-0.5">#{tx.id}</p>
                     </div>
                 </div>
                 <div className="flex gap-2">
                     {tx.status !== 'Cancelled' && (
-                        <button onClick={shareInvoice} className="p-3 bg-blue-600 text-white rounded-2xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all">
-                            <Share2 size={20}/> 
+                        <button onClick={shareInvoice} className="p-2 bg-blue-600 text-white rounded-xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all">
+                            <Share2 size={16}/> 
                         </button>
                     )}
                     {checkPermission(user, 'canEditTasks') && (

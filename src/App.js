@@ -146,7 +146,7 @@ const Dashboard = ({ data, setModal }) => {
             
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                    { label: 'Gross Sales', value: formatCurrency(stats.sales), sub: `${fType} Billing`, color: 'bg-emerald-500 shadow-emerald-500/20', type: 'sales' },
+                    { label: 'Total Sales Amount', value: formatCurrency(stats.sales), sub: `${fType} Billing`, color: 'bg-emerald-500 shadow-emerald-500/20', type: 'sales' },
                     { label: 'Opex Exp', value: formatCurrency(stats.expenses), sub: `Cost Center`, color: 'bg-rose-500 shadow-rose-500/20', type: 'expense' },
                     { label: 'Gross Profit', value: formatCurrency(stats.grossProfit), sub: 'Period IQ', color: 'bg-blue-600 shadow-blue-500/20', type: 'profit' },
                     { label: 'Pipeline', value: stats.activeTasks, sub: 'Active Load', color: 'bg-slate-900 shadow-slate-900/10', type: 'tasks' }
@@ -185,8 +185,6 @@ const App = () => {
     const [authLoading, setAuthLoading] = useState(true);
     const { data, setData, loading: dataLoading } = useFirebaseSync();
 
-    const [modal, setModal] = useState(null); 
-    const [viewDetail, setViewDetail] = useState(null); 
     const [uiConfig, setUiConfig] = useState(() => {
         const saved = localStorage.getItem('smees_ui_config');
         return saved ? JSON.parse(saved) : { isCompact: false };
@@ -195,6 +193,18 @@ const App = () => {
     useEffect(() => {
         localStorage.setItem('smees_ui_config', JSON.stringify(uiConfig));
     }, [uiConfig]);
+
+    const [mode, setMode] = useState('business');
+    const [bizState, setBizState] = useState({ modal: null, viewDetail: null });
+    const [persState, setPersState] = useState({ modal: null, viewDetail: null });
+
+    const activeState = mode === 'business' ? bizState : persState;
+    const setActiveState = mode === 'business' ? setBizState : setPersState;
+
+    const modal = activeState.modal;
+    const setModal = (m) => setActiveState(prev => ({ ...prev, modal: m }));
+    const viewDetail = activeState.viewDetail;
+    const setViewDetail = (v) => setActiveState(prev => ({ ...prev, viewDetail: v }));
 
     const partyBalances = useMemo(() => getPartyBalances(data), [data]);
     const itemStock = useMemo(() => getItemStock(data), [data]);
@@ -593,24 +603,24 @@ const App = () => {
 
             <Routes>
                 <Route path="/login" element={!user ? <LoginScreen setUser={setUser} /> : <Navigate to="/" />} />
-                <Route path="/" element={user ? <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))}><Dashboard data={data} setModal={setModal} /></AppLayout> : <Navigate to="/login" />} />
+                <Route path="/" element={user ? <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}><Dashboard data={data} setModal={setModal} /></AppLayout> : <Navigate to="/login" />} />
                 <Route path="/accounts" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}>
                         <TransactionList data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} />
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/tasks" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}>
                         <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} />
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/vault" element={user ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}>
                         <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />
                     </AppLayout>
                 ) : <Navigate to="/login" />} />
                 <Route path="/masters" element={user?.role === 'admin' ? (
-                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))}>
+                    <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode}>
                         <MasterModule data={data} setData={setData} setModal={setModal} setViewDetail={setViewDetail} />
                     </AppLayout>
                 ) : <Navigate to="/" />} />

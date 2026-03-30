@@ -10,14 +10,14 @@ import {
   Settings,
   Package,
   RefreshCw,
-  Maximize2,
-  Minimize2
+  Menu,
+  ChevronRight
 } from 'lucide-react';
 
 import { signOut } from "firebase/auth";
 import { auth } from '../../services/firebase';
 
-const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCompact }) => {
+const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCompact, mode = 'business', onToggleMode }) => {
     const navigate = useNavigate();
 
     const handleLogout = async () => {
@@ -65,12 +65,6 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
                 </nav>
 
                 <div className="pt-8 mt-8 border-t border-slate-100 space-y-4">
-                    <button 
-                        onClick={onToggleCompact}
-                        className="w-full flex items-center gap-4 px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-all"
-                    >
-                        {uiConfig.isCompact ? <Maximize2 size={20}/> : <Minimize2 size={20}/>} {uiConfig.isCompact ? 'Standard' : 'Compact UI'}
-                    </button>
                     <button onClick={handleLogout} className="w-full flex items-center gap-4 px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest text-rose-500 hover:bg-rose-50 transition-all">
                         <LogOut size={20}/> Logout
                     </button>
@@ -80,26 +74,43 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
             {/* Main Content Area */}
             <main className="flex-1 flex flex-col min-h-screen relative">
                 {/* Header for Mobile */}
-                <header className="md:hidden bg-white border-b border-slate-100 px-6 py-4 flex justify-between items-center sticky top-0 z-40 backdrop-blur-xl bg-white/80">
+                <header className="bg-white border-b border-slate-100 px-4 py-3 flex justify-between items-center sticky top-0 z-40 backdrop-blur-xl bg-white/80">
                     <div className="flex items-center gap-3">
-                         <div className="w-6 h-6 bg-blue-600 rounded-lg flex items-center justify-center">
-                            <Package className="text-white" size={12}/>
-                        </div>
-                        <h1 className="text-[12px] font-black tracking-tight text-slate-900 leading-none">SMEES<span className="text-blue-600">PRO</span></h1>
+                         <button className="p-2 bg-slate-50 rounded-xl text-slate-400 active:scale-95 transition-all">
+                             <Menu size={18}/>
+                         </button>
+                         <h1 className="hidden sm:block text-[12px] font-black tracking-tight text-slate-900 leading-none">SMEES<span className="text-blue-600">PRO</span></h1>
                     </div>
-                    <div className="flex items-center gap-4">
+
+                    {/* Mode Toggle Switcher - Top Middle */}
+                    <div className="bg-slate-100 p-1 rounded-full flex items-center shadow-inner relative">
+                        <div className={`absolute h-7 w-[48%] bg-white rounded-full shadow-md transition-all duration-500 ease-out ${mode === 'personal' ? 'translate-x-[104%]' : 'translate-x-[2%]'}`}></div>
                         <button 
-                            onClick={onToggleCompact} 
-                            className="p-2 bg-slate-100 text-slate-400 rounded-lg animate-in fade-in"
+                            onClick={()=>onToggleMode('business')}
+                            className={`relative z-10 px-4 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest transition-all ${mode === 'business' ? 'text-blue-600' : 'text-slate-400'}`}
                         >
-                            {uiConfig.isCompact ? <Maximize2 size={16}/> : <Minimize2 size={16}/>}
+                            Business
                         </button>
                         <button 
-                            onClick={() => window.location.reload()} 
-                            className="flex items-center gap-1.5 p-2 bg-blue-50 text-blue-600 rounded-lg active:scale-90 transition-all"
+                            onClick={()=>onToggleMode('personal')}
+                            className={`relative z-10 px-4 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest transition-all ${mode === 'personal' ? 'text-blue-600' : 'text-slate-400'}`}
                         >
-                            <RefreshCw size={12} className="animate-spin-slow"/>
-                            <span className="text-[8px] font-black uppercase tracking-widest">Sync</span>
+                            Personal
+                        </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <button 
+                            onClick={() => window.location.reload()} 
+                            className="p-2 bg-blue-50 text-blue-600 rounded-xl active:scale-90 transition-all"
+                        >
+                            <RefreshCw size={16} className="animate-spin-slow"/>
+                        </button>
+                        <button 
+                            onClick={handleLogout}
+                            className="p-2 bg-rose-50 text-rose-600 rounded-xl active:scale-90 transition-all"
+                        >
+                            <LogOut size={16}/>
                         </button>
                     </div>
                 </header>
@@ -114,18 +125,17 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
                         <NavLink 
                             key={item.to}
                             to={item.to}
-                            className={({ isActive }) => `flex flex-col items-center justify-center w-14 h-14 rounded-2xl transition-all ${isActive ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/30 scale-110' : 'text-slate-400'}`}
+                            className={({ isActive }) => `flex flex-col items-center justify-center w-14 h-14 rounded-2xl transition-all gap-0.5 ${isActive ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/30 scale-105' : 'text-slate-400'}`}
                         >
                             {item.icon}
+                            <span className="text-[7px] font-black uppercase tracking-[0.1em]">{item.label}</span>
                         </NavLink>
                     ))}
-                    <button onClick={handleLogout} className="flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-rose-500">
-                        <LogOut size={24}/>
-                    </button>
                 </nav>
             </main>
         </div>
     );
 };
+
 
 export default AppLayout;
