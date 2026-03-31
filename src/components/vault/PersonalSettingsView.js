@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Settings, Plus, Trash2, X, ChevronRight, PieChart, Banknote } from 'lucide-react';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import { Settings, Plus, Trash2, X, PieChart, Banknote } from 'lucide-react';
+import { doc, setDoc } from 'firebase/firestore';
+import { personalDb } from '../../services/firebase';
 
 const PersonalSettingsView = ({ data, setData, setModal, onBack }) => {
     const categories = data.personalCategories || { income: ['Salary', 'Gift'], expense: ['Food', 'Rent', 'Travel'], sub: {} };
@@ -9,11 +9,14 @@ const PersonalSettingsView = ({ data, setData, setModal, onBack }) => {
     const [isAddingCat, setIsAddingCat] = useState(false);
     const [newCatName, setNewCatName] = useState('');
 
+    const updateCategories = async (next) => {
+        await setDoc(doc(personalDb, "settings", "categories"), next, { merge: true });
+    };
+
     const handleAddCat = async () => {
         if(!newCatName.trim()) return;
         const next = { ...categories, [selectedCatType]: [...(categories[selectedCatType] || []), newCatName.trim()] };
-        await updateDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: next });
-        setData(prev => ({ ...prev, personalCategories: next }));
+        await updateCategories(next);
         setNewCatName('');
         setIsAddingCat(false);
     };
@@ -21,8 +24,7 @@ const PersonalSettingsView = ({ data, setData, setModal, onBack }) => {
     const deleteCat = async (cat) => {
         if(!window.confirm(`Delete "${cat}"?`)) return;
         const next = { ...categories, [selectedCatType]: categories[selectedCatType].filter(c => c !== cat) };
-        await updateDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: next });
-        setData(prev => ({ ...prev, personalCategories: next }));
+        await updateCategories(next);
     };
 
     const addSubCat = async (cat) => {
@@ -30,16 +32,14 @@ const PersonalSettingsView = ({ data, setData, setModal, onBack }) => {
         if(n) {
             const nextSub = { ...(categories.sub || {}), [cat]: [...(categories.sub?.[cat] || []), n.trim()] };
             const next = { ...categories, sub: nextSub };
-            await updateDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: next });
-            setData(prev => ({ ...prev, personalCategories: next }));
+            await updateCategories(next);
         }
     };
 
     const deleteSubCat = async (cat, sub) => {
         const nextSub = { ...categories.sub, [cat]: categories.sub[cat].filter(s => s !== sub) };
         const next = { ...categories, sub: nextSub };
-        await updateDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: next });
-        setData(prev => ({ ...prev, personalCategories: next }));
+        await updateCategories(next);
     };
 
     return (

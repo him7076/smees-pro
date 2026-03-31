@@ -43,11 +43,10 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
     return (
         <div className={`min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-900 ${uiConfig.isCompact ? 'ui-compact' : ''}`}>
             {/* Sidebar for Desktop */}
-            {mode === 'business' && (
             <aside className="hidden md:flex flex-col w-64 bg-white border-r border-slate-200 h-screen sticky top-0 p-8 shadow-sm">
                 <div className="flex items-center gap-3 mb-10">
-                    <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-                        <Package className="text-white" size={16}/>
+                    <div className={`w-8 h-8 ${mode === 'business' ? 'bg-blue-600' : 'bg-slate-900'} rounded-xl flex items-center justify-center shadow-lg ${mode === 'business' ? 'shadow-blue-500/20' : 'shadow-slate-500/20'}`}>
+                        {mode === 'business' ? <Package className="text-white" size={16}/> : <Lock className="text-white" size={16}/>}
                     </div>
                     <h1 className="text-sm font-black tracking-tight text-slate-900 leading-none">SMEES<span className="text-blue-600">PRO</span></h1>
                 </div>
@@ -71,7 +70,6 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
                     </button>
                 </div>
             </aside>
-            )}
 
             {/* Main Content Area */}
             <main className="flex-1 flex flex-col min-h-screen relative">

@@ -1,10 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  ArrowLeft, Search, TrendingUp, TrendingDown, 
-  RefreshCcw, Calendar, History, Trash2, Edit2, ChevronRight, 
-  Banknote, Plus, ShoppingCart, Users, CreditCard, Wallet,
-  PieChart as PieIcon, Layout, MoreVertical, Target, Share2,
-  Landmark, CreditCard as CardIcon, ShoppingBag, Download, Filter
+  ArrowLeft, Search, TrendingUp,
+  RefreshCcw, Plus, ShoppingCart, Wallet,
+  Landmark, CreditCard as CardIcon, Download, Filter
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import { useDatabase } from '../../hooks/useDatabase';

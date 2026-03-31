@@ -1,13 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  Lock, Wallet, TrendingUp, TrendingDown, RefreshCcw, 
-  CheckSquare, Plus, ChevronRight, PieChart as PieIcon, 
-  History, Landmark, CreditCard as CardIcon, Banknote,
-  Search, Filter, ArrowUpRight, ArrowDownLeft, Settings,
+  Lock, CheckSquare, Plus, ChevronRight, PieChart as PieIcon, 
+  History, Landmark, CreditCard as CardIcon,
+  ArrowUpRight, ArrowDownLeft, Settings,
   ArrowRightLeft, List, Edit2, Trash2, X, PlusCircle, ArrowLeft
 } from 'lucide-react';
 import { personalDb } from '../../services/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 
 const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
@@ -74,14 +73,10 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
 
     const deleteTransaction = async (id) => {
         if(!window.confirm("Delete this transaction?")) return;
-        const { doc, deleteDoc } = await import('firebase/firestore');
-        const { personalDb } = await import('../../services/firebase');
         await deleteDoc(doc(personalDb, "transactions", id));
     };
 
     const updateCategories = async (next) => {
-        const { doc, setDoc } = await import('firebase/firestore');
-        const { personalDb } = await import('../../services/firebase');
         await setDoc(doc(personalDb, "settings", "categories"), next, { merge: true });
     };
 
@@ -140,7 +135,7 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                             <button className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center text-slate-400 group-hover:text-blue-600 transition-all"><History size={16}/></button>
                         </div>
                         <div className="divide-y divide-slate-50">
-                            {transactions.sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0, 10).map(t => (
+                            {[...transactions].sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0, 10).map(t => (
                                 <div key={t.id} onClick={() => setModal({ type: 'personalTransaction', data: t, context: 'personal' })} className="p-5 flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer group">
                                     <div className="flex items-center gap-4">
                                         <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm group-active:scale-90 transition-all ${t.type === 'income' ? 'bg-emerald-50 text-emerald-600' : t.type === 'expense' ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'}`}>

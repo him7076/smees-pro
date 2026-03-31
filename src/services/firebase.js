@@ -4,26 +4,26 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-// --- FIREBASE CONFIGURATION ---
+// --- FIREBASE CONFIGURATION (reads from .env, falls back to defaults) ---
 const firebaseConfig = {
-  apiKey: "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
-  authDomain: "smeestest.firebaseapp.com",
-  projectId: "smeestest",
-  storageBucket: "smeestest.firebasestorage.app",
-  messagingSenderId: "1086297510582",
-  appId: "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
-  measurementId: "G-BQ6NW6D84Z"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "smeestest.firebaseapp.com",
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "smeestest",
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "smeestest.firebasestorage.app",
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "1086297510582",
+  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-BQ6NW6D84Z"
 };
 
 // 2. PERSONAL CONFIG
 const personalConfig = {
-  apiKey: "AIzaSyCILMKJfFSOdyKA9wTh6zzXsPMc0wt_Wtc",
-  authDomain: "personal-data-a2bce.firebaseapp.com",
-  projectId: "personal-data-a2bce",
-  storageBucket: "personal-data-a2bce.firebasestorage.app",
-  messagingSenderId: "680628699537",
-  appId: "1:680628699537:web:2cd444a4eaea83df945a30",
-  measurementId: "G-DTQH641PS3"
+  apiKey: process.env.REACT_APP_PERSONAL_API_KEY || "AIzaSyCILMKJfFSOdyKA9wTh6zzXsPMc0wt_Wtc",
+  authDomain: process.env.REACT_APP_PERSONAL_AUTH_DOMAIN || "personal-data-a2bce.firebaseapp.com",
+  projectId: process.env.REACT_APP_PERSONAL_PROJECT_ID || "personal-data-a2bce",
+  storageBucket: process.env.REACT_APP_PERSONAL_STORAGE_BUCKET || "personal-data-a2bce.firebasestorage.app",
+  messagingSenderId: process.env.REACT_APP_PERSONAL_MESSAGING_SENDER_ID || "680628699537",
+  appId: process.env.REACT_APP_PERSONAL_APP_ID || "1:680628699537:web:2cd444a4eaea83df945a30",
+  measurementId: process.env.REACT_APP_PERSONAL_MEASUREMENT_ID || "G-DTQH641PS3"
 };
 
 // Initialize BOTH Apps

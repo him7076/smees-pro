@@ -8,6 +8,12 @@ export const INITIAL_DATA = {
   tasks: [],
   personalTasks: [],
   personalTransactions: [],
+  personalAccounts: [],
+  personalCategories: {
+    income: ['Salary', 'Gift'],
+    expense: ['Food', 'Rent', 'Travel'],
+    sub: {}
+  },
   categories: {
     expense: ["Rent", "Electricity", "Marketing", "Salary"],
     item: ["Electronics", "Grocery", "General", "Furniture", "Pharmacy"],

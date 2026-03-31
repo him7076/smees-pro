@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { X, Plus, Calendar, Banknote, ShieldCheck } from 'lucide-react';
 import SearchableSelect from '../ui/SearchableSelect';
-import { db } from '../../services/firebase';
+import { personalDb } from '../../services/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
 const PersonalFinanceForm = ({ data, setData, record, onClose, intent }) => {
@@ -185,7 +185,7 @@ const PersonalFinanceForm = ({ data, setData, record, onClose, intent }) => {
                                     
                                     newData.personalCategories = { ...newData.personalCategories, [type]: updatedCats };
                                     setData(newData);
-                                    await setDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: newData.personalCategories }, { merge: true });
+                                    await setDoc(doc(personalDb, "settings", "categories"), newData.personalCategories, { merge: true });
                                     setForm({...form, subCategory: newSub});
                                 }}
                                 placeholder="Sub-Division..."

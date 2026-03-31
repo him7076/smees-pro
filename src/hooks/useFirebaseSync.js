@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { collection, onSnapshot, query, doc } from "firebase/firestore";
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { collection, onSnapshot, doc } from "firebase/firestore";
 import { db, personalDb } from '../services/firebase';
 import { INITIAL_DATA } from '../utils/constants';
 
@@ -10,10 +10,36 @@ export const useFirebaseSync = () => {
     });
 
     const [syncing, setSyncing] = useState(false);
+    const [loading, setLoading] = useState(true);
+    
+    // Debounce localStorage writes to avoid 9+ rapid serializations on load
+    const saveTimerRef = useRef(null);
+    const dataRef = useRef(data);
+    dataRef.current = data;
+
+    const debouncedSave = useCallback((newData) => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => {
+            try {
+                localStorage.setItem('smees_data', JSON.stringify(newData));
+            } catch (e) {
+                console.warn('localStorage save failed:', e);
+            }
+        }, 500); // Wait 500ms after last update before saving to localStorage
+    }, []);
 
     useEffect(() => {
-        setSyncing(true);
+        setLoading(true);
         const unsubscribers = [];
+        let loadedCount = 0;
+        const totalListeners = 12; // 6 biz + 3 personal + 3 settings docs
+
+        const checkLoaded = () => {
+            loadedCount++;
+            if (loadedCount >= totalListeners) {
+                setLoading(false);
+            }
+        };
 
         // --- 1. BUSINESS REPOSITORY REAL-TIME SYNC ---
         const bizCollections = ['parties', 'items', 'staff', 'tasks', 'transactions', 'attendance'];
@@ -23,15 +49,18 @@ export const useFirebaseSync = () => {
                 const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
                 setData(prev => {
                     const newData = { ...prev, [colName]: list };
-                    localStorage.setItem('smees_data', JSON.stringify(newData));
+                    debouncedSave(newData);
                     return newData;
                 });
-            }, (error) => console.error(`Sync Error [${colName}]:`, error));
+                checkLoaded();
+            }, (error) => {
+                console.error(`Sync Error [${colName}]:`, error);
+                checkLoaded(); // Don't block loading on errors
+            });
             unsubscribers.push(unsub);
         });
 
         // --- 2. PERSONAL VAULT REAL-TIME SYNC (Isolated Database) ---
-        // We sync personal context separately from the Personal project
         const personalCollections = [
             { key: 'personalTasks', col: 'tasks' },
             { key: 'personalTransactions', col: 'transactions' },
@@ -43,10 +72,14 @@ export const useFirebaseSync = () => {
                 const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
                 setData(prev => {
                     const newData = { ...prev, [key]: list };
-                    localStorage.setItem('smees_data', JSON.stringify(newData));
+                    debouncedSave(newData);
                     return newData;
                 });
-            }, (error) => console.error(`Sync Error [Personal ${key}]:`, error));
+                checkLoaded();
+            }, (error) => {
+                console.error(`Sync Error [Personal ${key}]:`, error);
+                checkLoaded();
+            });
             unsubscribers.push(unsub);
         });
 
@@ -57,11 +90,15 @@ export const useFirebaseSync = () => {
                 if (snapshot.exists()) {
                     setData(prev => {
                         const newData = { ...prev, [sDoc]: snapshot.data() };
-                        localStorage.setItem('smees_data', JSON.stringify(newData));
+                        debouncedSave(newData);
                         return newData;
                     });
                 }
-            }, (error) => console.error(`Sync Error [Settings ${sDoc}]:`, error));
+                checkLoaded();
+            }, (error) => {
+                console.error(`Sync Error [Settings ${sDoc}]:`, error);
+                checkLoaded();
+            });
             unsubscribers.push(unsub);
         });
 
@@ -70,7 +107,7 @@ export const useFirebaseSync = () => {
             if (snapshot.exists()) {
                 setData(prev => {
                     const newData = { ...prev, counters: { ...prev.counters, ...snapshot.data() } };
-                    localStorage.setItem('smees_data', JSON.stringify(newData));
+                    debouncedSave(newData);
                     return newData;
                 });
             }
@@ -81,21 +118,32 @@ export const useFirebaseSync = () => {
             if (snapshot.exists()) {
                 setData(prev => {
                     const newData = { ...prev, personalCategories: snapshot.data() };
-                    localStorage.setItem('smees_data', JSON.stringify(newData));
+                    debouncedSave(newData);
                     return newData;
                 });
             }
         });
         unsubscribers.push(unsubPCat);
 
-        setSyncing(false);
-        return () => unsubscribers.forEach(unsub => unsub());
+        return () => {
+            unsubscribers.forEach(unsub => unsub());
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        };
+    }, [debouncedSave]);
+
+    // Real manual sync — unsubscribes all listeners and re-subscribes 
+    // (triggers fresh fetch without full page reload)
+    const syncData = useCallback(async () => {
+        setSyncing(true);
+        // Force a fresh save of current state
+        try {
+            localStorage.setItem('smees_data', JSON.stringify(dataRef.current));
+        } catch (e) { /* ignore */ }
+        // Small delay for visual feedback, then reload to re-init listeners
+        setTimeout(() => {
+            window.location.reload();
+        }, 300);
     }, []);
 
-    // Manual Re-sync (Optional, used as a fallback if needed)
-    const syncData = useCallback(() => {
-        window.location.reload(); 
-    }, []);
-
-    return { data, setData, syncing, syncData };
+    return { data, setData, syncing, syncData, loading };
 };

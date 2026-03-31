@@ -1,9 +1,11 @@
-import React from 'react';
-import { Download, Upload, FileText, ShieldCheck, AlertCircle } from 'lucide-react';
-import { db } from '../../services/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import React, { useState } from 'react';
+import { Download, Upload, FileText, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
+import { db, personalDb } from '../../services/firebase';
+import { doc, setDoc, writeBatch } from 'firebase/firestore';
 
 const BackupRestore = ({ data, setData, onClose }) => {
+    const [restoring, setRestoring] = useState(false);
+    const [progress, setProgress] = useState('');
 
     const handleExportJSON = () => {
         const dataStr = JSON.stringify(data, null, 2);
@@ -17,7 +19,6 @@ const BackupRestore = ({ data, setData, onClose }) => {
     };
 
     const handleExportCSV = () => {
-        // Simple CSV for Transactions (most requested for Excel)
         const txs = data.transactions || [];
         if (txs.length === 0) return alert("No transactions to export");
 
@@ -42,6 +43,22 @@ const BackupRestore = ({ data, setData, onClose }) => {
         link.setAttribute("download", `SMEES_PRO_TRANSACTIONS_${new Date().toISOString().split('T')[0]}.csv`);
         document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
+    };
+
+    // Helper: write documents in batches of 450 (Firestore limit is 500)
+    const batchWrite = async (firestore, collectionName, records) => {
+        const BATCH_SIZE = 450;
+        for (let i = 0; i < records.length; i += BATCH_SIZE) {
+            const batch = writeBatch(firestore);
+            const chunk = records.slice(i, i + BATCH_SIZE);
+            chunk.forEach(record => {
+                if (record.id) {
+                    batch.set(doc(firestore, collectionName, record.id.toString()), record, { merge: true });
+                }
+            });
+            await batch.commit();
+        }
     };
 
     const handleImportJSON = (event) => {
@@ -52,39 +69,79 @@ const BackupRestore = ({ data, setData, onClose }) => {
         reader.onload = async (e) => {
             try {
                 const importedData = JSON.parse(e.target.result);
-                if (!importedData.transactions || !importedData.accounts) {
-                    throw new Error("Invalid backup file format");
+                
+                // Validate the backup file has expected structure
+                if (!importedData.transactions && !importedData.parties && !importedData.tasks) {
+                    throw new Error("Invalid backup file — missing core data collections");
                 }
 
-                if (window.confirm("CRITICAL: This will overwrite ALL your current data with the backup file. This cannot be undone. Proceed?")) {
-                    // Update Local State
-                    setData(importedData);
-                    localStorage.setItem('smees_data', JSON.stringify(importedData));
+                if (!window.confirm("CRITICAL: This will overwrite ALL your current data with the backup file. This cannot be undone. Proceed?")) return;
 
-                    // Update Firestore (100% RESTORE)
-                    // 1. Update Personal Doc
-                    await setDoc(doc(db, "companies", "smees_pro_data"), {
-                        personalTransactions: importedData.personalTransactions || [],
-                        personalTasks: importedData.personalTasks || [],
-                        personalAccounts: importedData.personalAccounts || [],
-                        personalCategories: importedData.personalCategories || {},
-                        counters: importedData.counters || {}
-                    }, { merge: true });
+                setRestoring(true);
 
-                    // 2. Update Global Counters
-                    if (importedData.counters) {
-                        await setDoc(doc(db, "settings", "counters"), importedData.counters, { merge: true });
+                // --- 1. RESTORE BUSINESS DATA (to business Firestore) ---
+                const bizCollections = {
+                    parties: importedData.parties || [],
+                    items: importedData.items || [],
+                    staff: importedData.staff || [],
+                    tasks: importedData.tasks || [],
+                    transactions: importedData.transactions || [],
+                    attendance: importedData.attendance || []
+                };
+
+                for (const [colName, records] of Object.entries(bizCollections)) {
+                    if (records.length > 0) {
+                        setProgress(`Restoring ${colName} (${records.length} records)...`);
+                        await batchWrite(db, colName, records);
                     }
-
-                    // 3. For large scale, we'd need to loop through all transactions/tasks etc.
-                    // But for this app's scale, we save the main doc immediately.
-                    // Individual records are usually handled by the app's standard flow.
-                    
-                    alert("Data Restored Successfully. Refreshing App...");
-                    window.location.reload();
                 }
+
+                // --- 2. RESTORE PERSONAL DATA (to personal Firestore) ---
+                const personalCollections = {
+                    transactions: importedData.personalTransactions || [],
+                    tasks: importedData.personalTasks || [],
+                    accounts: importedData.personalAccounts || []
+                };
+
+                for (const [colName, records] of Object.entries(personalCollections)) {
+                    if (records.length > 0) {
+                        setProgress(`Restoring personal ${colName} (${records.length} records)...`);
+                        await batchWrite(personalDb, colName, records);
+                    }
+                }
+
+                // --- 3. RESTORE SETTINGS ---
+                setProgress('Restoring settings...');
+                
+                if (importedData.counters) {
+                    await setDoc(doc(db, "settings", "counters"), importedData.counters, { merge: true });
+                    await setDoc(doc(personalDb, "settings", "counters"), importedData.counters, { merge: true });
+                }
+                if (importedData.categories) {
+                    await setDoc(doc(db, "settings", "categories"), importedData.categories, { merge: true });
+                }
+                if (importedData.company) {
+                    await setDoc(doc(db, "settings", "company"), importedData.company, { merge: true });
+                }
+                if (importedData.personalCategories) {
+                    await setDoc(doc(personalDb, "settings", "categories"), importedData.personalCategories, { merge: true });
+                }
+
+                // --- 4. UPDATE LOCAL STATE ---
+                setData(importedData);
+                localStorage.setItem('smees_data', JSON.stringify(importedData));
+
+                setProgress('Complete!');
+                setTimeout(() => {
+                    alert("Data Restored Successfully! The page will now refresh.");
+                    window.location.reload();
+                }, 500);
+
             } catch (err) {
+                console.error("Restore Error:", err);
                 alert("Restore Failed: " + err.message);
+                setRestoring(false);
+                setProgress('');
             }
         };
         reader.readAsText(file);
@@ -100,18 +157,28 @@ const BackupRestore = ({ data, setData, onClose }) => {
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Full Metadata Protection • A-Z Redundancy</p>
             </div>
 
+            {restoring && (
+                <div className="bg-blue-50 border border-blue-100 p-6 rounded-[32px] flex items-center gap-4 animate-in fade-in">
+                    <Loader2 size={24} className="text-blue-600 animate-spin"/>
+                    <div>
+                        <p className="text-xs font-black text-blue-800 uppercase tracking-tight">Restoring Data...</p>
+                        <p className="text-[9px] font-bold text-blue-500 uppercase tracking-widest mt-1">{progress}</p>
+                    </div>
+                </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="p-8 bg-slate-900 rounded-[40px] text-white space-y-6 relative overflow-hidden group">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
                     <div>
                         <h4 className="text-sm font-black uppercase tracking-widest leading-none mb-2">Generate Backup</h4>
-                        <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest">Download all app states into an encrypted JSON format</p>
+                        <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest">Download all app states into JSON format for safe keeping</p>
                     </div>
                     <div className="flex flex-col gap-3 pt-4">
-                        <button onClick={handleExportJSON} className="w-full py-4 bg-blue-600 rounded-2xl flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-500 transition-all active:scale-95 shadow-lg shadow-blue-600/20">
+                        <button onClick={handleExportJSON} disabled={restoring} className="w-full py-4 bg-blue-600 rounded-2xl flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-500 transition-all active:scale-95 shadow-lg shadow-blue-600/20 disabled:opacity-50">
                             <Download size={18}/> JSON Backup (Full)
                         </button>
-                        <button onClick={handleExportCSV} className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-[0.2em] hover:bg-white/10 transition-all active:scale-95">
+                        <button onClick={handleExportCSV} disabled={restoring} className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-[0.2em] hover:bg-white/10 transition-all active:scale-95 disabled:opacity-50">
                             <FileText size={18}/> Excel/CSV (Partial)
                         </button>
                     </div>
@@ -123,10 +190,10 @@ const BackupRestore = ({ data, setData, onClose }) => {
                         <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Restore 100% of data from a previously created JSON file</p>
                     </div>
                     
-                    <label className="flex flex-col items-center justify-center w-full py-10 border-2 border-dashed border-slate-100 rounded-3xl cursor-pointer hover:bg-slate-50 transition-all active:scale-95">
+                    <label className={`flex flex-col items-center justify-center w-full py-10 border-2 border-dashed border-slate-100 rounded-3xl cursor-pointer hover:bg-slate-50 transition-all active:scale-95 ${restoring ? 'pointer-events-none opacity-50' : ''}`}>
                         <Upload size={32} className="text-slate-300 group-hover:text-blue-500 transition-colors mb-2"/>
                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Click to Upload Backup</span>
-                        <input type="file" accept=".json" className="hidden" onChange={handleImportJSON} />
+                        <input type="file" accept=".json" className="hidden" onChange={handleImportJSON} disabled={restoring} />
                     </label>
 
                     <div className="bg-rose-50 p-4 rounded-2xl flex items-start gap-4">
