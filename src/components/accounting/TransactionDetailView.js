@@ -6,11 +6,21 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
     const party = React.useMemo(() => tx ? data.parties.find(p => p.id && (p.id.toString() === tx.partyId?.toString())) : null, [tx, data.parties]);
     const isPayment = tx?.type === 'payment';
 
+    const linkedPaid = React.useMemo(() => {
+        if (!tx || isPayment) return 0;
+        return data.transactions
+            .filter(t => t.status !== 'Cancelled' && t.type === 'payment' && t.linkedBills)
+            .reduce((sum, t) => {
+                const link = t.linkedBills.find(l => l.billId?.toString() === tx.id?.toString());
+                return sum + (link ? parseFloat(link.amount || 0) : 0);
+            }, 0);
+    }, [tx, data.transactions, isPayment]);
+
     const totals = {
         gross: parseFloat(tx?.grossTotal || tx?.amount || 0),
         discount: parseFloat(tx?.discountValue || 0),
         final: parseFloat(tx?.finalTotal || tx?.amount || 0),
-        received: parseFloat(tx?.received || tx?.paid || (tx?.type === 'payment' ? tx?.amount : 0) || 0)
+        received: parseFloat(tx?.received || tx?.paid || (tx?.type === 'payment' ? tx?.amount : 0) || 0) + linkedPaid
     };
 
     // Enhanced Profit Calculation Logic for Breakdown

@@ -278,6 +278,60 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
 
             {pTab === 'manage' && (
                 <div className="space-y-6 animate-in slide-in-from-right-4 duration-500 pb-20 px-1">
+                    {/* LEGACY RECOVERY SYSTEM (Point 2) */}
+                    <div className="bg-rose-50 border border-rose-100 rounded-[40px] p-8 space-y-4">
+                        <div>
+                            <h3 className="text-[10px] font-black text-rose-900 uppercase tracking-[0.25em]">Vault Restoration</h3>
+                            <p className="text-[8px] font-bold text-rose-500 uppercase tracking-widest mt-1">Recover legacy data from old system</p>
+                        </div>
+                        <p className="text-[9px] font-bold text-rose-400 uppercase leading-relaxed">If you cannot see your old personal transactions or accounts, use this one-click migration to bridge your data from the legacy infrastructure to the new isolated vault.</p>
+                        <button 
+                            onClick={async () => {
+                                if(!window.confirm("Restore legacy data? Existing data will be merged.")) return;
+                                try {
+                                    const { doc, getDoc, setDoc, collection } = await import('firebase/firestore');
+                                    const { db, personalDb } = await import('../../services/firebase');
+                                    const legacyRef = doc(db, "companies", "smees_pro_data");
+                                    const snap = await getDoc(legacyRef);
+                                    if(snap.exists()) {
+                                        const l = snap.data();
+                                        // Migrate Accounts
+                                        if(l.personalAccounts) {
+                                            for(const acc of l.personalAccounts) {
+                                                await setDoc(doc(personalDb, "accounts", acc.id || acc.name), acc);
+                                            }
+                                        }
+                                        // Migrate Transactions
+                                        if(l.personalTransactions) {
+                                            for(const tx of l.personalTransactions) {
+                                                await setDoc(doc(personalDb, "transactions", tx.id), tx);
+                                            }
+                                        }
+                                        // Migrate Tasks
+                                        if(l.personalTasks) {
+                                            for(const t of l.personalTasks) {
+                                                await setDoc(doc(personalDb, "tasks", t.id), t);
+                                            }
+                                        }
+                                        // Migrate Categories
+                                        if(l.personalCategories) {
+                                            await setDoc(doc(personalDb, "settings", "categories"), l.personalCategories);
+                                        }
+                                        alert("Legacy Data Recovery Successful!");
+                                    } else {
+                                        alert("No legacy data found in old system.");
+                                    }
+                                } catch (e) {
+                                    console.error(e);
+                                    alert("Recovery Failed: " + e.message);
+                                }
+                            }}
+                            className="w-full py-4 bg-white border border-rose-200 text-rose-600 rounded-[28px] text-[9px] font-black uppercase tracking-[0.2em] shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2"
+                        >
+                            <RefreshCcw size={14}/> Trigger Master Recovery
+                        </button>
+                    </div>
+
                     {/* ACCOUNTS MANAGEMENT */}
                     <div className="bg-white rounded-[40px] border border-slate-100 p-8 space-y-6 shadow-sm border-b-4 border-b-slate-100">
                         <div className="flex justify-between items-center">

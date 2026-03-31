@@ -76,9 +76,19 @@ export const getBillStats = (bill, transactions) => {
     const used = totalLinkedToThis;
     const pending = Math.max(0, amount - used);
     
+    const wasUsed = used > 0;
+    const isFull = pending <= 0.5;
+
     let status = 'UNPAID';
-    if (pending <= 0.5) status = isPayment ? 'FULLY USED' : 'PAID';
-    else if (used > 0) status = 'PARTIAL';
+    if (isPayment) {
+        if (isFull) status = 'FULLY USED';
+        else if (wasUsed) status = 'PARTIALLY USED';
+        else status = 'UNUSED';
+    } else {
+        if (isFull) status = 'PAID';
+        else if (wasUsed) status = 'PARTIAL';
+        else status = 'UNPAID';
+    }
 
     return { amount, used, pending, status };
 };
