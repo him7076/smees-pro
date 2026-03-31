@@ -29,7 +29,8 @@ export const getNextId = (data, type) => {
                     (data.items && data.items.some(t => t.id === newId)) ||
                     (data.staff && data.staff.some(t => t.id === newId)) ||
                     (data.personalTransactions && data.personalTransactions.some(t => t.id === newId)) ||
-                    (data.personalTasks && data.personalTasks.some(t => t.id === newId));
+                    (data.personalTasks && data.personalTasks.some(t => t.id === newId)) ||
+                    (data.personalAccounts && data.personalAccounts.some(t => t.id === newId));
       if(isDuplicate) {
           num++; 
           newId = `${prefix}-${num}`;
@@ -51,7 +52,10 @@ export const getTransactionTotals = (tx) => {
   let discVal = parseFloat(tx.discountValue || 0);
   if (tx.discountType === '%') discVal = (gross * discVal) / 100;
   const roundOff = parseFloat(tx.roundOff || 0); 
-  const final = gross - discVal + roundOff;
+  
+  const rawFinal = gross - discVal + roundOff;
+  const final = Math.round(rawFinal * 100) / 100; // Precise Rounding
+  
   const paid = parseFloat(tx.received || tx.paid || 0);
   let status = 'UNPAID';
   if (paid >= final - 0.1 && final > 0) status = 'PAID';

@@ -94,40 +94,46 @@ const Dashboard = ({ data, setModal }) => {
 
     return (
         <div className="space-y-6 animate-in fade-in duration-700 pb-20">
-            {/* Execution Suite (TOP) - Compact High Density */}
-            <div className="bg-slate-900 p-5 rounded-[40px] shadow-2xl space-y-6 text-white overflow-hidden relative border border-white/5">
-                <div className="absolute top-0 right-0 w-48 h-48 bg-blue-600/10 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/2"></div>
-                <div className="relative z-10">
-                    <div className="flex justify-between items-center mb-6">
-                        <div className="flex flex-col">
-                            <h4 className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Execution Suite</h4>
-                            <div className="flex items-center gap-2 mt-1">
-                                <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest border border-blue-500/30 px-2 py-0.5 rounded-full">v2.1 Stable</p>
-                            </div>
-
+            {/* Intelligence Stream (NEW Smart Alert Banner) */}
+            <div className="group relative">
+                <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-[40px] blur opacity-20 group-hover:opacity-40 transition duration-1000"></div>
+                <div className="relative bg-white/80 backdrop-blur-xl border border-blue-100 p-6 rounded-[40px] shadow-sm flex flex-col md:flex-row items-center justify-between gap-6 overflow-hidden">
+                    <div className="flex items-center gap-5">
+                        <div className="w-14 h-14 bg-blue-600 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-blue-500/20 rotate-3 group-hover:rotate-0 transition-transform duration-500">
+                            <TrendingUp size={28}/>
                         </div>
-                        <button onClick={() => setModal({ type: 'task' })} className="px-6 py-3.5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.1em] active:scale-95 transition-all shadow-xl shadow-blue-500/20 hover:bg-blue-500">+ New Operation</button>
+                        <div>
+                            <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] leading-none mb-2">Intelligence Stream</p>
+                            <h4 className="text-xl font-black text-slate-900 tracking-tighter leading-none">
+                                {stats.activeTasks > 0 ? `${stats.activeTasks} Operations Pending` : 'System Operational'}
+                            </h4>
+                            <div className="flex gap-4 mt-3">
+                                {stats.sales > 50000 && (
+                                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 rounded-full border border-emerald-100">
+                                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
+                                        <span className="text-[9px] font-black text-emerald-700 uppercase tracking-widest">High Volume: {formatCurrency(stats.sales)}</span>
+                                    </div>
+                                )}
+                                {data.tasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date()).length > 0 && (
+                                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 rounded-full border border-rose-100">
+                                        <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-bounce"></div>
+                                        <span className="text-[9px] font-black text-rose-700 uppercase tracking-widest">Action: Overdue Tasks</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
-                    <div className="grid grid-cols-5 gap-2.5">
-                        {[
-                            { label: 'Sale', type: 'sales', color: 'bg-white/[0.03] text-emerald-400 border-emerald-500/10' },
-                            { label: 'Purch', type: 'purchase', color: 'bg-white/[0.03] text-blue-400 border-blue-500/10' },
-                            { label: 'Exp', type: 'expense', color: 'bg-white/[0.03] text-rose-400 border-rose-500/10' },
-                            { label: 'Pay', type: 'payment', color: 'bg-white/[0.03] text-indigo-400 border-indigo-500/10' },
-                            { label: 'Est', type: 'estimate', color: 'bg-white/[0.03] text-amber-400 border-amber-500/10' }
-                        ].map(btn => (
-                            <button 
-                                key={btn.label} 
-                                onClick={() => setModal({ type: btn.type })} 
-                                className={`py-5 rounded-[28px] border ${btn.color} hover:bg-white/10 transition-all active:scale-90 flex flex-col items-center gap-2 group`}
-                            >
-                                <div className="p-2 bg-white/5 rounded-xl group-hover:scale-110 transition-transform"><Plus size={16}/></div>
-                                <span className="text-[8px] font-black uppercase tracking-widest leading-none opacity-60">{btn.label}</span>
-                            </button>
-                        ))}
-                    </div>
+                    <button 
+                         onClick={() => setModal({ type: 'task' })}
+                         className="w-full md:w-auto px-8 py-4 bg-slate-900 text-white rounded-[24px] text-[10px] font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-black active:scale-95 transition-all flex items-center justify-center gap-3"
+                    >
+                        Deploy New Task <ChevronRight size={16}/>
+                    </button>
                 </div>
             </div>
+
+            {/* Execution Suite (TOP) - Compact High Density */}
+            <div className="bg-slate-900 p-5 rounded-[40px] shadow-2xl space-y-6 text-white overflow-hidden relative border border-white/5">
 
             <div className="flex justify-between items-end gap-6 pt-4 px-2">
                 <div>

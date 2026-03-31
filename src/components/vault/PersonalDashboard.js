@@ -6,15 +6,15 @@ import {
   Search, Filter, ArrowUpRight, ArrowDownLeft, Settings,
   ArrowRightLeft, List, Edit2, Trash2, X, PlusCircle, ArrowLeft
 } from 'lucide-react';
-import { db } from '../../services/firebase';
-import { doc, updateDoc, setDoc } from 'firebase/firestore';
+import { personalDb } from '../../services/firebase';
+import { doc, setDoc } from 'firebase/firestore';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 
 const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
     const transactions = data.personalTransactions || [];
     const accounts = data.personalAccounts || [];
     const tasks = data.personalTasks || [];
-    const categories = data.personalCategories || { income: ['Salary', 'Gift'], expense: ['Food', 'Rent', 'Travel'] };
+    const categories = data.personalCategories || { income: ['Salary', 'Gift'], expense: ['Food', 'Rent', 'Travel'], sub: {} };
     const [pTab, setPTab] = useState('ledger');
     const [selectedCat, setSelectedCat] = useState(null);
     const [isAddingCat, setIsAddingCat] = useState(false);
@@ -44,11 +44,18 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
         return { totalIncome, totalExpense, totalBalance, accBals };
     }, [transactions, accounts]);
 
-    const ShieldCheck = ({ size, className }) => (
-        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>
-        </svg>
-    );
+    const handleAddCat = async () => {
+        if(!newCatName.trim()) return;
+        const next = { ...categories, [selectedCat]: [...(categories[selectedCat] || []), newCatName.trim()] };
+        await setDoc(doc(personalDb, "settings", "categories"), next, { merge: true });
+        // Local state will update via onSnapshot in useFirebaseSync
+        setNewCatName('');
+        setIsAddingCat(false);
+    };
+
+    const updateCategories = async (next) => {
+        await setDoc(doc(personalDb, "settings", "categories"), next, { merge: true });
+    };
 
     return (
         <div className="space-y-6 pb-32">
@@ -59,14 +66,15 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                         <Lock className="text-white" size={16}/>
                     </div>
                     <div>
-                        <h1 className="text-xl font-black text-slate-900 tracking-tight leading-none text-[10px] uppercase opacity-40">Personal Finance</h1>
-                        <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-0.5">#{stats.totalBalance.toLocaleString()}</p>
+                        <h1 className="text-xl font-black text-slate-900 tracking-tight leading-none text-[10px] uppercase opacity-40">Personal Vault</h1>
+                        <p className="text-[14px] font-black text-blue-600 uppercase tracking-widest mt-1">{formatCurrency(stats.totalBalance)}</p>
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={() => setPTab('ledger')} className={`p-2 rounded-xl transition-all ${pTab === 'ledger' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><List size={16}/></button>
-                    <button onClick={() => setPTab('stats')} className={`p-2 rounded-xl transition-all ${pTab === 'stats' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><PieIcon size={16}/></button>
-                    <button onClick={() => setPTab('manage')} className={`p-2 rounded-xl transition-all ${pTab === 'manage' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><Settings size={16}/></button>
+                    <button onClick={() => setPTab('ledger')} className={`p-2.5 rounded-xl transition-all ${pTab === 'ledger' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><List size={18}/></button>
+                    <button onClick={() => setPTab('stats')} className={`p-2.5 rounded-xl transition-all ${pTab === 'stats' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><PieIcon size={18}/></button>
+                    <button onClick={() => setPTab('tasks')} className={`p-2.5 rounded-xl transition-all ${pTab === 'tasks' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><CheckSquare size={18}/></button>
+                    <button onClick={() => setPTab('manage')} className={`p-2.5 rounded-xl transition-all ${pTab === 'manage' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><Settings size={18}/></button>
                 </div>
             </div>
 
@@ -74,32 +82,31 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                 <div className="space-y-6 animate-in fade-in duration-500">
                     {/* TOP ACTION BAR - INCOME/EXPENSE/TRANSFER */}
                     <div className="grid grid-cols-3 gap-3 px-1">
-                        <button onClick={() => setModal({ type: 'personalTransaction', intent: 'income' })} className="py-4 bg-emerald-50 border border-emerald-100 rounded-3xl flex flex-col items-center gap-1 active:scale-95 transition-all group">
-                            <ArrowUpRight className="text-emerald-500 group-hover:scale-110 transition-transform" size={20}/>
-                            <span className="text-[8px] font-black text-emerald-700 uppercase tracking-widest">Inflow</span>
+                        <button onClick={() => setModal({ type: 'personalTransaction', intent: 'income', context: 'personal' })} className="py-5 bg-emerald-50 border border-emerald-100 rounded-[32px] flex flex-col items-center gap-1 active:scale-95 transition-all group">
+                            <ArrowUpRight className="text-emerald-500 group-hover:scale-110 transition-transform" size={24}/>
+                            <span className="text-[9px] font-black text-emerald-700 uppercase tracking-widest">Inflow</span>
                         </button>
-                        <button onClick={() => setModal({ type: 'personalTransaction', intent: 'expense' })} className="py-4 bg-rose-50 border border-rose-100 rounded-3xl flex flex-col items-center gap-1 active:scale-95 transition-all group">
-                            <ArrowDownLeft className="text-rose-500 group-hover:scale-110 transition-transform" size={20}/>
-                            <span className="text-[8px] font-black text-rose-700 uppercase tracking-widest">Outflow</span>
+                        <button onClick={() => setModal({ type: 'personalTransaction', intent: 'expense', context: 'personal' })} className="py-5 bg-rose-50 border border-rose-100 rounded-[32px] flex flex-col items-center gap-1 active:scale-95 transition-all group">
+                            <ArrowDownLeft className="text-rose-500 group-hover:scale-110 transition-transform" size={24}/>
+                            <span className="text-[9px] font-black text-rose-700 uppercase tracking-widest">Outflow</span>
                         </button>
-                        <button onClick={() => setModal({ type: 'personalTransaction', intent: 'transfer' })} className="py-4 bg-blue-50 border border-blue-100 rounded-3xl flex flex-col items-center gap-1 active:scale-95 transition-all group">
-                            <ArrowRightLeft className="text-blue-500 group-hover:scale-110 transition-transform" size={20}/>
-                            <span className="text-[8px] font-black text-blue-700 uppercase tracking-widest">Transfer</span>
+                        <button onClick={() => setModal({ type: 'personalTransaction', intent: 'transfer', context: 'personal' })} className="py-5 bg-blue-50 border border-blue-100 rounded-[32px] flex flex-col items-center gap-1 active:scale-95 transition-all group">
+                            <ArrowRightLeft className="text-blue-500 group-hover:scale-110 transition-transform" size={24}/>
+                            <span className="text-[9px] font-black text-blue-700 uppercase tracking-widest">Move</span>
                         </button>
                     </div>
-
 
                     <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden border-b-4 border-b-slate-100">
                         <div onClick={() => setViewDetail({ type: 'personalFinance' })} className="p-6 bg-slate-50/50 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors">
                             <div>
-                                <h3 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Complete Ledger History</h3>
+                                <h3 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Operational History</h3>
                                 <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Audit Trail & Statements</p>
                             </div>
                             <button className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center text-slate-400 group-hover:text-blue-600 transition-all"><History size={16}/></button>
                         </div>
                         <div className="divide-y divide-slate-50">
                             {transactions.sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0, 10).map(t => (
-                                <div key={t.id} onClick={() => setModal({ type: 'personalTransaction', data: t })} className="p-5 flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer group">
+                                <div key={t.id} onClick={() => setModal({ type: 'personalTransaction', data: t, context: 'personal' })} className="p-5 flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer group">
                                     <div className="flex items-center gap-4">
                                         <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm group-active:scale-90 transition-all ${t.type === 'income' ? 'bg-emerald-50 text-emerald-600' : t.type === 'expense' ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'}`}>
                                             {t.type === 'income' ? <ArrowUpRight size={20}/> : t.type === 'expense' ? <ArrowDownLeft size={20}/> : <ArrowRightLeft size={20}/>}
@@ -121,13 +128,16 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
 
             {pTab === 'tasks' && (
                 <div className="space-y-6 animate-in slide-in-from-right-4 duration-500">
-                    <div className="flex justify-between items-center px-2">
-                        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Private Tasks</h3>
-                        <button onClick={() => setModal({ type: 'task', context: 'personal' })} className="p-2.5 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-500/20 active:scale-90 transition-all"><Plus size={16}/></button>
+                    <div className="flex justify-between items-center px-4">
+                        <div>
+                            <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Private Operations</h3>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Secured Context Tasks</p>
+                        </div>
+                        <button onClick={() => setModal({ type: 'task', context: 'personal' })} className="w-12 h-12 bg-blue-600 text-white rounded-2xl shadow-xl shadow-blue-500/20 active:scale-90 transition-all flex items-center justify-center"><Plus size={20}/></button>
                     </div>
                     
-                    <div className="space-y-3">
-                        {tasks.filter(t => t.status !== 'Done').sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).map(t => (
+                    <div className="space-y-3 px-2">
+                        {tasks.filter(t => t.status !== 'Done').sort((a,b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).map(t => (
                             <div key={t.id} onClick={() => setModal({ type: 'task', data: t, context: 'personal' })} className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-sm flex items-center justify-between group active:scale-[0.98] transition-all">
                                 <div className="flex items-center gap-4">
                                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${t.priority === 'High' ? 'bg-rose-50 text-rose-500' : t.priority === 'Medium' ? 'bg-amber-50 text-amber-500' : 'bg-slate-50 text-slate-400'}`}>
@@ -141,6 +151,12 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                 <ChevronRight size={16} className="text-slate-200 group-hover:translate-x-1 group-hover:text-blue-500 transition-all"/>
                             </div>
                         ))}
+                        {tasks.filter(t => t.status !== 'Done').length === 0 && (
+                            <div className="py-20 text-center opacity-30 grayscale">
+                                <CheckSquare size={48} className="mx-auto mb-4 text-slate-300"/>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Operational Vacuum</p>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -266,10 +282,10 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                     <div className="bg-white rounded-[40px] border border-slate-100 p-8 space-y-6 shadow-sm border-b-4 border-b-slate-100">
                         <div className="flex justify-between items-center">
                             <div>
-                                <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-[0.25em]">Personal Vault</h3>
-                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Wallet Management</p>
+                                <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-[0.25em]">Storage Vault</h3>
+                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Acres & Wallet Security</p>
                             </div>
-                            <button onClick={() => setModal({ type: 'personalAccount' })} className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-200 active:scale-95 transition-all"><Plus size={16}/></button>
+                            <button onClick={() => setModal({ type: 'personalAccount', context: 'personal' })} className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-200 active:scale-95 transition-all flex items-center justify-center"><Plus size={16}/></button>
                         </div>
                         <div className="space-y-2">
                              {accounts.map(acc => (
@@ -280,12 +296,12 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                          </div>
                                          <div>
                                              <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">{acc.name}</p>
-                                             <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{acc.type} • Secured</p>
+                                             <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{acc.type} • Isolated</p>
                                          </div>
                                      </div>
                                      <div className="flex items-center gap-3">
                                          <span className="text-xs font-black text-slate-900 mr-2">{formatCurrency(stats.accBals[acc.name] || 0)}</span>
-                                         <button onClick={() => setModal({ type: 'personalAccount', data: acc })} className="p-2.5 bg-white rounded-xl text-slate-300 hover:text-blue-600 transition-all"><Edit2 size={14}/></button>
+                                         <button onClick={() => setModal({ type: 'personalAccount', data: acc, context: 'personal' })} className="p-2.5 bg-white rounded-xl text-slate-300 hover:text-blue-600 transition-all"><Edit2 size={14}/></button>
                                      </div>
                                  </div>
                              ))}
@@ -297,7 +313,7 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                         <div className="flex justify-between items-center">
                             <div>
                                 <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-[0.25em]">Classification</h3>
-                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Smart Categories</p>
+                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Intelligence Sorting</p>
                             </div>
                             <div className="bg-slate-50 p-1 rounded-xl flex gap-1">
                                 <button onClick={()=>setSelectedCat('expense')} className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all ${selectedCat === 'expense' ? 'bg-rose-500 text-white shadow-lg shadow-rose-200' : 'text-slate-400'}`}>Exp</button>
@@ -308,26 +324,26 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                         {selectedCat ? (
                             <div className="space-y-4 animate-in slide-in-from-top-2">
                                 <div className="flex justify-between items-center bg-slate-50 p-3 rounded-2xl">
-                                    <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{selectedCat} Categories</h4>
-                                    <button onClick={() => setIsAddingCat(true)} className="flex items-center gap-1 text-[8px] font-black text-blue-600 uppercase tracking-widest"><PlusCircle size={14}/> Add New</button>
+                                    <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{selectedCat} Context</h4>
+                                    <button onClick={() => setIsAddingCat(true)} className="flex items-center gap-1 text-[8px] font-black text-blue-600 uppercase tracking-widest"><PlusCircle size={14}/> Define New</button>
                                 </div>
                                 {isAddingCat && (
                                     <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-3xl flex gap-2 animate-in zoom-in-95">
-                                        <input autoFocus placeholder="Category Name..." className="flex-1 bg-white px-4 py-3 rounded-xl text-[10px] font-black outline-none border border-slate-100" value={newCatName} onChange={e=>setNewCatName(e.target.value)} onKeyDown={e=>e.key==='Enter' && handleAddCat()}/>
-                                        <button onClick={handleAddCat} className="px-4 bg-blue-600 text-white rounded-xl text-[8px] font-black uppercase">Save</button>
+                                        <input autoFocus placeholder="Label..." className="flex-1 bg-white px-4 py-3 rounded-xl text-[10px] font-black outline-none border border-slate-100" value={newCatName} onChange={e=>setNewCatName(e.target.value)} onKeyDown={e=>e.key==='Enter' && handleAddCat()}/>
+                                        <button onClick={handleAddCat} className="px-4 bg-blue-600 text-white rounded-xl text-[8px] font-black uppercase">Secure</button>
                                         <button onClick={() => { setIsAddingCat(false); setNewCatName(''); }} className="p-3 bg-white text-slate-400 rounded-xl"><X size={14}/></button>
                                     </div>
                                 )}
                                  <div className="grid grid-cols-2 gap-2">
                                     {(categories[selectedCat] || []).map(cat => (
-                                        <div key={cat} className="p-4 bg-slate-50 rounded-2xl flex flex-col gap-2 group hover:bg-slate-100 transition-all">
+                                        <div key={cat} className="p-4 bg-slate-50 rounded-2xl flex flex-col gap-2 group hover:bg-slate-100 transition-all border border-transparent hover:border-slate-200">
                                             <div className="flex justify-between items-center">
                                                 <span className="text-[10px] font-black text-slate-700 uppercase truncate pr-2">{cat}</span>
                                                 <button 
                                                     onClick={async () => {
                                                         if(window.confirm(`Delete "${cat}"?`)) {
                                                             const next = { ...categories, [selectedCat]: categories[selectedCat].filter(c => c !== cat) };
-                                                            await updateDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: next });
+                                                            await updateCategories(next);
                                                         }
                                                     }}
                                                     className="opacity-0 group-hover:opacity-100 p-1 text-rose-400 hover:text-rose-600 transition-all"
@@ -337,12 +353,12 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                             {/* Sub-categories */}
                                             <div className="space-y-1">
                                                 {(categories.sub?.[cat] || []).map(sub => (
-                                                    <div key={sub} className="flex justify-between items-center bg-white/50 px-2 py-1 rounded-lg text-[7px] font-bold text-slate-500 uppercase">
+                                                    <div key={sub} className="flex justify-between items-center bg-white/80 px-2 py-1.5 rounded-lg text-[7px] font-black text-slate-500 uppercase">
                                                         <span>{sub}</span>
                                                         <button 
                                                             onClick={async () => {
                                                                 const nextSub = { ...categories.sub, [cat]: categories.sub[cat].filter(s => s !== sub) };
-                                                                await updateDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: { ...categories, sub: nextSub } });
+                                                                await updateCategories({ ...categories, sub: nextSub });
                                                             }}
                                                             className="text-slate-300 hover:text-rose-500"
                                                         ><X size={10}/></button>
@@ -353,21 +369,21 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                                         const n = prompt(`Add sub-category for ${cat}:`);
                                                         if(n) {
                                                             const nextSub = { ...categories.sub, [cat]: [...(categories.sub?.[cat] || []), n.trim()] };
-                                                            updateDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: { ...categories, sub: nextSub } });
+                                                            updateCategories({ ...categories, sub: nextSub });
                                                         }
                                                     }}
-                                                    className="w-full py-1 border border-dashed border-slate-200 rounded-lg text-[7px] font-black text-slate-400 uppercase hover:bg-white"
-                                                >+ Sub</button>
+                                                    className="w-full py-1.5 border border-dashed border-slate-200 rounded-lg text-[7px] font-black text-slate-400 uppercase hover:bg-white active:scale-95 transition-all"
+                                                >+ Add Logic</button>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
-                                <button onClick={()=>setSelectedCat(null)} className="w-full py-4 text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] hover:text-slate-600 transition-colors">Close Controls</button>
+                                <button onClick={()=>setSelectedCat(null)} className="w-full py-4 text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] hover:text-slate-600 transition-colors">Relock Classification</button>
                             </div>
                         ) : (
-                            <div className="py-10 text-center grayscale opacity-30">
+                            <div className="py-10 text-center grayscale opacity-10">
                                 <PlusCircle size={40} className="mx-auto mb-4 text-slate-300"/>
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Mode to Manage</p>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Encrypted Domain</p>
                             </div>
                         )}
                     </div>
@@ -375,14 +391,6 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
             )}
         </div>
     );
-
-    async function handleAddCat() {
-        if(!newCatName.trim()) return;
-        const next = { ...categories, [selectedCat]: [...(categories[selectedCat] || []), newCatName.trim()] };
-        await updateDoc(doc(db, "companies", "smees_pro_data"), { personalCategories: next });
-        setNewCatName('');
-        setIsAddingCat(false);
-    }
 };
 
 export default PersonalDashboard;
