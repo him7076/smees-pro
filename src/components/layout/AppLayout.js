@@ -49,7 +49,7 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
                     <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
                         <Package className="text-white" size={16}/>
                     </div>
-                    <h1 className="text-lg font-black tracking-tight text-slate-900 leading-none">SMEES<span className="text-blue-600">PRO</span></h1>
+                    <h1 className="text-sm font-black tracking-tight text-slate-900 leading-none">SMEES<span className="text-blue-600">PRO</span></h1>
                 </div>
 
                 <nav className="flex-1 space-y-1">

@@ -14,13 +14,22 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
     const transactions = data.personalTransactions || [];
     const accounts = data.personalAccounts || [];
     const tasks = data.personalTasks || [];
-    const categories = data.personalCategories || { income: ['Salary', 'Gift'], expense: ['Food', 'Rent', 'Travel'], sub: {} };
+    const categories = useMemo(() => {
+        const base = data.personalCategories || {};
+        return {
+            income: base.income || ['Salary', 'Gift'],
+            expense: base.expense || ['Food', 'Rent', 'Travel'],
+            sub: base.sub || {}
+        };
+    }, [data.personalCategories]);
     const [pTab, setPTab] = useState('ledger');
     const [selectedCat, setSelectedCat] = useState(null);
     const [isAddingCat, setIsAddingCat] = useState(false);
     const [newCatName, setNewCatName] = useState('');
     const [statsType, setStatsType] = useState('expense');
     const [subCatDrillDown, setSubCatDrillDown] = useState(null);
+    const [statsRange, setStatsRange] = useState('Monthly');
+    const [customRange, setCustomRange] = useState({ start: '', end: '' });
 
     const stats = useMemo(() => {
         let totalIncome = 0, totalExpense = 0;
@@ -44,17 +53,44 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
         return { totalIncome, totalExpense, totalBalance, accBals };
     }, [transactions, accounts]);
 
-    const handleAddCat = async () => {
-        if(!newCatName.trim()) return;
-        const next = { ...categories, [selectedCat]: [...(categories[selectedCat] || []), newCatName.trim()] };
-        await setDoc(doc(personalDb, "settings", "categories"), next, { merge: true });
-        // Local state will update via onSnapshot in useFirebaseSync
-        setNewCatName('');
-        setIsAddingCat(false);
+    const filteredStatsTransactions = useMemo(() => {
+        const today = new Date();
+        return transactions.filter(t => {
+            if(t.type !== statsType) return false;
+            const d = new Date(t.date);
+            if (statsRange === 'Today') return d.toDateString() === today.toDateString();
+            if (statsRange === 'Weekly') {
+                const weekAgo = new Date(); weekAgo.setDate(today.getDate() - 7);
+                return d >= weekAgo;
+            }
+            if (statsRange === 'Monthly') return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+            if (statsRange === 'Yearly') return d.getFullYear() === today.getFullYear();
+            if (statsRange === 'Custom' && customRange.start && customRange.end) {
+                return t.date >= customRange.start && t.date <= customRange.end;
+            }
+            return true;
+        });
+    }, [transactions, statsType, statsRange, customRange]);
+
+    const deleteTransaction = async (id) => {
+        if(!window.confirm("Delete this transaction?")) return;
+        const { doc, deleteDoc } = await import('firebase/firestore');
+        const { personalDb } = await import('../../services/firebase');
+        await deleteDoc(doc(personalDb, "transactions", id));
     };
 
     const updateCategories = async (next) => {
+        const { doc, setDoc } = await import('firebase/firestore');
+        const { personalDb } = await import('../../services/firebase');
         await setDoc(doc(personalDb, "settings", "categories"), next, { merge: true });
+    };
+
+    const handleAddCat = async () => {
+        if(!newCatName.trim()) return;
+        const next = { ...categories, [selectedCat]: [...(categories[selectedCat] || []), newCatName.trim()] };
+        await updateCategories(next);
+        setNewCatName('');
+        setIsAddingCat(false);
     };
 
     return (
@@ -66,15 +102,14 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                         <Lock className="text-white" size={16}/>
                     </div>
                     <div>
-                        <h1 className="text-xl font-black text-slate-900 tracking-tight leading-none text-[10px] uppercase opacity-40">Personal Vault</h1>
-                        <p className="text-[14px] font-black text-blue-600 uppercase tracking-widest mt-1">{formatCurrency(stats.totalBalance)}</p>
+                        <h1 className="text-[10px] font-black text-slate-900 tracking-tight leading-none uppercase opacity-30">Private Vault</h1>
+                        <p className="text-sm font-black text-blue-600 uppercase tracking-widest mt-0.5">{formatCurrency(stats.totalBalance)}</p>
                     </div>
                 </div>
-                <div className="flex gap-2">
-                    <button onClick={() => setPTab('ledger')} className={`p-2.5 rounded-xl transition-all ${pTab === 'ledger' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><List size={18}/></button>
-                    <button onClick={() => setPTab('stats')} className={`p-2.5 rounded-xl transition-all ${pTab === 'stats' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><PieIcon size={18}/></button>
-                    <button onClick={() => setPTab('tasks')} className={`p-2.5 rounded-xl transition-all ${pTab === 'tasks' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><CheckSquare size={18}/></button>
-                    <button onClick={() => setPTab('manage')} className={`p-2.5 rounded-xl transition-all ${pTab === 'manage' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><Settings size={18}/></button>
+                <div className="flex gap-1.5">
+                    <button onClick={() => setPTab('ledger')} className={`p-2 rounded-xl transition-all ${pTab === 'ledger' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><List size={16}/></button>
+                    <button onClick={() => setPTab('stats')} className={`p-2 rounded-xl transition-all ${pTab === 'stats' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><PieIcon size={16}/></button>
+                    <button onClick={() => setPTab('manage')} className={`p-2 rounded-xl transition-all ${pTab === 'manage' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><Settings size={16}/></button>
                 </div>
             </div>
 
@@ -84,15 +119,15 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                     <div className="grid grid-cols-3 gap-3 px-1">
                         <button onClick={() => setModal({ type: 'personalTransaction', intent: 'income', context: 'personal' })} className="py-5 bg-emerald-50 border border-emerald-100 rounded-[32px] flex flex-col items-center gap-1 active:scale-95 transition-all group">
                             <ArrowUpRight className="text-emerald-500 group-hover:scale-110 transition-transform" size={24}/>
-                            <span className="text-[9px] font-black text-emerald-700 uppercase tracking-widest">Inflow</span>
+                            <span className="text-[9px] font-black text-emerald-700 uppercase tracking-widest">Income</span>
                         </button>
                         <button onClick={() => setModal({ type: 'personalTransaction', intent: 'expense', context: 'personal' })} className="py-5 bg-rose-50 border border-rose-100 rounded-[32px] flex flex-col items-center gap-1 active:scale-95 transition-all group">
                             <ArrowDownLeft className="text-rose-500 group-hover:scale-110 transition-transform" size={24}/>
-                            <span className="text-[9px] font-black text-rose-700 uppercase tracking-widest">Outflow</span>
+                            <span className="text-[9px] font-black text-rose-700 uppercase tracking-widest">Expenses</span>
                         </button>
                         <button onClick={() => setModal({ type: 'personalTransaction', intent: 'transfer', context: 'personal' })} className="py-5 bg-blue-50 border border-blue-100 rounded-[32px] flex flex-col items-center gap-1 active:scale-95 transition-all group">
                             <ArrowRightLeft className="text-blue-500 group-hover:scale-110 transition-transform" size={24}/>
-                            <span className="text-[9px] font-black text-blue-700 uppercase tracking-widest">Move</span>
+                            <span className="text-[9px] font-black text-blue-700 uppercase tracking-widest">Transfer</span>
                         </button>
                     </div>
 
@@ -112,7 +147,10 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                             {t.type === 'income' ? <ArrowUpRight size={20}/> : t.type === 'expense' ? <ArrowDownLeft size={20}/> : <ArrowRightLeft size={20}/>}
                                         </div>
                                         <div>
-                                            <p className="text-[11px] font-black text-slate-800 tracking-tight leading-none mb-1 uppercase">{t.category || t.note || 'Internal Transfer'}</p>
+                                            <div className="flex items-center gap-2">
+                                                <p className="text-[11px] font-black text-slate-800 tracking-tight leading-none uppercase">{t.category || t.note || 'Internal Transfer'}</p>
+                                                <button onClick={(e) => { e.stopPropagation(); deleteTransaction(t.id); }} className="opacity-0 group-hover:opacity-100 p-1 text-rose-300 hover:text-rose-500 transition-all"><Trash2 size={12}/></button>
+                                            </div>
                                             <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{t.date} • <span className="text-slate-500 font-black">{t.account}</span></p>
                                         </div>
                                     </div>
@@ -130,10 +168,10 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                 <div className="space-y-6 animate-in slide-in-from-right-4 duration-500">
                     <div className="flex justify-between items-center px-4">
                         <div>
-                            <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Private Operations</h3>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Secured Context Tasks</p>
+                            <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-tight">Private Operations</h3>
+                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Secured Context Tasks</p>
                         </div>
-                        <button onClick={() => setModal({ type: 'task', context: 'personal' })} className="w-12 h-12 bg-blue-600 text-white rounded-2xl shadow-xl shadow-blue-500/20 active:scale-90 transition-all flex items-center justify-center"><Plus size={20}/></button>
+                        <button onClick={() => setModal({ type: 'task', context: 'personal' })} className="w-10 h-10 bg-blue-600 text-white rounded-xl shadow-xl shadow-blue-500/20 active:scale-90 transition-all flex items-center justify-center"><Plus size={16}/></button>
                     </div>
                     
                     <div className="space-y-3 px-2">
@@ -164,14 +202,29 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
             {pTab === 'stats' && (
                 <div className="space-y-6 animate-in slide-in-from-right-4 duration-500 pb-10">
                     <div className="bg-white p-6 rounded-[40px] border border-slate-100 shadow-xl overflow-hidden relative">
-                         <div className="bg-slate-50 p-1.5 rounded-2xl flex mb-6 shadow-inner">
-                            <button onClick={() => { setStatsType('expense'); setSubCatDrillDown(null); }} className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest rounded-xl transition-all ${statsType === 'expense' ? 'bg-white text-rose-600 shadow-md' : 'text-slate-400'}`}>Expense Breakdown</button>
-                            <button onClick={() => { setStatsType('income'); setSubCatDrillDown(null); }} className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest rounded-xl transition-all ${statsType === 'income' ? 'bg-white text-emerald-600 shadow-md' : 'text-slate-400'}`}>Income Breakdown</button>
+                         <div className="bg-slate-50 p-1 rounded-2xl flex mb-4 shadow-inner">
+                            <button onClick={() => { setStatsType('expense'); setSubCatDrillDown(null); }} className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest rounded-xl transition-all ${statsType === 'expense' ? 'bg-white text-rose-600 shadow-md' : 'text-slate-400'}`}>Expenses</button>
+                            <button onClick={() => { setStatsType('income'); setSubCatDrillDown(null); }} className={`flex-1 py-3 text-[9px] font-black uppercase tracking-widest rounded-xl transition-all ${statsType === 'income' ? 'bg-white text-emerald-600 shadow-md' : 'text-slate-400'}`}>Income</button>
                          </div>
 
-                         {/* LEGACY SVG PIE CHART WITH DRILLDOWN & LABELS */}
+                         {/* DURATION SELECTOR (Point 8) */}
+                         <div className="flex gap-1.5 overflow-x-auto pb-4 scrollbar-hide">
+                            {['Today', 'Weekly', 'Monthly', 'Yearly', 'Custom'].map(r => (
+                                <button key={r} onClick={() => setStatsRange(r)} className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase tracking-widest border transition-all whitespace-nowrap ${statsRange === r ? 'bg-slate-900 text-white border-slate-900 shadow-lg' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>
+                                    {r}
+                                </button>
+                            ))}
+                         </div>
+                         {statsRange === 'Custom' && (
+                             <div className="flex gap-2 mb-4 animate-in slide-in-from-top-2">
+                                <input type="date" value={customRange.start} onChange={e=>setCustomRange(p=>({...p, start:e.target.value}))} className="flex-1 bg-slate-50 border border-slate-100 p-2.5 rounded-xl text-[9px] font-black uppercase outline-none"/>
+                                <input type="date" value={customRange.end} onChange={e=>setCustomRange(p=>({...p, end:e.target.value}))} className="flex-1 bg-slate-50 border border-slate-100 p-2.5 rounded-xl text-[9px] font-black uppercase outline-none"/>
+                             </div>
+                         )}
+
+                         {/* PIE CHART LOGIC USING filteredStatsTransactions */}
                          {(() => {
-                             const currentTxs = transactions.filter(t => t.type === statsType && (!subCatDrillDown || t.category === subCatDrillDown));
+                             const currentTxs = filteredStatsTransactions.filter(t => !subCatDrillDown || t.category === subCatDrillDown);
                              const groupByKey = subCatDrillDown ? 'subCategory' : 'category';
                              const statsMap = {};
                              currentTxs.forEach(t => { 
@@ -253,9 +306,12 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
 
                                      <div className="w-full mt-4 space-y-3">
                                          {subCatDrillDown && (
-                                             <button onClick={()=>setSubCatDrillDown(null)} className="flex items-center gap-2 mb-4 text-[9px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-4 py-2 rounded-2xl border border-blue-100 active:scale-95 transition-all"><ArrowLeft size={14}/> Back to Summary</button>
+                                             <div className="flex flex-wrap gap-2 mb-4">
+                                                <button onClick={()=>setSubCatDrillDown(null)} className="flex items-center gap-2 text-[8px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-4 py-2 rounded-xl border border-blue-100 active:scale-95 transition-all"><ArrowLeft size={12}/> Summary</button>
+                                                <button onClick={()=>setSubCatDrillDown('All')} className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase tracking-widest border transition-all ${subCatDrillDown === 'All' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-400 border-slate-100'}`}>All Records</button>
+                                             </div>
                                          )}
-                                         <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 pl-2">{subCatDrillDown ? `Breakdown: ${subCatDrillDown}` : 'Distribution Analysis'}</h4>
+                                         <h4 className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 pl-2">{subCatDrillDown ? `Audit: ${subCatDrillDown}` : 'Distribution Analysis'}</h4>
                                          {slices.map((slice, i) => (
                                              <div key={slice.key} onClick={() => !subCatDrillDown && setSubCatDrillDown(slice.key)} className="flex items-center justify-between p-4 bg-slate-50/50 rounded-2xl hover:bg-white hover:shadow-md hover:border-slate-100 border border-transparent transition-all cursor-pointer group">
                                                  <div className="flex items-center gap-3">
@@ -268,6 +324,27 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                                  </div>
                                              </div>
                                          ))}
+
+                                         {/* TRANSACTION DRILLDOWN FOR Point 7 */}
+                                         {subCatDrillDown && (
+                                             <div className="mt-6 pt-6 border-t border-slate-100 space-y-3 animate-in fade-in slide-in-from-bottom-4">
+                                                 <div className="flex justify-between items-center px-1 mb-2">
+                                                     <h5 className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Transaction Audit</h5>
+                                                     <p className="text-[8px] font-black text-slate-900 uppercase tracking-widest">{currentTxs.filter(t => (subCatDrillDown === 'All' || (t.category === subCatDrillDown || t.subCategory === subCatDrillDown))).length} Records</p>
+                                                 </div>
+                                                 {currentTxs.filter(t => (subCatDrillDown === 'All' || (t.category === subCatDrillDown || t.subCategory === subCatDrillDown))).map(t => (
+                                                     <div key={t.id} onClick={() => setModal({ type: 'personalTransaction', data: t, context: 'personal' })} className="p-4 bg-slate-50 rounded-2xl flex justify-between items-center group hover:bg-white hover:shadow-sm transition-all border border-transparent hover:border-slate-100">
+                                                         <div>
+                                                             <p className="text-[10px] font-black text-slate-800 uppercase leading-none mb-1">{t.note || t.category || 'Direct Operation'}</p>
+                                                             <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest">{t.date} • {t.account}</p>
+                                                         </div>
+                                                         <p className={`text-[10px] font-black ${t.type === 'expense' ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                                             {t.type === 'expense' ? '-' : '+'}{formatCurrency(t.amount)}
+                                                         </p>
+                                                     </div>
+                                                 ))}
+                                             </div>
+                                         )}
                                      </div>
                                  </div>
                              );
@@ -278,60 +355,6 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
 
             {pTab === 'manage' && (
                 <div className="space-y-6 animate-in slide-in-from-right-4 duration-500 pb-20 px-1">
-                    {/* LEGACY RECOVERY SYSTEM (Point 2) */}
-                    <div className="bg-rose-50 border border-rose-100 rounded-[40px] p-8 space-y-4">
-                        <div>
-                            <h3 className="text-[10px] font-black text-rose-900 uppercase tracking-[0.25em]">Vault Restoration</h3>
-                            <p className="text-[8px] font-bold text-rose-500 uppercase tracking-widest mt-1">Recover legacy data from old system</p>
-                        </div>
-                        <p className="text-[9px] font-bold text-rose-400 uppercase leading-relaxed">If you cannot see your old personal transactions or accounts, use this one-click migration to bridge your data from the legacy infrastructure to the new isolated vault.</p>
-                        <button 
-                            onClick={async () => {
-                                if(!window.confirm("Restore legacy data? Existing data will be merged.")) return;
-                                try {
-                                    const { doc, getDoc, setDoc, collection } = await import('firebase/firestore');
-                                    const { db, personalDb } = await import('../../services/firebase');
-                                    const legacyRef = doc(db, "companies", "smees_pro_data");
-                                    const snap = await getDoc(legacyRef);
-                                    if(snap.exists()) {
-                                        const l = snap.data();
-                                        // Migrate Accounts
-                                        if(l.personalAccounts) {
-                                            for(const acc of l.personalAccounts) {
-                                                await setDoc(doc(personalDb, "accounts", acc.id || acc.name), acc);
-                                            }
-                                        }
-                                        // Migrate Transactions
-                                        if(l.personalTransactions) {
-                                            for(const tx of l.personalTransactions) {
-                                                await setDoc(doc(personalDb, "transactions", tx.id), tx);
-                                            }
-                                        }
-                                        // Migrate Tasks
-                                        if(l.personalTasks) {
-                                            for(const t of l.personalTasks) {
-                                                await setDoc(doc(personalDb, "tasks", t.id), t);
-                                            }
-                                        }
-                                        // Migrate Categories
-                                        if(l.personalCategories) {
-                                            await setDoc(doc(personalDb, "settings", "categories"), l.personalCategories);
-                                        }
-                                        alert("Legacy Data Recovery Successful!");
-                                    } else {
-                                        alert("No legacy data found in old system.");
-                                    }
-                                } catch (e) {
-                                    console.error(e);
-                                    alert("Recovery Failed: " + e.message);
-                                }
-                            }}
-                            className="w-full py-4 bg-white border border-rose-200 text-rose-600 rounded-[28px] text-[9px] font-black uppercase tracking-[0.2em] shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2"
-                        >
-                            <RefreshCcw size={14}/> Trigger Master Recovery
-                        </button>
-                    </div>
-
                     {/* ACCOUNTS MANAGEMENT */}
                     <div className="bg-white rounded-[40px] border border-slate-100 p-8 space-y-6 shadow-sm border-b-4 border-b-slate-100">
                         <div className="flex justify-between items-center">
@@ -366,7 +389,7 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                     <div className="bg-white rounded-[40px] border border-slate-100 p-8 space-y-6 shadow-sm border-b-4 border-b-slate-100">
                         <div className="flex justify-between items-center">
                             <div>
-                                <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-[0.25em]">Classification</h3>
+                                <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-[0.25em]">Account Classification</h3>
                                 <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Intelligence Sorting</p>
                             </div>
                             <div className="bg-slate-50 p-1 rounded-xl flex gap-1">
