@@ -134,6 +134,36 @@ const Dashboard = ({ data, setModal }) => {
 
             {/* Execution Suite (TOP) - Compact High Density */}
             <div className="bg-slate-900 p-5 rounded-[40px] shadow-2xl space-y-6 text-white overflow-hidden relative border border-white/5">
+                <div className="absolute top-0 right-0 w-48 h-48 bg-blue-600/10 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/2"></div>
+                <div className="relative z-10">
+                    <div className="flex justify-between items-center mb-6">
+                        <div className="flex flex-col">
+                            <h4 className="text-[10px] font-black text-white/50 uppercase tracking-[0.3em]">Execution Suite</h4>
+                            <div className="flex items-center gap-2 mt-1">
+                                <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest border border-blue-500/30 px-2 py-0.5 rounded-full">v2.1 Stable</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-5 gap-2.5">
+                        {[
+                            { label: 'Sale', type: 'sales', color: 'bg-white/[0.03] text-emerald-400 border-emerald-500/10' },
+                            { label: 'Purch', type: 'purchase', color: 'bg-white/[0.03] text-blue-400 border-blue-500/10' },
+                            { label: 'Exp', type: 'expense', color: 'bg-white/[0.03] text-rose-400 border-rose-500/10' },
+                            { label: 'Pay', type: 'payment', color: 'bg-white/[0.03] text-indigo-400 border-indigo-500/10' },
+                            { label: 'Est', type: 'estimate', color: 'bg-white/[0.03] text-amber-400 border-amber-500/10' }
+                        ].map(btn => (
+                            <button 
+                                key={btn.label} 
+                                onClick={() => setModal({ type: btn.type })} 
+                                className={`py-5 rounded-[28px] border ${btn.color} hover:bg-white/10 transition-all active:scale-90 flex flex-col items-center gap-2 group`}
+                            >
+                                <div className="p-2 bg-white/5 rounded-xl group-hover:scale-110 transition-transform"><Plus size={16}/></div>
+                                <span className="text-[8px] font-black uppercase tracking-widest leading-none opacity-60">{btn.label}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
 
             <div className="flex justify-between items-end gap-6 pt-4 px-2">
                 <div>
