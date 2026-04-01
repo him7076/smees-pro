@@ -4,7 +4,17 @@ import { doc, setDoc } from 'firebase/firestore';
 import { personalDb } from '../../services/firebase';
 
 const PersonalSettingsView = ({ data, setData, setModal, onBack }) => {
-    const categories = data.personalCategories || { income: ['Salary', 'Gift'], expense: ['Food', 'Rent', 'Travel'], sub: {} };
+    const rawCategories = data.personalCategories || { income: ['Salary', 'Gift'], expense: ['Food', 'Rent', 'Travel'], sub: {} };
+    
+    // Normalize: old format stored categories as objects {name, subCategories}, new format uses plain strings
+    const normalizeList = (list) => (list || []).map(item => typeof item === 'object' ? (item.name || JSON.stringify(item)) : item);
+    const categories = {
+        ...rawCategories,
+        income: normalizeList(rawCategories.income),
+        expense: normalizeList(rawCategories.expense),
+        sub: rawCategories.sub || {}
+    };
+    
     const [selectedCatType, setSelectedCatType] = useState('expense');
     const [isAddingCat, setIsAddingCat] = useState(false);
     const [newCatName, setNewCatName] = useState('');

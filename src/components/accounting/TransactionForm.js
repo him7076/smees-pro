@@ -249,20 +249,10 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
 
             <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto w-full">
                 {/* PRIMARY INPUTS: Timeline & Identification */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4">
                      <div className="space-y-1.5 p-6 bg-white border border-slate-100 rounded-[32px] shadow-sm">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Calendar size={14}/> Timeline</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Calendar size={14}/> Date</label>
                         <input type="date" className="w-full p-4 bg-slate-50 border border-slate-50 rounded-2xl text-sm font-black outline-none shadow-inner" value={tx.date} onChange={e => setTx({...tx, date: e.target.value})} />
-                     </div>
-                     <div className="space-y-1.5 p-6 bg-white border border-slate-100 rounded-[32px] shadow-sm">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Banknote size={14}/> Settlement Mode</label>
-                        <div className="flex gap-2">
-                             {['Cash', 'Bank', 'UPI', 'Credit'].map(m => (
-                                 <button key={m} onClick={() => setTx({...tx, paymentMode: m})} className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${tx.paymentMode === m ? 'bg-slate-900 text-white shadow-xl' : 'bg-slate-50 text-slate-400'}`}>
-                                     {m}
-                                 </button>
-                             ))}
-                        </div>
                      </div>
                 </div>
 
@@ -270,7 +260,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="p-6 bg-white border border-slate-100 rounded-[32px] shadow-sm space-y-4">
                         <div className="flex justify-between items-center">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><LinkIcon size={14}/> {type === 'expense' ? 'Expense Category' : 'Counterparty Context'}</p>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><LinkIcon size={14}/> {type === 'expense' ? 'Expense Category' : 'Party / Client Name'}</p>
                             {selectedParty && type !== 'expense' && (
                                 <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-full ${partyBalances[tx.partyId] < 0 ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
                                     Bal: {formatCurrency(Math.abs(partyBalances[tx.partyId] || 0))} {partyBalances[tx.partyId] < 0 ? 'CR' : 'DR'}
@@ -278,26 +268,36 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                             )}
                         </div>
                         {type === 'expense' ? (
-                            <SearchableSelect 
-                                options={(data.categories?.expense || []).map(c => ({ id: c, name: c }))}
-                                value={tx.category}
-                                onChange={v => setTx({...tx, category: v})}
-                                placeholder="Classification..."
-                                onAddNew={async (v) => {
-                                    const newCats = [...(data.categories?.expense || []), v];
-                                    const updatedCategories = { ...data.categories, expense: newCats };
-                                    await setDoc(doc(db, "settings", "categories"), updatedCategories, { merge: true });
-                                    setData(prev => ({ ...prev, categories: updatedCategories }));
-                                    setTx({ ...tx, category: v });
-                                }}
-                            />
+                            <div className="space-y-3">
+                                <SearchableSelect 
+                                    options={(data.categories?.expense || []).map(c => ({ id: c, name: c }))}
+                                    value={tx.category}
+                                    onChange={v => setTx({...tx, category: v})}
+                                    placeholder="Select Expense Category..."
+                                    onAddNew={async (v) => {
+                                        const newCats = [...(data.categories?.expense || []), v];
+                                        const updatedCategories = { ...data.categories, expense: newCats };
+                                        await setDoc(doc(db, "settings", "categories"), updatedCategories, { merge: true });
+                                        setData(prev => ({ ...prev, categories: updatedCategories }));
+                                        setTx({ ...tx, category: v });
+                                    }}
+                                />
+                                <div>
+                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Party Name (Optional)</p>
+                                    <SearchableSelect 
+                                        options={data.parties.map(p => ({ id: p.id, name: p.name, subText: p.type === 'DR' ? 'Customer' : 'Vendor' }))}
+                                        value={tx.partyId}
+                                        onChange={v => setTx({...tx, partyId: v})}
+                                        placeholder="Select Party..."
+                                    />
+                                </div>
+                            </div>
                         ) : (
-
                             <SearchableSelect 
                                 options={data.parties.map(p => ({ id: p.id, name: p.name, subText: p.type === 'DR' ? 'Customer' : 'Vendor' }))}
                                 value={tx.partyId}
                                 onChange={v => setTx({...tx, partyId: v, locationLabel: '', address: ''})}
-                                placeholder="Select Entity..."
+                                placeholder="Select Party..."
                             />
                         )}
 
@@ -389,12 +389,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                 </select>
                             </div>
                         )}
-                        {!['sales'].includes(type) && (
-                             <div className="p-8 bg-slate-100 border border-slate-100 rounded-[40px] flex flex-col items-center justify-center text-center opacity-40">
-                                <Search size={32} className="text-slate-300 mb-2"/>
-                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Context Panel</p>
-                             </div>
-                        )}
+
                     </div>
                 </div>
 
@@ -432,16 +427,18 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                 )}
                                             </div>
 
-                                            {/* Metrics Line: Qty, Buy, Sell, Warranty, Total */}
-                                            <div className="grid grid-cols-5 gap-2 items-center">
+                                            {/* Metrics Line: Qty, Price, Warranty, Total */}
+                                            <div className={`grid ${type === 'sales' ? 'grid-cols-5' : 'grid-cols-4'} gap-2 items-center`}>
                                                 <div className="col-span-1">
                                                     <label className="text-[8px] font-black text-slate-400 uppercase tracking-tighter block mb-0.5">Qty</label>
                                                     <input type="number" className="w-full px-2 py-2.5 bg-slate-50 border border-slate-50 rounded-lg text-xs font-black outline-none" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} />
                                                 </div>
+                                                {type === 'sales' && (
                                                 <div className="col-span-1">
-                                                    <label className="text-[8px] font-black text-rose-400 uppercase tracking-tighter block mb-0.5">Purch</label>
+                                                    <label className="text-[8px] font-black text-rose-400 uppercase tracking-tighter block mb-0.5">Buy</label>
                                                     <input type="number" className="w-full px-2 py-2.5 bg-rose-50/50 border border-rose-50 rounded-lg text-xs font-black text-rose-700 outline-none" value={line.buyPrice || line.purchasePrice || 0} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />
                                                 </div>
+                                                )}
                                                 <div className="col-span-1">
                                                     <label className="text-[8px] font-black text-emerald-400 uppercase tracking-tighter block mb-0.5">Price</label>
                                                     <input type="number" className="w-full px-2 py-2.5 bg-emerald-50/50 border border-emerald-50 rounded-lg text-xs font-black text-emerald-700 outline-none" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
@@ -531,10 +528,22 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                 </div>
                             )}
                             {['sales', 'purchase', 'expense'].includes(type) && (
+                                <>
                                 <div className="flex justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
                                     <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest pt-1">{type === 'purchase' ? 'Amt Paid' : 'Amt Recv'}</span>
                                     <input type="number" className="w-32 bg-transparent text-right font-black text-emerald-400 text-xl outline-none" value={type === 'purchase' ? tx.paid : tx.received} onChange={e=>setTx({...tx, [type === 'purchase' ? 'paid' : 'received']: e.target.value})} />
                                 </div>
+                                <div className="p-3 bg-white/5 rounded-2xl border border-white/5">
+                                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-2">Payment Mode</span>
+                                    <div className="flex gap-1.5">
+                                        {['Cash', 'Bank', 'UPI', 'Credit'].map(m => (
+                                            <button key={m} onClick={() => setTx({...tx, paymentMode: m})} className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${tx.paymentMode === m ? 'bg-white text-slate-900 shadow-lg' : 'bg-transparent text-slate-500 hover:text-white'}`}>
+                                                {m}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                </>
                             )}
                             {unpaidBills.length > 0 && (
                                 <button onClick={() => setShowLinking(true)} className="w-full flex items-center justify-between p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl text-indigo-400 font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all">
@@ -572,8 +581,8 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                 return (
                                     <div key={bill.id} className={`p-4 rounded-2xl border transition-all flex items-center justify-between ${isLinked ? 'bg-indigo-50 border-indigo-400' : 'bg-slate-50 border-slate-100'}`}>
                                         <div className="flex-1 cursor-pointer" onClick={() => handleLinkChange(bill.id, isLinked ? 0 : stats.pending)}>
-                                            <p className="text-[10px] font-black text-indigo-900 uppercase">#{bill.id} <span className="bg-white px-1.5 py-0.5 rounded ml-1 text-slate-400 border">{bill.type}</span></p>
-                                            <p className="font-black text-slate-900 mt-1">{formatCurrency(stats.pending)} <span className="text-[9px] text-slate-400 uppercase font-black ml-1">Due</span></p>
+                                            <p className="text-[10px] font-black text-indigo-900 uppercase">#{bill.id} <span className="bg-white px-1.5 py-0.5 rounded ml-1 text-slate-400 border">{bill.type === 'payment' ? (bill.subType === 'in' ? 'Pay In' : 'Pay Out') : bill.type}</span></p>
+                                            <p className="font-black text-slate-900 mt-1">{formatCurrency(stats.amount)} <span className="text-[9px] text-slate-400 uppercase font-black ml-1">Total</span> <span className="text-rose-600 ml-2">{formatCurrency(stats.pending)}</span> <span className="text-[9px] text-rose-400 uppercase font-black ml-1">Due</span></p>
                                         </div>
                                         {isLinked && (
                                             <input type="number" className="w-24 p-2 bg-white border border-indigo-200 rounded-xl text-xs font-black text-center text-indigo-600 shadow-inner" value={linkedData.amount} onChange={e => handleLinkChange(bill.id, e.target.value)} />

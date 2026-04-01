@@ -233,8 +233,9 @@ const TransactionList = ({ data, setViewDetail, setModal, listFilter = 'all', li
             
             let paymentUnused = 0;
             if (tx.type === 'payment') {
-                 const usedInternally = (tx.linkedBills || []).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
-                 paymentUnused = totalAmt - (usedInternally + linkedPaid);
+                 const usedOutward = (tx.linkedBills || []).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
+                 const usedInward = linksMap[String(tx.id)] || 0;
+                 paymentUnused = totalAmt - (usedOutward + usedInward);
             }
 
             let typeLabel = tx.type;
@@ -277,7 +278,7 @@ const TransactionList = ({ data, setViewDetail, setModal, listFilter = 'all', li
                     <div className="text-[10px] text-gray-400 uppercase font-black tracking-widest flex flex-wrap gap-2 items-center">
                         {tx.type === 'payment' ? (
                             <div className="flex items-center gap-2">
-                                <span className="bg-gray-100 px-2 py-0.5 rounded-lg text-gray-600 tracking-tight">{typeLabel} #{tx.id.split(':')[1] || tx.id}</span>
+                                <span className={`bg-gray-100 px-2 py-0.5 rounded-lg tracking-tight ${tx.subType === 'in' ? 'text-emerald-600' : 'text-rose-600'}`}>{tx.subType === 'in' ? 'Payment In' : 'Payment Out'}:{tx.id.split(':')[1] || tx.id}</span>
                                 <span className="bg-gray-50 px-2 py-0.5 rounded-lg flex items-center gap-1"><ModeIcon size={12}/> {mode}</span>
                                 <span>{formatDate(tx.date)}</span>
                             </div>

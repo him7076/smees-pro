@@ -248,7 +248,7 @@ const App = () => {
                     <div className="fixed inset-0 z-[140] bg-white md:bg-slate-900/50 md:backdrop-blur-xl flex items-end md:items-center justify-center p-0 md:p-6 animate-in fade-in duration-300">
                         <div className="bg-white w-full md:max-w-4xl h-full md:max-h-[90vh] md:rounded-[48px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom-10">
                             <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-white sticky top-0 z-[150]">
-                                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">{modal.type} Specialist</h3>
+                                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">{modal.type === 'personalTransaction' ? 'Transaction' : modal.type === 'personalAccount' ? 'Account' : modal.type} {modal.data ? '(Edit)' : 'Form'}</h3>
                                 <button onClick={() => setModal(null)} className="p-3 bg-slate-100 text-slate-400 rounded-full hover:bg-slate-200 transition-colors">
                                     <X size={20}/>
                                 </button>
