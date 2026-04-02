@@ -272,7 +272,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                                     </div>
                                     
                                     {/* Profit Indicator */}
-                                    {user.role === 'admin' && (
+                                    {user.role === 'admin' && tx.type === 'sales' && (
                                         <div className="flex gap-2 mt-2 pt-2 border-t border-slate-200/50">
                                             <div className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter ${item.type === 'Service' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
                                                 {item.type} {item.type === 'Service' ? formatCurrency(item.serviceProfit) : formatCurrency(item.materialProfit)}
@@ -284,7 +284,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                         </div>
 
                         {/* Breakdown Summary Footer (Admin Only) */}
-                        {user.role === 'admin' && (
+                        {user.role === 'admin' && tx.type === 'sales' && (
                             <div className="mt-6 pt-6 border-t border-slate-100 space-y-3">
                                 <div className="grid grid-cols-2 gap-3 pb-4">
                                     <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-100/50">

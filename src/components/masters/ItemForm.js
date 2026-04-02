@@ -53,7 +53,11 @@ const ItemForm = ({ data, setData, record, onClose }) => {
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Item Name</label>
                     <input className="w-full p-4 bg-white border border-slate-100 rounded-2xl text-sm font-bold shadow-sm focus:ring-4 focus:ring-blue-500/10 transition-all outline-none" placeholder="e.g. 6Amp Switch" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
                 </div>
-                
+                <div className="space-y-1.5 pt-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Item Description / Note</label>
+                    <textarea className="w-full p-4 bg-white border border-slate-100 rounded-2xl text-sm font-bold shadow-sm focus:ring-4 focus:ring-blue-500/10 transition-all outline-none resize-none min-h-[80px]" placeholder="Optional description..." value={form.description || ''} onChange={e => setForm({...form, description: e.target.value})} />
+                </div>
+
                 <SearchableSelect 
                     label="Category"
                     options={data.categories.item || []}

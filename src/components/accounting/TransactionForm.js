@@ -229,27 +229,106 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
     return (
         <div className="flex flex-col h-full bg-slate-50 overflow-y-auto pb-32 scrollbar-hide">
             {/* Header Sticky Bar */}
-            <div className="sticky top-0 z-[110] bg-white border-b border-slate-100 p-4 md:p-6 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
-                <div className="flex bg-slate-100 p-1 rounded-2xl shadow-inner w-full md:w-auto overflow-x-auto scrollbar-hide">
+            <div className="sticky top-0 z-[110] bg-white border-b border-slate-100 p-3 shadow-sm flex items-center justify-between">
+                <div className="flex bg-slate-100 p-1 rounded-2xl shadow-inner overflow-x-auto scrollbar-hide flex-1 mr-4">
                     {['sales', 'purchase', 'estimate', 'payment', 'expense'].map(t => (
                         <button 
                             key={t} 
                             onClick={() => { setType(t); setTx(prev => ({ ...prev, subType: (t === 'sales' || t === 'estimate') ? 'in' : 'out', items: [], amount: 0 })); }} 
-                            className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${type === t ? 'bg-white text-blue-600 shadow-lg' : 'text-slate-400'}`}
+                            className={`flex-1 min-w-[80px] px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${type === t ? 'bg-white text-blue-600 shadow-md' : 'text-slate-400'}`}
                         >
                             {t}
                         </button>
                     ))}
                 </div>
-                <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 px-5 py-3 rounded-2xl">
-                    <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest leading-none">Voucher:</span>
-                    <span className="text-sm font-black text-blue-700 leading-none">#{nextId}</span>
+                <div className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 border border-blue-100 rounded-xl whitespace-nowrap shadow-sm">
+                    <span className="text-[9px] font-black text-blue-400 uppercase tracking-tight leading-none">VCh:</span>
+                    <span className="text-xs font-black text-blue-700 leading-none">#{nextId}</span>
                 </div>
             </div>
 
-            <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto w-full">
-                {/* PRIMARY INPUTS: Timeline & Identification */}
-                <div className="grid grid-cols-1 gap-4">
+            <div className="p-4 md:p-6 space-y-4 max-w-5xl mx-auto w-full">
+                {type === 'payment' ? (
+                     <div className="space-y-4 bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm animate-in fade-in">
+                        {/* ROW 1: Date & Type */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1"><Calendar size={12} className="inline mr-1"/>Date</label>
+                                <input type="date" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-black outline-none" value={tx.date} onChange={e => setTx({...tx, date: e.target.value})} />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Flow / Direction</label>
+                                <div className="flex bg-slate-50 border border-slate-100 rounded-2xl p-1 h-[54px] md:h-auto">
+                                    <button onClick={() => setTx({...tx, subType: 'in'})} className={`flex-1 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tx.subType === 'in' ? 'bg-emerald-500 text-white shadow' : 'text-slate-500 hover:bg-slate-200'}`}>Pay In</button>
+                                    <button onClick={() => setTx({...tx, subType: 'out'})} className={`flex-1 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${tx.subType === 'out' ? 'bg-rose-500 text-white shadow' : 'text-slate-500 hover:bg-slate-200'}`}>Pay Out</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ROW 2: Party Name */}
+                        <div className="space-y-1.5 pt-2">
+                            <div className="flex justify-between items-center ml-1">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Party Name</label>
+                                {selectedParty && <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase ${partyBalances[tx.partyId] < 0 ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>Bal: {formatCurrency(Math.abs(partyBalances[tx.partyId] || 0))} {partyBalances[tx.partyId] < 0 ? 'CR' : 'DR'}</span>}
+                            </div>
+                            <SearchableSelect 
+                                options={data.parties.map(p => ({ id: p.id, name: p.name, subText: p.type === 'DR' ? 'Customer' : 'Vendor' }))}
+                                value={tx.partyId}
+                                onChange={v => setTx({...tx, partyId: v, locationLabel: '', address: ''})}
+                                placeholder="Select Party..."
+                            />
+                        </div>
+
+                        {/* ROW 3: Amount & Type */}
+                        <div className="grid grid-cols-2 gap-4 pt-2">
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Total Amount</label>
+                                <input type="number" className="w-full p-4 bg-white border border-slate-200 rounded-2xl text-xl font-black text-blue-600 outline-none focus:ring-4 focus:ring-blue-500/10" placeholder="0.00" value={tx.amount || ''} onChange={e=>setTx({...tx, amount: e.target.value})} />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Mode</label>
+                                <select className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-black outline-none h-[64px]" value={tx.paymentMode} onChange={e => setTx({...tx, paymentMode: e.target.value})}>
+                                    {['Cash', 'Bank', 'UPI', 'Credit'].map(m => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* ROW 4: Link Bills */}
+                        <div className="pt-2">
+                            <button onClick={() => setShowLinking(true)} disabled={unpaidBills.length === 0} className="w-full flex items-center justify-between p-4 bg-indigo-50 border border-indigo-100 rounded-2xl text-indigo-600 font-black text-xs uppercase tracking-widest active:scale-95 transition-all outline-none">
+                                <span className="flex items-center gap-2"><LinkIcon size={16}/> Link Pending Bills</span>
+                                <div className="flex gap-2">
+                                    <span className="bg-indigo-600 text-white px-2 py-0.5 rounded shadow text-[10px]">{tx.linkedBills?.length || 0} Linked</span>
+                                    <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-[10px]">{unpaidBills.length} Avail</span>
+                                </div>
+                            </button>
+                        </div>
+
+                        {/* ROW 5: Discount & Round Off */}
+                        <div className="grid grid-cols-2 gap-4 pt-2">
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Discount Settled</label>
+                                <div className="flex bg-slate-50 border border-slate-100 rounded-2xl overflow-hidden p-1 h-[54px] md:h-[64px]">
+                                    <input type="number" className="flex-1 min-w-0 bg-transparent px-3 text-sm font-black outline-none" placeholder="0" value={tx.discountValue || ''} onChange={e=>setTx({...tx, discountValue: e.target.value})} />
+                                    <button onClick={() => setTx({...tx, discountType: tx.discountType === '%' ? '₹' : '%'})} className="px-4 bg-white border border-slate-200 rounded-xl text-xs font-black text-slate-600 shadow-sm transition-all">{tx.discountType}</button>
+                                </div>
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Round Off Amt</label>
+                                <input type="number" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-black outline-none h-[54px] md:h-[64px]" placeholder="0.00" value={tx.roundOff || ''} onChange={e=>setTx({...tx, roundOff: e.target.value})} />
+                            </div>
+                        </div>
+
+                        {/* ROW 6: Description */}
+                        <div className="space-y-1.5 pt-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Description</label>
+                            <textarea className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold outline-none resize-none min-h-[100px]" placeholder="Add remarks..." value={tx.notes || ''} onChange={e=>setTx({...tx, notes: e.target.value})} />
+                        </div>
+                     </div>
+                ) : (
+                    <>
+                        {/* PRIMARY INPUTS: Timeline & Identification */}
+                        <div className="grid grid-cols-1 gap-4">
                      <div className="space-y-1.5 p-6 bg-white border border-slate-100 rounded-[32px] shadow-sm">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Calendar size={14}/> Date</label>
                         <input type="date" className="w-full p-4 bg-slate-50 border border-slate-50 rounded-2xl text-sm font-black outline-none shadow-inner" value={tx.date} onChange={e => setTx({...tx, date: e.target.value})} />
@@ -553,7 +632,10 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                             )}
                         </div>
                     </div>
+                    </div>
                 </div>
+                </>
+                )}
             </div>
 
             {/* Bottom Actions */}

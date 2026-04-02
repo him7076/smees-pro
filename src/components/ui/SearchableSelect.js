@@ -44,7 +44,7 @@ const SearchableSelect = ({ label, options = [], value, onChange, onAddNew, plac
                         <div className="relative">
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={14}/>
                             <input 
-                                autoFocus
+                                onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
                                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold outline-none focus:bg-white transition-all capitalize" 
                                 placeholder="Type to filter..." 
                                 value={search}

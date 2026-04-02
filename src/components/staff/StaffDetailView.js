@@ -262,6 +262,13 @@ const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, d
                                                 </div>
                                             </div>
 
+                                            {item.notes && (
+                                                <div className="mt-3 p-4 bg-slate-50/50 rounded-2xl border border-slate-50">
+                                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 shadow-sm">Notes / Description</p>
+                                                    <p className="text-xs font-bold text-slate-700">{item.notes}</p>
+                                                </div>
+                                            )}
+
                                             <div className="mt-3 flex justify-between items-center bg-slate-900 p-5 rounded-[24px] text-white shadow-lg shadow-slate-200">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center"><Clock size={16}/></div>
@@ -307,6 +314,10 @@ const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, d
                                                     <label className="text-[9px] font-black text-orange-400 uppercase tracking-widest ml-1">Lunch End</label>
                                                     <input type="time" id="mLOut" className="w-full p-4 bg-orange-50/30 border border-orange-100 rounded-2xl font-bold outline-none"/>
                                                 </div>
+                                                <div className="col-span-2 space-y-2 pt-2">
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Notes / Description</label>
+                                                    <input type="text" id="mNotes" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none" placeholder="Add any remarks or descriptions..." />
+                                                </div>
                                             </div>
                                             <button 
                                                 onClick={async () => {
@@ -314,8 +325,9 @@ const StaffDetailView = ({ staff, data, user, onBack, setViewDetail, setModal, d
                                                     const outT = document.getElementById('mOut').value;
                                                     const lIn = document.getElementById('mLIn').value;
                                                     const lOut = document.getElementById('mLOut').value;
+                                                    const notes = document.getElementById('mNotes').value;
                                                     if(!inT) return alert("At least In-time required");
-                                                    await handleAttendance('manual', { date: manualDate, checkIn: inT, checkOut: outT, lunchStart: lIn, lunchEnd: lOut });
+                                                    await handleAttendance('manual', { date: manualDate, checkIn: inT, checkOut: outT, lunchStart: lIn, lunchEnd: lOut, notes });
                                                     setShowManual(false);
                                                 }}
                                                 className="w-full py-5 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-blue-200 active:scale-95 transition-all"
