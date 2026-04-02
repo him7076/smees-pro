@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, TrendingUp, FileText, ChevronRight } from 'lucide-react';
 import { formatCurrency, getTransactionTotals } from '../../utils/helpers';
 
-const Dashboard = ({ data, setModal }) => {
+const Dashboard = ({ data, setModal, setViewDetail }) => {
     const navigate = useNavigate();
     const [fType, setFType] = useState('Monthly');
     const [customRange, setCustomRange] = useState({ 
@@ -133,8 +133,8 @@ const Dashboard = ({ data, setModal }) => {
                 <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm space-y-6">
                     <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest border-b border-slate-50 pb-4">Recent Transactions</h4>
                     <div className="space-y-4">
-                        {data.transactions.slice(0, 5).map(t => (
-                            <div key={t.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl hover:bg-slate-100 transition-colors">
+                        {[...data.transactions].sort((a,b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date)).slice(0, 5).map(t => (
+                            <div key={t.id} onClick={() => setViewDetail({ type: 'transaction', id: t.id })} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl hover:bg-slate-100 transition-colors cursor-pointer">
                                 <div>
                                     <p className="text-xs font-black text-slate-800 uppercase">{t.type} #{t.id}</p>
                                     <p className="text-[10px] text-slate-400 font-bold">{t.date}</p>

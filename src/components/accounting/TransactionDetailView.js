@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Share2, MapPin, Package, ChevronRight, Link as LinkIcon, Banknote, Landmark, Trash2 } from 'lucide-react';
+import { ArrowLeft, Share2, MapPin, Package, ChevronRight, Link as LinkIcon, Banknote, Landmark, Trash2, Edit2, Layout } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 
 const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal, cancelTransaction, restoreTransaction, deleteRecord, checkPermission }) => {
@@ -180,7 +180,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                                 <button onClick={() => restoreTransaction(tx.id)} className="px-6 py-3 bg-emerald-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all">Restore Record</button>
                             )}
                             {tx.status !== 'Cancelled' && (
-                                <button onClick={() => setModal({ type: tx.type, data: tx })} className="p-3 bg-slate-900 text-white rounded-2xl shadow-xl shadow-slate-200 active:scale-95 transition-all"><LinkIcon size={20}/></button>
+                                <button onClick={() => setModal({ type: tx.type, data: tx })} className="p-3 bg-slate-900 text-white rounded-2xl shadow-xl shadow-slate-200 active:scale-95 transition-all"><Edit2 size={20}/></button>
                             )}
                         </div>
                     )}
@@ -219,6 +219,16 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                         </p>
                     </div>
                 </div>
+
+                {tx.convertedFromTask && (
+                    <div onClick={() => setViewDetail({ type: 'task', id: tx.convertedFromTask })} className="p-6 bg-indigo-900 text-white rounded-[32px] cursor-pointer active:scale-95 shadow-xl shadow-indigo-100 flex justify-between items-center group transition-all">
+                        <div>
+                            <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1">Generated From Command Task</p>
+                            <p className="font-black text-lg tracking-tight group-hover:text-blue-400 transition-colors">Task #{tx.convertedFromTask}</p>
+                        </div>
+                        <Layout className="text-indigo-400 group-hover:rotate-12 transition-transform"/>
+                    </div>
+                )}
 
                 {/* Party Details (Compact) */}
                 <div onClick={() => { if(user.role === 'admin' && tx.partyId) setViewDetail({ type: 'party', id: tx.partyId }); }} className={`p-6 bg-white rounded-[32px] border border-slate-100 shadow-sm transition-all relative overflow-hidden ${user.role === 'admin' ? 'cursor-pointer hover:shadow-lg active:scale-[0.98]' : ''}`}>

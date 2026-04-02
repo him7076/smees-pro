@@ -31,7 +31,7 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
 
     const navItems = mode === 'business' ? [
         { to: '/', icon: <LayoutDashboard size={20}/>, label: 'Home' },
-        { to: '/accounts', icon: <ReceiptText size={20}/>, label: 'Accounts' },
+        { to: '/accounts', icon: <ReceiptText size={20}/>, label: 'Transactions' },
         { to: '/tasks', icon: <CheckSquare size={20}/>, label: 'Tasks' },
         ...(user?.role === 'admin' ? [{ to: '/masters', icon: <Package size={20}/>, label: 'Masters' }] : [])
     ] : [

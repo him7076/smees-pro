@@ -34,21 +34,21 @@ export const useDatabase = (data, setData) => {
             }
             finalRecord.updatedAt = new Date().toISOString();
 
-            // 2. Update Local State (Optimistic)
-            // Note: with real-time onSnapshot in useFirebaseSync, 
-            // the state will eventually be updated by the listener too.
-            const updatedList = isNew 
-                ? [finalRecord, ... (data[collectionName] || [])] 
-                : data[collectionName].map(r => r.id === finalRecord.id ? finalRecord : r);
-            
-            const newData = { 
-                ...data, 
-                [collectionName]: updatedList,
-                counters: nextCounters
-            };
-
-            setData(newData);
-            localStorage.setItem('smees_data', JSON.stringify(newData));
+            // 2. Update Local State (Optimistic) using functional state to prevent stale closures
+            setData(prevData => {
+                const updatedList = isNew 
+                    ? [finalRecord, ... (prevData[collectionName] || [])] 
+                    : (prevData[collectionName] || []).map(r => r.id === finalRecord.id ? finalRecord : r);
+                
+                const newData = { 
+                    ...prevData, 
+                    [collectionName]: updatedList,
+                    ...(isNew ? { counters: nextCounters } : {})
+                };
+                
+                localStorage.setItem('smees_data', JSON.stringify(newData));
+                return newData;
+            });
 
             // 3. Update Firestore in correct DB
             await setDoc(doc(targetDb, targetCol, finalRecord.id), finalRecord, { merge: true });
@@ -71,12 +71,13 @@ export const useDatabase = (data, setData) => {
             if (!window.confirm("Are you sure you want to delete this record?")) return;
             const { targetDb, targetCol } = getTarget(collectionName);
 
-            // 1. Update Local State
-            const updatedList = data[collectionName].filter(r => r.id !== id);
-            const newData = { ...data, [collectionName]: updatedList };
-            
-            setData(newData);
-            localStorage.setItem('smees_data', JSON.stringify(newData));
+            // 1. Update Local State using functional state
+            setData(prevData => {
+                const updatedList = (prevData[collectionName] || []).filter(r => r.id !== id);
+                const newData = { ...prevData, [collectionName]: updatedList };
+                localStorage.setItem('smees_data', JSON.stringify(newData));
+                return newData;
+            });
 
             // 2. Update Firestore
             await deleteDoc(doc(targetDb, targetCol, id));

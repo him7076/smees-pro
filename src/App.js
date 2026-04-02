@@ -124,7 +124,7 @@ const App = () => {
             if (navigator.geolocation) {
                 try {
                     const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 5000 }));
-                    location = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                    location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                 } catch (e) {
                     console.log("Location skipped or failed", e);
                 }
@@ -148,11 +148,16 @@ const App = () => {
                     start: now, 
                     end: null, 
                     staffName: data.staff.find(s=>s.id===staffId)?.name || 'Unknown',
-                    startLocation: location 
+                    startLocation: location,
+                    location: location
                 });
             }
 
             const updatedTask = { ...task, timeLogs: newLogs, updatedAt: now };
+            if (location && !updatedTask.location) {
+                updatedTask.location = location;
+            }
+
             setData(prev => ({
                 ...prev,
                 tasks: prev.tasks.map(t => t.id === taskId ? updatedTask : t)
@@ -489,7 +494,7 @@ const App = () => {
                     <Route path="/login" element={!user ? <LoginScreen setUser={setUser} /> : <Navigate to="/" />} />
                     <Route path="/" element={user ? (
                         <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
-                            {mode === 'business' ? <Dashboard data={data} setModal={setModal} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
+                            {mode === 'business' ? <Dashboard data={data} setModal={setModal} setViewDetail={setViewDetail} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
                         </AppLayout>
                     ) : <Navigate to="/login" />} />
                     <Route path="/accounts" element={user ? (
