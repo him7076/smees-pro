@@ -631,7 +631,6 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                 </button>
                             )}
                         </div>
-                        </div>
                     </div>
                 </div>
                 </>
