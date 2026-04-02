@@ -296,16 +296,25 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                         {showItems && (
                             <div className="space-y-4">
                                 {(task.itemsUsed || []).map((line, idx) => {
-                                    const profit = (parseFloat(line.price||0) - parseFloat(line.buyPrice||0)) * parseFloat(line.qty||0);
+                                    const master = data.items.find(i=>i.id===line.itemId);
+                                    const buy = parseFloat(line.buyPrice || line.purchasePrice || master?.buyPrice || 0);
+                                    const sell = parseFloat(line.price || 0);
+                                    const qty = parseFloat(line.qty || 0);
+                                    const profit = (sell - buy) * qty;
+                                    
+                                    const itemName = line.name || master?.name || 'Generic Item';
+                                    const type = master?.type || 'Goods';
+                                    const isService = type === 'Service' || itemName.toLowerCase().includes('service');
+
                                     return (
                                         <div key={idx} className="bg-white p-5 rounded-[32px] border border-emerald-100 space-y-4">
                                             <div className="flex justify-between items-center">
                                                 <div>
-                                                    <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Product</p>
-                                                    <p className="text-sm font-black text-slate-900 uppercase tracking-tight">{data.items.find(i=>i.id===line.itemId)?.name || 'Generic Item'}</p>
+                                                    <p className="text-[9px] font-black text-slate-400 uppercase mb-1">{isService ? 'Service Category' : 'Product'}</p>
+                                                    <p className="text-sm font-black text-slate-900 uppercase tracking-tight">{itemName}</p>
                                                 </div>
                                                 <div className="text-right">
-                                                    <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Profitability</p>
+                                                    <p className="text-[9px] font-black text-slate-400 uppercase mb-1">{isService ? 'Service Margin' : 'Material Gain'}</p>
                                                     <p className={`text-xs font-black ${profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(profit)}</p>
                                                 </div>
                                             </div>
@@ -336,7 +345,11 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                                     <div className="text-right">
                                         <p className="text-[9px] font-black text-emerald-600 uppercase mb-1">Job Margin</p>
                                         <p className="text-xl font-black text-emerald-800">
-                                            {formatCurrency((task.itemsUsed || []).reduce((acc, l) => acc + (parseFloat(l.qty||0)*(parseFloat(l.price||0)-parseFloat(l.buyPrice||0))), 0))}
+                                            {formatCurrency((task.itemsUsed || []).reduce((acc, l) => {
+                                                const m = data.items.find(i=>i.id===l.itemId);
+                                                const b = parseFloat(l.buyPrice || l.purchasePrice || m?.buyPrice || 0);
+                                                return acc + (parseFloat(l.qty||0)*(parseFloat(l.price||0)-b));
+                                            }, 0))}
                                         </p>
                                     </div>
                                 </div>

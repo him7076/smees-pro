@@ -38,9 +38,14 @@ const Dashboard = ({ data, setModal, setViewDetail }) => {
         filtered.filter(t => t.type === 'sales').forEach(s => {
             (s.items || []).forEach(i => { 
                 const master = data.items.find(mi => mi.id === i.itemId);
-                const buy = parseFloat(i.buyPrice || master?.buyPrice || 0);
+                const buy = parseFloat(i.buyPrice || i.purchasePrice || master?.buyPrice || 0);
                 const sell = parseFloat(i.price || 0);
                 const qty = parseFloat(i.qty || 1);
+                
+                const itemName = i.itemName || master?.name || '';
+                const type = master?.type || 'Goods';
+                const isService = type === 'Service' || itemName.toLowerCase().includes('service');
+                
                 grossProfit += (sell - buy) * qty; 
             });
             grossProfit -= parseFloat(s.discountValue || 0);

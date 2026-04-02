@@ -33,7 +33,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
             const master = (data.items || []).find(mi => mi.id === item.itemId);
             const itemName = item.itemName || master?.name || 'Unknown Item';
             const type = master?.type || 'Goods';
-            const buy = parseFloat(item.buyPrice || master?.buyPrice || 0);
+            const buy = parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0);
             const sell = parseFloat(item.price || 0);
             const qty = parseFloat(item.qty || 1);
             const profitValue = (sell - buy) * qty;

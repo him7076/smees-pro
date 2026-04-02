@@ -350,7 +350,7 @@ const App = () => {
                                                     (t.items || []).forEach(item => {
                                                         const master = data.items.find(i => i.id === item.itemId);
                                                         const type = master?.type || 'Goods';
-                                                        const buy = parseFloat(item.buyPrice || master?.buyPrice || 0);
+                                                        const buy = parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0);
                                                         const sell = parseFloat(item.price || 0);
                                                         const qty = parseFloat(item.qty || 0);
                                                         const profit = (sell - buy) * qty;
