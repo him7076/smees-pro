@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshCw, FileText, Settings, X, ChevronRight, ShieldCheck, Database } from 'lucide-react';
+import { RefreshCw, FileText, Settings, X, ChevronRight, ShieldCheck, Database, TrendingUp, Landmark } from 'lucide-react';
 
 const SystemMenu = ({ setModal, onClose }) => {
     const menuItems = [
