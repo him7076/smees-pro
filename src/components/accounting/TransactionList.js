@@ -231,14 +231,9 @@ const TransactionList = ({ data, setViewDetail, setModal, listFilter = 'all', li
             if (pendingAmt <= 0.5) status = 'PAID'; 
             else if (totalPaid > 0) status = 'PARTIAL';
             
-            let paymentStatus = 'Unused';
-            if (tx.type === 'payment') {
-                 const usedOutward = (tx.linkedBills || []).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
-                 const usedInward = linksMap[String(tx.id)] || 0;
-                 paymentUnused = totalAmt - (usedOutward + usedInward);
-                 if (paymentUnused <= 0.5) paymentStatus = 'Used';
-                 else if ((usedOutward + usedInward) > 0) paymentStatus = 'Partially Used';
-            }
+            const payStats = tx.type === 'payment' ? getBillStats(tx, data.transactions) : null,
+            paymentStatus = payStats?.status || 'Unused',
+            paymentUnused = payStats?.pending || 0;
 
             let typeLabel = tx.type;
             if(tx.type === 'payment') typeLabel = tx.subType === 'in' ? 'Payment IN' : 'Payment OUT';
@@ -306,14 +301,11 @@ const TransactionList = ({ data, setViewDetail, setModal, listFilter = 'all', li
                                         {status}
                                     </span>
                                 )}
-                                {tx.type === 'payment' && (() => {
-                                    const payStats = getBillStats(tx, data.transactions);
-                                    return (
-                                        <span className={`text-[9px] px-3 py-1 rounded-full font-black uppercase tracking-widest shadow-sm ${payStats.status === 'FULLY USED' ? 'bg-emerald-100 text-emerald-800' : payStats.status === 'PARTIALLY USED' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'}`}>
-                                            {payStats.status}
-                                        </span>
-                                    );
-                                })()}
+                                {tx.type === 'payment' && (
+                                    <span className={`text-[9px] px-3 py-1 rounded-full font-black uppercase tracking-widest shadow-sm ${payStats.status === 'FULLY USED' ? 'bg-emerald-100 text-emerald-800' : payStats.status === 'PARTIALLY USED' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'}`}>
+                                        {payStats.status}
+                                    </span>
+                                )}
                             </>
                         )}
                     </div>
