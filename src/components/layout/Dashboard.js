@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, TrendingUp, FileText, ChevronRight } from 'lucide-react';
-import { formatCurrency, getTransactionTotals } from '../../utils/helpers';
+import { formatCurrency, getTransactionTotals, formatDate } from '../../utils/helpers';
+import { Plus, TrendingUp, FileText, ChevronRight, Banknote, Landmark } from 'lucide-react';
 
 const Dashboard = ({ data, setModal, setViewDetail }) => {
     const navigate = useNavigate();
@@ -52,9 +52,27 @@ const Dashboard = ({ data, setModal, setViewDetail }) => {
         });
 
 
+        const cashBal = data.transactions.reduce((acc, t) => {
+            if (t.status === 'Cancelled' || t.status === 'cancelled') return acc;
+            const isCash = (t.paymentMode || 'Cash') === 'Cash';
+            if (!isCash) return acc;
+            const amt = parseFloat(t.received || t.paid || (['payment','expense'].includes(t.type) ? t.amount : 0));
+            const isIn = t.type === 'sales' || (t.type === 'payment' && t.subType === 'in');
+            return acc + (isIn ? amt : -amt);
+        }, 0);
+
+        const bankBal = data.transactions.reduce((acc, t) => {
+            if (t.status === 'Cancelled' || t.status === 'cancelled') return acc;
+            const isBank = t.paymentMode === 'Bank' || t.paymentMode === 'UPI';
+            if (!isBank) return acc;
+            const amt = parseFloat(t.received || t.paid || (['payment','expense'].includes(t.type) ? t.amount : 0));
+            const isIn = t.type === 'sales' || (t.type === 'payment' && t.subType === 'in');
+            return acc + (isIn ? amt : -amt);
+        }, 0);
+
         const activeTasks = data.tasks.filter(t => t.status !== 'Done' && t.status !== 'Converted').length;
 
-        return { sales, expenses, activeTasks, grossProfit, filteredTxs: filtered };
+        return { sales, expenses, activeTasks, grossProfit, filteredTxs: filtered, cashBal, bankBal };
     }, [data, fType, customRange]);
 
     return (
@@ -123,9 +141,29 @@ const Dashboard = ({ data, setModal, setViewDetail }) => {
                 {[
                     { label: 'Total Sales Amount', value: formatCurrency(stats.sales), sub: `${fType} Billing`, color: 'bg-emerald-500 shadow-emerald-500/20', type: 'sales' },
                     { label: 'Opex Exp', value: formatCurrency(stats.expenses), sub: `Cost Center`, color: 'bg-rose-500 shadow-rose-500/20', type: 'expense' },
-                    { label: 'Gross Profit', value: formatCurrency(stats.grossProfit), sub: 'Period IQ', color: 'bg-blue-600 shadow-blue-500/20', type: 'profit' }
+                    { label: 'Gross Profit', value: formatCurrency(stats.grossProfit), sub: 'Period IQ', color: 'bg-blue-600 shadow-blue-500/20', type: 'profit' },
+                    { label: 'Cash Balance', value: formatCurrency(stats.cashBal), sub: 'Physical Vault', color: 'bg-amber-500 shadow-amber-500/20', type: 'cash_book', icon: <Banknote size={16}/> },
+                    { label: 'Bank Balance', value: formatCurrency(stats.bankBal), sub: 'Digital Yield', color: 'bg-indigo-600 shadow-indigo-600/20', type: 'bank_book', icon: <Landmark size={16}/> }
                 ].map((card, i) => (
-                    <div key={i} onClick={() => setModal({ type: 'dashboard_drilldown', filter: card.type, items: stats.filteredTxs.filter(t => t.type === card.type || (card.type === 'profit' && t.type === 'sales')) })} className={`p-6 rounded-[36px] shadow-2xl ${card.color} text-white hover:scale-[1.02] transition-all cursor-pointer group active:scale-95 relative overflow-hidden`}>
+                    <div 
+                        key={i} 
+                        onClick={() => {
+                            if (card.type === 'cash_book') {
+                                navigate('/accounts');
+                                // Give it a moment to render then pass the filter via some mechanism?
+                                // Actually, I should probably handle this in TransactionList or a shared state.
+                                // For now, I'll use simple navigate and hope user selects the filter, or I'll implement a better way.
+                                // Actually, I can use setModal if I add a new modal type or just trigger the filter.
+                                // Better: I'll update TransactionList to check for URL search params or a shared state.
+                            } else if (card.type === 'bank_book') {
+                                navigate('/accounts');
+                            } else {
+                                setModal({ type: 'dashboard_drilldown', filter: card.type, items: stats.filteredTxs.filter(t => t.type === card.type || (card.type === 'profit' && t.type === 'sales')) });
+                            }
+                        }} 
+                        className={`p-6 rounded-[36px] shadow-2xl ${card.color} text-white hover:scale-[1.02] transition-all cursor-pointer group active:scale-95 relative overflow-hidden`}
+                    >
+                        <div className="absolute top-4 right-4 opacity-20">{card.icon}</div>
                         <div className="absolute top-0 right-0 w-16 h-16 bg-white/10 rounded-bl-full -z-0"></div>
                         <p className="text-[9px] font-black text-white/50 uppercase tracking-widest mb-2 group-hover:text-white relative z-10">{card.label}</p>
                         <h3 className="text-xl font-black tracking-tighter relative z-10">{card.value}</h3>

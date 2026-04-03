@@ -431,15 +431,29 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                                     const allSubs = [...subCats, ...legacySubs];
 
                                                     return allSubs.map(sub => (
-                                                        <div key={sub} className="flex justify-between items-center bg-white/80 px-2 py-1.5 rounded-lg text-[7px] font-black text-slate-500 uppercase">
+                                                        <div key={sub} className="flex justify-between items-center bg-white border border-slate-100 px-3 py-2 rounded-xl text-[8px] font-black text-slate-600 uppercase transition-all hover:bg-slate-50">
                                                             <span>{sub} {legacySubs.includes(sub) && <span className="opacity-40 italic font-medium">(Legacy)</span>}</span>
-                                                            <button 
-                                                                onClick={async () => {
-                                                                    const nextSub = { ...categories.sub, [cat]: (categories.sub?.[cat] || allSubs).filter(s => s !== sub) };
-                                                                    await updateCategories({ ...categories, sub: nextSub });
-                                                                }}
-                                                                className="text-slate-300 hover:text-rose-500"
-                                                            ><X size={10}/></button>
+                                                            <div className="flex gap-2">
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        const n = prompt(`Rename ${sub}:`, sub);
+                                                                        if(n && n !== sub) {
+                                                                            const nextSub = { ...categories.sub, [cat]: (allSubs).map(s => s === sub ? n.trim() : s) };
+                                                                            updateCategories({ ...categories, sub: nextSub });
+                                                                        }
+                                                                    }}
+                                                                    className="text-slate-300 hover:text-blue-500"
+                                                                ><Edit2 size={10}/></button>
+                                                                <button 
+                                                                    onClick={async () => {
+                                                                        if(window.confirm(`Delete ${sub}?`)) {
+                                                                            const nextSub = { ...categories.sub, [cat]: (allSubs).filter(s => s !== sub) };
+                                                                            await updateCategories({ ...categories, sub: nextSub });
+                                                                        }
+                                                                    }}
+                                                                    className="text-slate-300 hover:text-rose-500"
+                                                                ><Trash2 size={10}/></button>
+                                                            </div>
                                                         </div>
                                                     ));
                                                 })()}
@@ -529,8 +543,13 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                                 {t.type === 'income' || t.toAccount === selectedAccount.name ? <ArrowUpRight size={18}/> : <ArrowDownLeft size={18}/>}
                                             </div>
                                             <div>
-                                                <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">{t.category || t.note || 'Internal Operation'}</p>
-                                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{t.date} • {t.type}</p>
+                                                <div className="flex items-center gap-2">
+                                                    <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">
+                                                        {t.type === 'move' ? `${t.account} ➔ ${t.toAccount}` : (t.category || t.note || 'Internal Operation')}
+                                                    </p>
+                                                </div>
+                                                {t.note && <p className="text-[9px] text-slate-400 font-bold italic truncate max-w-[150px] leading-tight">"{t.note}"</p>}
+                                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{t.date} • {t.type}</p>
                                             </div>
                                         </div>
                                         <p className={`text-xs font-black tracking-tighter ${t.type === 'income' || t.toAccount === selectedAccount.name ? 'text-emerald-600' : 'text-rose-600'}`}>

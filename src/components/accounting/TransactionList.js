@@ -8,7 +8,8 @@ import {
   Landmark, 
   Banknote, 
   CheckCircle2, 
-  ReceiptText 
+  ReceiptText,
+  Settings
 } from 'lucide-react';
 import { formatCurrency, formatDate, sortData, getTransactionTotals, getBillStats } from '../../utils/helpers';
 
@@ -157,12 +158,19 @@ const TransactionList = ({ data, setViewDetail, setModal, listFilter = 'all', li
                             <button onClick={() => setModal({ type: 'adjustCash', data: { mode: listPaymentMode } })} className="px-3 py-1 bg-gray-900 text-white text-[10px] rounded-full font-bold uppercase tracking-widest hover:bg-black transition-colors">Adjust {listPaymentMode}</button>
                         )}
                     </div>
-                    <select className="bg-white border text-xs font-bold p-2 px-4 rounded-2xl outline-none shadow-sm focus:ring-2 focus:ring-blue-500" value={sort} onChange={e => setSort(e.target.value)}>
-                        <option value="DateDesc">Newest</option>
-                        <option value="DateAsc">Oldest</option>
-                        <option value="AmtDesc">High Amt</option>
-                        <option value="AmtAsc">Low Amt</option>
-                    </select>
+                    <div className="flex items-center gap-3">
+                        <select className="bg-white border text-xs font-bold p-2 px-4 rounded-2xl outline-none shadow-sm focus:ring-2 focus:ring-blue-500" value={sort} onChange={e => setSort(e.target.value)}>
+                            <option value="DateDesc">Newest</option>
+                            <option value="DateAsc">Oldest</option>
+                            <option value="AmtDesc">High Amt</option>
+                            <option value="AmtAsc">Low Amt</option>
+                        </select>
+                        {!listPaymentMode && (
+                           <button onClick={() => setModal({ type: 'systemMenu' })} className="p-3 bg-white border border-gray-100 rounded-2xl text-gray-400 hover:text-blue-600 transition-all shadow-sm">
+                               <Settings size={18}/>
+                           </button>
+                        )}
+                    </div>
                   </div>
                   <div className="flex gap-3">
                       <div className="flex-1">
@@ -313,6 +321,9 @@ const TransactionList = ({ data, setViewDetail, setModal, listFilter = 'all', li
                 </div>
                 <div className="text-right">
                   <p className={`text-lg font-black tracking-tight ${isCancelled ? 'text-gray-300 line-through' : isIncoming ? 'text-emerald-600' : 'text-rose-600'}`}>{isIncoming ? '+' : '-'}{formatCurrency(totalAmt)}</p>
+                  {listPaymentMode && !isCancelled && (tx.type === 'sales' || tx.type === 'purchase' || tx.type === 'expense') && (
+                      <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest leading-none mt-1">Total Bill: {formatCurrency(tx.finalTotal || tx.amount)}</p>
+                  )}
                   {['sales', 'purchase', 'expense'].includes(tx.type) && status !== 'PAID' && !isCancelled && <p className="text-[10px] font-black text-amber-600 uppercase tracking-wider mt-1">Bal: {formatCurrency(pendingAmt)}</p>}
                   {tx.type === 'payment' && !isCancelled && paymentUnused > 0.1 && <p className="text-[10px] font-black text-amber-600 uppercase tracking-wider mt-1">Unused: {formatCurrency(paymentUnused)}</p>}
                 </div>
