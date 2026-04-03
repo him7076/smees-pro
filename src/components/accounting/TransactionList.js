@@ -231,11 +231,13 @@ const TransactionList = ({ data, setViewDetail, setModal, listFilter = 'all', li
             if (pendingAmt <= 0.5) status = 'PAID'; 
             else if (totalPaid > 0) status = 'PARTIAL';
             
-            let paymentUnused = 0;
+            let paymentStatus = 'Unused';
             if (tx.type === 'payment') {
                  const usedOutward = (tx.linkedBills || []).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
                  const usedInward = linksMap[String(tx.id)] || 0;
                  paymentUnused = totalAmt - (usedOutward + usedInward);
+                 if (paymentUnused <= 0.5) paymentStatus = 'Used';
+                 else if ((usedOutward + usedInward) > 0) paymentStatus = 'Partially Used';
             }
 
             let typeLabel = tx.type;
@@ -285,7 +287,7 @@ const TransactionList = ({ data, setViewDetail, setModal, listFilter = 'all', li
                         ) : (
                             <div className="flex items-center gap-2">
                                 <span className="bg-gray-100 px-2 py-0.5 rounded-lg text-gray-600 tracking-tight">{tx.id}</span>
-                                {showPayIcon && <span className="text-emerald-600 flex items-center gap-1" title={mode}><ModeIcon size={10}/> {mode}</span>}
+                                {showPayIcon && <span className="text-emerald-600 flex items-center gap-1 font-black" title={mode}><ModeIcon size={10}/> {mode}{directPaid > 0 ? `: ${formatCurrency(directPaid)}` : ''}</span>}
                                 <span className="text-gray-300">|</span> 
                                 <span>{formatDate(tx.date)}</span>
                             </div>

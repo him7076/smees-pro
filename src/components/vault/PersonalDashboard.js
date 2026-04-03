@@ -3,7 +3,7 @@ import {
   Lock, CheckSquare, Plus, ChevronRight, PieChart as PieIcon, 
   History, Landmark, CreditCard as CardIcon,
   ArrowUpRight, ArrowDownLeft, Settings,
-  ArrowRightLeft, List, Edit2, Trash2, X, PlusCircle, ArrowLeft
+  ArrowRightLeft, List, Edit2, Trash2, X, PlusCircle, ArrowLeft, Share2
 } from 'lucide-react';
 import { personalDb } from '../../services/firebase';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
@@ -23,6 +23,7 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
     }, [data.personalCategories]);
     const [pTab, setPTab] = useState('ledger');
     const [selectedCat, setSelectedCat] = useState(null);
+    const [selectedAccount, setSelectedAccount] = useState(null);
     const [isAddingCat, setIsAddingCat] = useState(false);
     const [newCatName, setNewCatName] = useState('');
     const [statsType, setStatsType] = useState('expense');
@@ -361,9 +362,9 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                         </div>
                         <div className="space-y-2">
                              {accounts.map(acc => (
-                                 <div key={acc.id} className="p-5 bg-slate-50 rounded-[32px] flex justify-between items-center group hover:bg-slate-100 transition-all">
+                                 <div key={acc.id} onClick={() => setSelectedAccount(acc)} className="p-5 bg-slate-50 rounded-[32px] flex justify-between items-center group hover:bg-white hover:shadow-md transition-all cursor-pointer border border-transparent hover:border-slate-100">
                                      <div className="flex items-center gap-4">
-                                         <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 shadow-sm">
+                                         <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 shadow-sm group-hover:text-blue-600 transition-colors">
                                              {acc.type === 'Bank' ? <Landmark size={20}/> : <CardIcon size={20}/>}
                                          </div>
                                          <div>
@@ -373,7 +374,7 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                      </div>
                                      <div className="flex items-center gap-3">
                                          <span className="text-xs font-black text-slate-900 mr-2">{formatCurrency(stats.accBals[acc.name] || 0)}</span>
-                                         <button onClick={() => setModal({ type: 'personalAccount', data: acc, context: 'personal' })} className="p-2.5 bg-white rounded-xl text-slate-300 hover:text-blue-600 transition-all"><Edit2 size={14}/></button>
+                                         <button onClick={(e) => { e.stopPropagation(); setModal({ type: 'personalAccount', data: acc, context: 'personal' }); }} className="p-2.5 bg-white rounded-xl text-slate-300 hover:text-blue-600 transition-all opacity-0 group-hover:opacity-100"><Edit2 size={14}/></button>
                                      </div>
                                  </div>
                              ))}
@@ -424,18 +425,24 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                             
                                             {/* Sub-categories */}
                                             <div className="space-y-1">
-                                                {(categories.sub?.[cat] || []).map(sub => (
-                                                    <div key={sub} className="flex justify-between items-center bg-white/80 px-2 py-1.5 rounded-lg text-[7px] font-black text-slate-500 uppercase">
-                                                        <span>{sub}</span>
-                                                        <button 
-                                                            onClick={async () => {
-                                                                const nextSub = { ...categories.sub, [cat]: categories.sub[cat].filter(s => s !== sub) };
-                                                                await updateCategories({ ...categories, sub: nextSub });
-                                                            }}
-                                                            className="text-slate-300 hover:text-rose-500"
-                                                        ><X size={10}/></button>
-                                                    </div>
-                                                ))}
+                                                {(() => {
+                                                    const subCats = categories.sub?.[cat] || [];
+                                                    const legacySubs = [...new Set(transactions.filter(t => t.category === cat && t.subCategory && !subCats.includes(t.subCategory)).map(t => t.subCategory))];
+                                                    const allSubs = [...subCats, ...legacySubs];
+
+                                                    return allSubs.map(sub => (
+                                                        <div key={sub} className="flex justify-between items-center bg-white/80 px-2 py-1.5 rounded-lg text-[7px] font-black text-slate-500 uppercase">
+                                                            <span>{sub} {legacySubs.includes(sub) && <span className="opacity-40 italic font-medium">(Legacy)</span>}</span>
+                                                            <button 
+                                                                onClick={async () => {
+                                                                    const nextSub = { ...categories.sub, [cat]: (categories.sub?.[cat] || allSubs).filter(s => s !== sub) };
+                                                                    await updateCategories({ ...categories, sub: nextSub });
+                                                                }}
+                                                                className="text-slate-300 hover:text-rose-500"
+                                                            ><X size={10}/></button>
+                                                        </div>
+                                                    ));
+                                                })()}
                                                 <button 
                                                     onClick={() => {
                                                         const n = prompt(`Add sub-category for ${cat}:`);
@@ -458,6 +465,81 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Encrypted Domain</p>
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+            {/* Account Ledger Modal Overlay */}
+            {selectedAccount && (
+                <div className="fixed inset-0 z-[200] bg-white animate-in slide-in-from-bottom duration-300 flex flex-col">
+                    <div className="sticky top-0 bg-white/80 backdrop-blur-xl border-b border-slate-100 px-4 py-4 flex items-center justify-between z-[220]">
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => setSelectedAccount(null)} className="p-2 bg-slate-100 text-slate-400 rounded-xl active:scale-95 transition-all"><ArrowLeft size={16}/></button>
+                            <div>
+                                <h2 className="text-[10px] font-black text-slate-900 uppercase opacity-30 leading-none">Internal Statement</h2>
+                                <p className="text-xs font-black text-blue-600 uppercase tracking-widest mt-0.5">{selectedAccount.name}</p>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={() => {
+                                const win = window.open('', '_blank');
+                                const accTxs = transactions.filter(t => t.account === selectedAccount.name || t.toAccount === selectedAccount.name).sort((a,b) => new Date(a.date) - new Date(b.date));
+                                let bal = parseFloat(selectedAccount.initialBalance || 0);
+                                const html = `
+                                    <html><head><title>${selectedAccount.name} Statement</title>
+                                    <style>body{font-family:sans-serif;padding:40px;color:#333;line-height:1.2} table{width:100%;border-collapse:collapse;margin-top:20px} th{text-align:left;padding:12px;background:#f8fafc;border-bottom:2px solid #e2e8f0;font-size:10px;text-transform:uppercase} td{padding:12px;border-bottom:1px solid #f1f5f9;font-size:12px} .dr{color:#e11d48} .cr{color:#059669} .bal{font-weight:bold}</style>
+                                    </head><body>
+                                    <h2>Account Statement</h2>
+                                    <p><strong>Account:</strong> ${selectedAccount.name} (${selectedAccount.type})</p>
+                                    <p><strong>Current Balance:</strong> ${formatCurrency(stats.accBals[selectedAccount.name])}</p>
+                                    <table><thead><tr><th>Date</th><th>Description</th><th>Type</th><th>Flow</th><th>Balance</th></tr></thead>
+                                    <tbody>
+                                    <tr><td>--</td><td>Initial Balance</td><td>--</td><td>--</td><td class="bal">${formatCurrency(bal)}</td></tr>
+                                    ${accTxs.map(t => {
+                                        const isIn = t.toAccount === selectedAccount.name || (t.account === selectedAccount.name && t.type === 'income');
+                                        const flow = isIn ? parseFloat(t.amount) : -parseFloat(t.amount);
+                                        bal += flow;
+                                        return `<tr><td>${t.date}</td><td>${t.category || t.note || 'Internal'}</td><td>${t.type.toUpperCase()}</td><td class="${flow >= 0 ? 'cr' : 'dr'}">${flow >= 0 ? '+' : ''}${formatCurrency(t.amount)}</td><td class="bal">${formatCurrency(bal)}</td></tr>`;
+                                    }).join('')}
+                                    </tbody></table>
+                                    <script>window.print();</script></body></html>
+                                `;
+                                win.document.write(html);
+                                win.document.close();
+                            }}
+                            className="p-3 bg-slate-900 text-white rounded-2xl shadow-xl shadow-slate-200 active:scale-95 transition-all"
+                        ><Share2 size={16}/></button>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-10">
+                        <div className="bg-slate-900 p-8 rounded-[40px] text-center shadow-2xl relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Available Yield</p>
+                             <h2 className="text-4xl font-black text-white tracking-tighter">{formatCurrency(stats.accBals[selectedAccount.name] || 0)}</h2>
+                        </div>
+
+                        <div className="space-y-2">
+                            <h3 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 pl-2">Operation Audit Trail</h3>
+                            {transactions
+                                .filter(t => t.account === selectedAccount.name || t.toAccount === selectedAccount.name)
+                                .sort((a,b) => new Date(b.date) - new Date(a.date))
+                                .map(t => (
+                                    <div key={t.id} onClick={() => setModal({ type: 'personalTransaction', data: t, context: 'personal' })} className="p-5 bg-slate-50 rounded-[28px] border border-slate-100 flex justify-between items-center group hover:bg-white hover:shadow-sm transition-all cursor-pointer select-none">
+                                        <div className="flex items-center gap-4">
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${t.type === 'income' || t.toAccount === selectedAccount.name ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                                                {t.type === 'income' || t.toAccount === selectedAccount.name ? <ArrowUpRight size={18}/> : <ArrowDownLeft size={18}/>}
+                                            </div>
+                                            <div>
+                                                <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">{t.category || t.note || 'Internal Operation'}</p>
+                                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{t.date} • {t.type}</p>
+                                            </div>
+                                        </div>
+                                        <p className={`text-xs font-black tracking-tighter ${t.type === 'income' || t.toAccount === selectedAccount.name ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                            {t.type === 'income' || t.toAccount === selectedAccount.name ? '+' : '-'}{formatCurrency(t.amount)}
+                                        </p>
+                                    </div>
+                                ))
+                            }
+                        </div>
                     </div>
                 </div>
             )}

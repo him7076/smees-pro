@@ -31,7 +31,8 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
         
         const itemBreakdown = (tx.items || []).map(item => {
             const master = (data.items || []).find(mi => mi.id === item.itemId);
-            const itemName = item.itemName || master?.name || 'Unknown Item';
+            let itemName = item.itemName || item.name || master?.name || 'Unknown Item';
+            if (itemName === 'Product' && master?.name) itemName = master.name;
             const type = master?.type || 'Goods';
             const buy = parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0);
             const sell = parseFloat(item.price || 0);
@@ -221,12 +222,41 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                 </div>
 
                 {tx.convertedFromTask && (
-                    <div onClick={() => setViewDetail({ type: 'task', id: tx.convertedFromTask })} className="p-6 bg-indigo-900 text-white rounded-[32px] cursor-pointer active:scale-95 shadow-xl shadow-indigo-100 flex justify-between items-center group transition-all">
+                    <div onClick={() => setViewDetail({ type: 'task', id: tx.convertedFromTask })} className="p-6 bg-slate-900 text-white rounded-[32px] cursor-pointer active:scale-95 shadow-xl shadow-slate-100 flex justify-between items-center group transition-all">
                         <div>
-                            <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest mb-1">Generated From Command Task</p>
-                            <p className="font-black text-lg tracking-tight group-hover:text-blue-400 transition-colors">Task #{tx.convertedFromTask}</p>
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Source Operation</p>
+                            <p className="font-black text-lg tracking-tight group-hover:text-blue-400 transition-colors">Task Trace: #{tx.convertedFromTask}</p>
                         </div>
-                        <Layout className="text-indigo-400 group-hover:rotate-12 transition-transform"/>
+                        <Layout className="text-slate-400 group-hover:rotate-12 transition-transform"/>
+                    </div>
+                )}
+
+                {/* Linked Assets Section */}
+                {tx.linkedAssets && tx.linkedAssets.length > 0 && (
+                    <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm space-y-4">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Embedded Assets & Inventory</label>
+                        <div className="grid grid-cols-1 gap-3">
+                            {tx.linkedAssets.map((asset, idx) => {
+                                const assetData = typeof asset === 'string' ? data.assets?.find(a => a.name === asset) : data.assets?.find(a => a.id === asset.id || a.name === asset.name);
+                                return (
+                                    <div key={idx} className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl flex justify-between items-center group hover:bg-white transition-all">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-600 shadow-sm"><Package size={18}/></div>
+                                            <div>
+                                                <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">{assetData?.name || asset.name || asset}</p>
+                                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{assetData?.category || 'General Asset'}</p>
+                                            </div>
+                                        </div>
+                                        {(asset.nextServiceDate || assetData?.nextService) && (
+                                            <div className="text-right">
+                                                <p className="text-[7px] font-black text-blue-500 uppercase tracking-widest opacity-50 mb-0.5">Next Service</p>
+                                                <p className="text-[10px] font-black text-slate-900">{formatDate(asset.nextServiceDate || assetData.nextService)}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                 )}
 

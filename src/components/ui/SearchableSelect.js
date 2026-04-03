@@ -24,6 +24,16 @@ const SearchableSelect = ({ label, options = [], value, onChange, onAddNew, plac
     const selectedOption = options.find(opt => (typeof opt === 'string' ? opt : opt.id) === value);
     const selectedName = selectedOption ? (typeof selectedOption === 'string' ? selectedOption : selectedOption.name) : '';
 
+    const inputRef = useRef(null);
+    useEffect(() => {
+        if (isOpen && inputRef.current) {
+            setTimeout(() => {
+                inputRef.current.focus();
+                inputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 300);
+        }
+    }, [isOpen]);
+
     return (
         <div className="space-y-1.5" ref={wrapperRef}>
             {label && <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{label}</label>}
@@ -44,7 +54,7 @@ const SearchableSelect = ({ label, options = [], value, onChange, onAddNew, plac
                         <div className="relative">
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={14}/>
                             <input 
-                                onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
+                                ref={inputRef}
                                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold outline-none focus:bg-white transition-all capitalize" 
                                 placeholder="Type to filter..." 
                                 value={search}

@@ -64,19 +64,26 @@ export const getTransactionTotals = (tx) => {
 };
 
 export const getBillStats = (bill, transactions) => {
-    const totalLinkedToThis = (transactions || [])
-        .filter(t => t.status !== 'Cancelled' && t.linkedBills && t.id !== bill.id)
-        .reduce((sum, t) => {
-             const link = t.linkedBills?.find(l => l.billId === bill.id);
-             return sum + (link ? parseFloat(link.amount || 0) : 0);
-        }, 0);
-
     const isPayment = bill.type === 'payment';
+    let used = 0;
+    
+    if (isPayment) {
+        // For payments, 'used' is what THIS payment has linked to OTHER bills
+        used = (bill.linkedBills || []).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
+    } else {
+        // For bills (sales/purchase), 'used' is what OTHER payments have linked to THIS bill
+        used = (transactions || [])
+            .filter(t => t.status !== 'Cancelled' && t.type === 'payment' && t.linkedBills)
+            .reduce((sum, t) => {
+                 const link = t.linkedBills?.find(l => l.billId?.toString() === bill.id?.toString());
+                 return sum + (link ? parseFloat(link.amount || 0) : 0);
+            }, 0);
+    }
+
     const amount = isPayment ? parseFloat(bill.amount || 0) : getTransactionTotals(bill).final;
-    const used = totalLinkedToThis;
     const pending = Math.max(0, amount - used);
     
-    const wasUsed = used > 0;
+    const wasUsed = used > 0.5;
     const isFull = pending <= 0.5;
 
     let status = 'UNPAID';
