@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { collection, onSnapshot, doc } from "firebase/firestore";
+import { collection, onSnapshot, doc, query, orderBy, limit, where } from "firebase/firestore";
 import { db, personalDb } from '../services/firebase';
 import { INITIAL_DATA } from '../utils/constants';
 
@@ -45,7 +45,18 @@ export const useFirebaseSync = () => {
         const bizCollections = ['parties', 'items', 'staff', 'tasks', 'transactions', 'attendance'];
         
         bizCollections.forEach(colName => {
-            const unsub = onSnapshot(collection(db, colName), (snapshot) => {
+            let q = collection(db, colName);
+            
+            // Optimization: Apply limits and filters to high-volume collections
+            if (colName === 'transactions' || colName === 'tasks') {
+                q = query(q, orderBy('date', 'desc'), limit(500));
+            } else if (colName === 'attendance') {
+                const sixtyDaysAgo = new Date();
+                sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+                q = query(q, where('date', '>=', sixtyDaysAgo.toISOString().split('T')[0]));
+            }
+
+            const unsub = onSnapshot(q, (snapshot) => {
                 const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
                 setData(prev => {
                     const newData = { ...prev, [colName]: list };
@@ -55,7 +66,7 @@ export const useFirebaseSync = () => {
                 checkLoaded();
             }, (error) => {
                 console.error(`Sync Error [${colName}]:`, error);
-                checkLoaded(); // Don't block loading on errors
+                checkLoaded(); 
             });
             unsubscribers.push(unsub);
         });
@@ -68,7 +79,12 @@ export const useFirebaseSync = () => {
         ];
 
         personalCollections.forEach(({ key, col }) => {
-            const unsub = onSnapshot(collection(personalDb, col), (snapshot) => {
+            let q = collection(personalDb, col);
+            if (key === 'personalTransactions' || key === 'personalTasks') {
+                q = query(q, orderBy('date', 'desc'), limit(500));
+            }
+
+            const unsub = onSnapshot(q, (snapshot) => {
                 const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
                 setData(prev => {
                     const newData = { ...prev, [key]: list };

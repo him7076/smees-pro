@@ -1,7 +1,12 @@
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { 
+  getFirestore, 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager 
+} from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 // --- FIREBASE CONFIGURATION (reads from .env, falls back to defaults) ---
@@ -15,7 +20,6 @@ const firebaseConfig = {
   measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-BQ6NW6D84Z"
 };
 
-// 2. PERSONAL CONFIG
 const personalConfig = {
   apiKey: process.env.REACT_APP_PERSONAL_API_KEY || "AIzaSyCILMKJfFSOdyKA9wTh6zzXsPMc0wt_Wtc",
   authDomain: process.env.REACT_APP_PERSONAL_AUTH_DOMAIN || "personal-data-a2bce.firebaseapp.com",
@@ -27,14 +31,18 @@ const personalConfig = {
 };
 
 // Initialize BOTH Apps
-export const app = initializeApp(firebaseConfig, "business"); // Business App
-export const personalApp = initializeApp(personalConfig, "personal"); // Personal App
+export const app = initializeApp(firebaseConfig, "business");
+export const personalApp = initializeApp(personalConfig, "personal");
 export const analytics = getAnalytics(app);
 
-// Business Services
-export const db = getFirestore(app);
+// Business Services with Persistence
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+});
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 
-// Personal Services
-export const personalDb = getFirestore(personalApp);
+// Personal Services with Persistence
+export const personalDb = initializeFirestore(personalApp, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+});
