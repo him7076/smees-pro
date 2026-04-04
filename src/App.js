@@ -38,6 +38,7 @@ import PersonalSettingsView from './components/vault/PersonalSettingsView';
 import TransactionDetailView from './components/accounting/TransactionDetailView';
 import TaskDetailView from './components/tasks/TaskDetailView';
 import ItemDetailView from './components/masters/ItemDetailView';
+import PartyProfileView from './components/masters/PartyProfileView';
 import StaffDetailView from './components/staff/StaffDetailView';
 import AssetDetailView from './components/masters/AssetDetailView';
 import BackupRestore from './components/layout/BackupRestore';
