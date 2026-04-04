@@ -62,8 +62,18 @@ const App = () => {
     }, [uiConfig]);
 
     const [mode, setMode] = useState('business');
-    const [bizState, setBizState] = useState({ modal: null, viewDetail: null });
-    const [persState, setPersState] = useState({ modal: null, viewDetail: null });
+    const [bizState, setBizState] = useState({ 
+        modal: null, 
+        viewDetail: null, 
+        history: [], 
+        lastPath: '/' 
+    });
+    const [persState, setPersState] = useState({ 
+        modal: null, 
+        viewDetail: null, 
+        history: [], 
+        lastPath: '/' 
+    });
 
     const activeState = mode === 'business' ? bizState : persState;
     const setActiveState = mode === 'business' ? setBizState : setPersState;
@@ -71,7 +81,42 @@ const App = () => {
     const modal = activeState.modal;
     const setModal = (m) => setActiveState(prev => ({ ...prev, modal: m }));
     const viewDetail = activeState.viewDetail;
-    const setViewDetail = (v) => setActiveState(prev => ({ ...prev, viewDetail: v }));
+
+    const setViewDetail = (v) => setActiveState(prev => {
+        if (!v) {
+            // BACK logic: pop from history
+            const nextHistory = [...(prev.history || [])];
+            const lastView = nextHistory.pop();
+            return { ...prev, viewDetail: lastView || null, history: nextHistory };
+        }
+        
+        // FORWARD logic: push current to history if it exists
+        const nextHistory = [...(prev.history || [])];
+        if (prev.viewDetail) {
+            // Don't push if same as current (prevent loops)
+            if (JSON.stringify(prev.viewDetail) !== JSON.stringify(v)) {
+                nextHistory.push(prev.viewDetail);
+            }
+        }
+        return { ...prev, viewDetail: v, history: nextHistory };
+    });
+
+    // Track path changes per mode
+    useEffect(() => {
+        const path = window.location.pathname;
+        if (mode === 'business') {
+            setBizState(p => ({ ...p, lastPath: path }));
+        } else {
+            setPersState(p => ({ ...p, lastPath: path }));
+        }
+    }, [window.location.pathname, mode]);
+
+    const handleToggleMode = (newMode) => {
+        if (newMode === mode) return;
+        const targetState = newMode === 'business' ? bizState : persState;
+        setMode(newMode);
+        navigate(targetState.lastPath || '/');
+    };
 
     const partyBalances = useMemo(() => getPartyBalances(data), [data]);
     const itemStock = useMemo(() => getItemStock(data), [data]);
@@ -519,27 +564,27 @@ const App = () => {
                 <Routes>
                     <Route path="/login" element={!user ? <LoginScreen setUser={setUser} /> : <Navigate to="/" />} />
                     <Route path="/" element={user ? (
-                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
+                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={handleToggleMode} syncing={syncing} onSync={syncData} setModal={setModal}>
                             {mode === 'business' ? <Dashboard data={data} setModal={setModal} setViewDetail={setViewDetail} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
                         </AppLayout>
                     ) : <Navigate to="/login" />} />
                     <Route path="/accounts" element={user ? (
-                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
+                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={handleToggleMode} syncing={syncing} onSync={syncData} setModal={setModal}>
                             {mode === 'business' ? <TransactionList data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
                         </AppLayout>
                     ) : <Navigate to="/login" />} />
                     <Route path="/tasks" element={user ? (
-                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
+                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={handleToggleMode} syncing={syncing} onSync={syncData} setModal={setModal}>
                             {mode === 'business' ? <TaskModule data={data} setData={setData} user={user} setViewDetail={setViewDetail} setModal={setModal} /> : <PersonalTasksView data={data} setData={setData} onBack={() => navigate('/')} setModal={setModal} />}
                         </AppLayout>
                     ) : <Navigate to="/login" />} />
                     <Route path="/settings" element={user ? (
-                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
+                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={handleToggleMode} syncing={syncing} onSync={syncData} setModal={setModal}>
                             <PersonalSettingsView data={data} setData={setData} setModal={setModal} onBack={() => navigate('/')} />
                         </AppLayout>
                     ) : <Navigate to="/login" />} />
                     <Route path="/masters" element={user?.role === 'admin' ? (
-                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={setMode} syncing={syncing} onSync={syncData} setModal={setModal}>
+                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={handleToggleMode} syncing={syncing} onSync={syncData} setModal={setModal}>
                             <MasterModule data={data} setData={setData} setModal={setModal} setViewDetail={setViewDetail} />
                         </AppLayout>
                     ) : <Navigate to="/" />} />

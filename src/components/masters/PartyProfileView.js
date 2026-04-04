@@ -205,6 +205,15 @@ const PartyProfileView = ({ record, data, onBack, setViewDetail, setModal, user,
                                                     {tx.description && (
                                                         <p className="text-[10px] text-slate-500 mt-1 italic opacity-60 truncate max-w-[140px]">{tx.description}</p>
                                                     )}
+                                                    {tx.linkedAssets?.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1 mt-2 animate-in slide-in-from-left-2 transition-all">
+                                                            {tx.linkedAssets.map((asset, aidx) => (
+                                                                <span key={aidx} className="bg-blue-50 text-blue-600 px-2 py-1 rounded-lg text-[7px] font-black uppercase border border-blue-100 shadow-sm leading-none flex items-center gap-1.5 hover:bg-blue-100 cursor-help" title={asset.name}>
+                                                                    <div className="w-1 h-1 bg-blue-400 rounded-full"></div> {asset.name}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                             <div className="text-right">

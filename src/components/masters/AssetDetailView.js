@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { 
-  X, Edit2, Trash2, Package, Calendar, History, ArrowRight, TrendingUp, TrendingDown, Landmark 
+  X, Edit2, Trash2, Package, Calendar, History, ArrowRight, TrendingUp, TrendingDown, Landmark, Smartphone 
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 
@@ -68,10 +68,20 @@ const AssetDetailView = ({ data, setData, asset, party, onClose, setModal, setVi
                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Lifetime Count</p>
                         <p className="text-sm font-black text-slate-900 mt-1">{linkedTxs.length} Entries</p>
                     </div>
-                    <div className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-sm">
+                    <div className="bg-white p-5 rounded-[32px] border border-slate-100 shadow-sm relative group">
                         <Landmark size={14} className="text-rose-500 mb-2"/>
                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Value Impact</p>
-                        <p className="text-sm font-black text-slate-900 mt-1">₹{formatCurrency(linkedTxs.reduce((s,t) => s + (t.finalTotal || t.amount), 0))}</p>
+                        <p className="text-sm font-black text-slate-900 mt-1">{formatCurrency(linkedTxs.reduce((s,t) => s + (parseFloat(t.finalTotal || t.amount || 0)), 0))}</p>
+                        <button 
+                            onClick={() => {
+                                const msg = `Service Reminder: Your Asset *${asset.name}* (${asset.brand} / ${asset.model}) is due for service on *${formatDate(asset.nextServiceDate)}*. Please schedule maintenance to ensure optimal performance. - Sent via SMEES ERP`;
+                                window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                            }}
+                            className="absolute -top-2 -right-2 p-2 bg-emerald-500 text-white rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all opacity-0 group-hover:opacity-100"
+                            title="Send WhatsApp Reminder"
+                        >
+                            <Smartphone size={14}/>
+                        </button>
                     </div>
                 </div>
 
