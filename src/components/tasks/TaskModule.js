@@ -39,7 +39,6 @@ const TaskModule = ({ data, setData, user, setViewDetail, setModal }) => {
         const matchesSearch = t.name.toLowerCase().includes(searchText) || t.description.toLowerCase().includes(searchText) || clientName.toLowerCase().includes(searchText);
         if (!matchesSearch) return false;
         if (statusFilter !== 'All') return t.status === statusFilter;
-        if (statusFilter === 'All' && t.status === 'Converted') return false;
         return true;
     });
     
