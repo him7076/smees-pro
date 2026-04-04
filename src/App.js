@@ -38,8 +38,8 @@ import PersonalSettingsView from './components/vault/PersonalSettingsView';
 import TransactionDetailView from './components/accounting/TransactionDetailView';
 import TaskDetailView from './components/tasks/TaskDetailView';
 import ItemDetailView from './components/masters/ItemDetailView';
-import PartyProfileView from './components/masters/PartyProfileView';
 import StaffDetailView from './components/staff/StaffDetailView';
+import AssetDetailView from './components/masters/AssetDetailView';
 import BackupRestore from './components/layout/BackupRestore';
 import SystemMenu from './components/layout/SystemMenu';
 import TaskSettings from './components/tasks/TaskSettings';
@@ -405,6 +405,19 @@ const App = () => {
                                 {modal.type === 'task' && <TaskForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} context={modal.context} />}
                                 {modal.type === 'convertTask' && <ConvertTaskModal task={modal.data} data={data} setData={setData} onClose={() => setModal(null)} />}
                                 {modal.type === 'asset' && <AssetForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
+                                {modal.type === 'financial_book' && (
+                                    <div className="h-full">
+                                        <TransactionList 
+                                            data={data} 
+                                            setData={setData} 
+                                            user={user} 
+                                            setViewDetail={(v) => { setModal(null); setViewDetail(v); }} 
+                                            setModal={setModal} 
+                                            listPaymentMode={true} 
+                                            listFilter="all"
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -485,6 +498,18 @@ const App = () => {
                                 getFilteredAttendance={getFilteredAttendance}
                                 allAttendance={data.attendance}
                                 workLogs={data.workLogs?.filter(w => w.staffId === viewDetail.id) || []}
+                            />
+                        )}
+
+                        {viewDetail.type === 'asset' && (
+                            <AssetDetailView 
+                                data={data}
+                                setData={setData}
+                                asset={viewDetail.data.asset}
+                                party={viewDetail.data.party}
+                                onClose={() => setViewDetail(null)}
+                                setModal={setModal}
+                                setViewDetail={setViewDetail}
                             />
                         )}
                     </div>

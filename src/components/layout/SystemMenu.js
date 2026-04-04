@@ -4,20 +4,6 @@ import { RefreshCw, FileText, Settings, X, ChevronRight, ShieldCheck, Database, 
 const SystemMenu = ({ setModal, onClose }) => {
     const menuItems = [
         { 
-            id: 'categories', 
-            label: 'Manage Categories', 
-            desc: 'Review and refine your business ledger tags',
-            icon: <TrendingUp size={20} className="text-emerald-600"/>,
-            onClick: () => setModal({ type: 'settings' })
-        },
-        { 
-            id: 'accounts', 
-            label: 'Manage Accounts', 
-            desc: 'Configure storage vaults and cash/bank anchors',
-            icon: <Landmark size={20} className="text-indigo-600"/>,
-            onClick: () => setModal({ type: 'accountSettings' })
-        },
-        { 
             id: 'backup', 
             label: 'Backup & Restore', 
             desc: 'Secure your data to local or cloud storage',

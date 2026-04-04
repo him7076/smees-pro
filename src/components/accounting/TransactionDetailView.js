@@ -239,9 +239,16 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                             {tx.linkedAssets.map((asset, idx) => {
                                 const assetData = typeof asset === 'string' ? data.assets?.find(a => a.name === asset) : data.assets?.find(a => a.id === asset.id || a.name === asset.name);
                                 return (
-                                    <div key={idx} className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl flex justify-between items-center group hover:bg-white transition-all">
+                                    <div 
+                                        key={idx} 
+                                        onClick={() => {
+                                            const aObj = party?.assets?.find(pa => pa.name === (assetData?.name || asset.name || asset));
+                                            if (aObj) setViewDetail({ type: 'asset', id: aObj.name, data: { asset: aObj, party } });
+                                        }}
+                                        className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl flex justify-between items-center group hover:bg-white transition-all cursor-pointer active:scale-[0.98] shadow-sm hover:shadow-md"
+                                    >
                                         <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-600 shadow-sm"><Package size={18}/></div>
+                                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-600 shadow-sm group-hover:scale-110 transition-transform"><Package size={18}/></div>
                                             <div>
                                                 <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">{assetData?.name || asset.name || asset}</p>
                                                 <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{assetData?.category || 'General Asset'}</p>

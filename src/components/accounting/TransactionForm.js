@@ -162,6 +162,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
             id: nextId,
             finalTotal: totals.final,
             grossTotal: totals.gross,
+            createdAt: record?.createdAt || new Date().toISOString(),
             updatedAt: new Date().toISOString()
         };
 

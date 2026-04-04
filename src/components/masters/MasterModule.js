@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Package, UserCircle, Search, Plus, Filter, ChevronRight, MapPin, Phone, ShieldCheck, Landmark } from 'lucide-react';
+import { Users, Package, UserCircle, Search, Plus, Filter, ChevronRight, MapPin, Phone, ShieldCheck } from 'lucide-react';
 import { formatCurrency } from '../../utils/helpers';
 
 const MasterModule = ({ data, setModal, setViewDetail }) => {
@@ -9,12 +9,10 @@ const MasterModule = ({ data, setModal, setViewDetail }) => {
     const parties = data.parties || [];
     const items = data.items || [];
     const staff = data.staff || [];
-    const accounts = (data.personalAccounts || []).filter(a => a.type === 'business' || !a.type); // Or some way to separate business accounts
 
     const filteredParties = parties.filter(p => !search || (p.name || '').toLowerCase().includes(search.toLowerCase()) || String(p.mobile || '').includes(search));
     const filteredItems = items.filter(i => !search || (i.name || '').toLowerCase().includes(search.toLowerCase()));
     const filteredStaff = staff.filter(s => !search || (s.name || '').toLowerCase().includes(search.toLowerCase()));
-    const filteredAccounts = accounts.filter(a => !search || (a.name || '').toLowerCase().includes(search.toLowerCase()));
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500 pb-32">
@@ -24,10 +22,10 @@ const MasterModule = ({ data, setModal, setViewDetail }) => {
                     <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mt-1">Data Governance</p>
                 </div>
                 <button 
-                    onClick={() => setModal({ type: view === 'parties' ? 'party' : view === 'items' ? 'item' : view === 'accounts' ? 'personalAccount' : 'staff' })}
+                    onClick={() => setModal({ type: view === 'parties' ? 'party' : view === 'items' ? 'item' : 'staff' })}
                     className="p-4 bg-slate-900 text-white rounded-[20px] shadow-xl shadow-slate-200 active:scale-95 transition-all text-[9px] font-black uppercase tracking-widest flex items-center gap-2 whitespace-nowrap"
                 >
-                    <Plus size={16}/> New {view === 'accounts' ? 'Account' : view.slice(0, -1)}
+                    <Plus size={16}/> New {view.slice(0, -1)}
                 </button>
             </div>
 
@@ -35,8 +33,7 @@ const MasterModule = ({ data, setModal, setViewDetail }) => {
                 {[
                     { id: 'parties', label: 'Parties', icon: <Users size={14}/> },
                     { id: 'items', label: 'Items', icon: <Package size={14}/> },
-                    { id: 'staff', label: 'Team', icon: <UserCircle size={14}/> },
-                    { id: 'accounts', label: 'Accounts', icon: <Landmark size={14}/> }
+                    { id: 'staff', label: 'Team', icon: <UserCircle size={14}/> }
                 ].map(t => (
                     <button 
                         key={t.id} 
@@ -102,19 +99,6 @@ const MasterModule = ({ data, setModal, setViewDetail }) => {
                         </div>
                         <h3 className="text-xs font-black text-slate-900 tracking-tight truncate leading-none mb-1.5">{s.name}</h3>
                         <p className="text-[9px] text-slate-500 font-bold flex items-center gap-1.5"><Phone size={10} className="text-slate-200"/> {s.mobile || 'Private'}</p>
-                    </div>
-                ))}
-
-                {view === 'accounts' && filteredAccounts.map(a => (
-                    <div key={a.id} onClick={() => setModal({ type: 'personalAccount', data: a })} className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm hover:shadow-lg transition-all cursor-pointer group active:scale-95">
-                        <div className="flex justify-between items-start mb-2">
-                            <div className="w-8 h-8 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                                <Landmark size={14}/>
-                            </div>
-                            <span className="text-[7px] font-black text-indigo-400 bg-indigo-50 px-1.5 py-0.5 rounded-lg uppercase tracking-widest">Balance</span>
-                        </div>
-                        <h3 className="text-xs font-black text-slate-900 tracking-tight truncate leading-none mb-1.5">{a.name}</h3>
-                        <p className="text-[9px] text-emerald-600 font-black uppercase tracking-widest">{formatCurrency(a.balance || 0)}</p>
                     </div>
                 ))}
             </div>

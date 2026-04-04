@@ -139,24 +139,16 @@ const Dashboard = ({ data, setModal, setViewDetail }) => {
             
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                 {[
-                    { label: 'Total Sales Amount', value: formatCurrency(stats.sales), sub: `${fType} Billing`, color: 'bg-emerald-500 shadow-emerald-500/20', type: 'sales' },
-                    { label: 'Opex Exp', value: formatCurrency(stats.expenses), sub: `Cost Center`, color: 'bg-rose-500 shadow-rose-500/20', type: 'expense' },
-                    { label: 'Gross Profit', value: formatCurrency(stats.grossProfit), sub: 'Period IQ', color: 'bg-blue-600 shadow-blue-500/20', type: 'profit' },
-                    { label: 'Cash Balance', value: formatCurrency(stats.cashBal), sub: 'Physical Vault', color: 'bg-amber-500 shadow-amber-500/20', type: 'cash_book', icon: <Banknote size={16}/> },
-                    { label: 'Bank Balance', value: formatCurrency(stats.bankBal), sub: 'Digital Yield', color: 'bg-indigo-600 shadow-indigo-600/20', type: 'bank_book', icon: <Landmark size={16}/> }
+                    { label: 'Liquid Liquidity', value: formatCurrency(stats.cashBal + stats.bankBal), sub: `Cash: ${formatCurrency(stats.cashBal)} | Bank: ${formatCurrency(stats.bankBal)}`, color: 'bg-indigo-600 shadow-indigo-600/20', type: 'liquid_assets', icon: <Banknote size={16}/> },
+                    { label: 'Active Pipeline', value: stats.activeTasks, sub: 'Running Ops', color: 'bg-slate-800 shadow-slate-900/20', type: 'tasks', icon: <ChevronRight size={16}/> }
                 ].map((card, i) => (
                     <div 
                         key={i} 
                         onClick={() => {
-                            if (card.type === 'cash_book') {
-                                navigate('/accounts');
-                                // Give it a moment to render then pass the filter via some mechanism?
-                                // Actually, I should probably handle this in TransactionList or a shared state.
-                                // For now, I'll use simple navigate and hope user selects the filter, or I'll implement a better way.
-                                // Actually, I can use setModal if I add a new modal type or just trigger the filter.
-                                // Better: I'll update TransactionList to check for URL search params or a shared state.
-                            } else if (card.type === 'bank_book') {
-                                navigate('/accounts');
+                            if (card.type === 'liquid_assets') {
+                                setModal({ type: 'financial_book' });
+                            } else if (card.type === 'tasks') {
+                                navigate('/tasks');
                             } else {
                                 setModal({ type: 'dashboard_drilldown', filter: card.type, items: stats.filteredTxs.filter(t => t.type === card.type || (card.type === 'profit' && t.type === 'sales')) });
                             }

@@ -246,10 +246,10 @@ const PartyProfileView = ({ record, data, onBack, setViewDetail, setModal, user,
                                                 </p>
                                             </div>
                                             <button 
-                                                onClick={() => setModal({ type: 'asset', data: { ...asset, partyId: record.id, assetIndex: idx } })}
-                                                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"
+                                                onClick={() => setViewDetail({ type: 'asset', id: asset.name, data: { asset, party: record } })}
+                                                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-lg"
                                             >
-                                                Details
+                                                Trail
                                             </button>
                                         </div>
                                     </div>
