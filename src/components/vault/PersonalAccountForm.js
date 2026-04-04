@@ -46,21 +46,33 @@ const PersonalAccountForm = ({ data, setData, record, onClose }) => {
                 </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-6">
                 <div className="space-y-1.5">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Account Name</label>
                     <input 
-                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-900 focus:bg-white transition-all outline-none" 
-                        placeholder="e.g. Savings, Salary, Cash" 
+                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-900 focus:bg-white transition-all outline-none shadow-sm" 
+                        placeholder="e.g. Total Cash, Savings Vault" 
                         value={form.name} 
                         onChange={e => setForm({...form, name: e.target.value})} 
                     />
                 </div>
 
                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Parent Account</label>
+                    <div className="flex justify-between items-center px-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none">Parent Account</label>
+                        <button 
+                            onClick={() => {
+                                const n = prompt("Enter New Parent Account Name:");
+                                if(n) {
+                                    const newParent = { id: `ACC-${Date.now()}`, name: n.trim(), initialBalance: 0, parentAccount: '' };
+                                    saveRecord('personalAccounts', newParent, 'personalAccount');
+                                }
+                            }}
+                            className="text-[8px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-1 hover:text-blue-700 transition-colors"
+                        >+ Create New Parent</button>
+                    </div>
                     <select 
-                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-900 outline-none appearance-none cursor-pointer"
+                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-900 outline-none appearance-none cursor-pointer shadow-sm hover:bg-slate-100 transition-colors"
                         value={form.parentAccount}
                         onChange={e => setForm({...form, parentAccount: e.target.value})}
                     >
@@ -72,35 +84,23 @@ const PersonalAccountForm = ({ data, setData, record, onClose }) => {
                 </div>
 
                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Type</label>
-                    <div className="grid grid-cols-3 gap-2">
-                        {['Bank', 'Card', 'Cash'].map(t => (
-                            <button 
-                                key={t}
-                                onClick={() => setForm({...form, type: t})}
-                                className={`py-3 rounded-xl font-black text-[9px] uppercase tracking-widest border transition-all ${form.type === t ? 'bg-slate-900 text-white border-slate-900 shadow-lg' : 'bg-white text-slate-400 border-slate-100'}`}
-                            >
-                                {t}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="space-y-1.5">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Opening Balance</label>
-                    <input 
-                        type="number"
-                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-900 focus:bg-white transition-all outline-none" 
-                        placeholder="0.00" 
-                        value={form.initialBalance} 
-                        onChange={e => setForm({...form, initialBalance: e.target.value})} 
-                    />
+                    <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₹</span>
+                        <input 
+                            type="number"
+                            className="w-full p-4 pl-8 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-900 focus:bg-white transition-all outline-none shadow-sm" 
+                            placeholder="0.00" 
+                            value={form.initialBalance} 
+                            onChange={e => setForm({...form, initialBalance: e.target.value})} 
+                        />
+                    </div>
                 </div>
             </div>
 
-            <div className="pt-4 flex gap-3">
-                <button onClick={onClose} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
-                <button onClick={handleSave} className="flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-500/20">Save Account</button>
+            <div className="pt-6 flex gap-3">
+                <button onClick={onClose} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all">Cancel</button>
+                <button onClick={handleSave} className="flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 transition-all hover:bg-blue-700">Save Account</button>
             </div>
         </div>
     );

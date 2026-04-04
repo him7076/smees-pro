@@ -236,14 +236,19 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
                                         </div>
                                         <div>
                                             <p className="font-black text-xs text-slate-900 uppercase tracking-tight truncate max-w-[150px]">{t.category || t.note || 'Transfer'}</p>
-                                            <p className="text-[9px] font-bold text-slate-400 capitalize tracking-tight">{t.account} • {formatDate(t.date)}</p>
+                                            <div className="flex flex-col gap-0.5">
+                                                <p className="text-[9px] font-bold text-slate-400 capitalize tracking-tight">
+                                                    {t.type === 'transfer' ? `${t.account} ➔ ${t.toAccount}` : t.account} • {formatDate(t.date)}
+                                                </p>
+                                                {t.note && <p className="text-[8px] text-slate-500 italic opacity-80 leading-none">"{t.note}"</p>}
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <p className={`text-sm font-black tracking-tight ${t.type === 'income' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                            {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount)}
+                                        <p className={`text-sm font-black tracking-tight ${t.type === 'income' ? 'text-emerald-600' : t.type === 'expense' ? 'text-rose-600' : 'text-blue-600'}`}>
+                                            {t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '⇌'}{formatCurrency(t.amount)}
                                         </p>
-                                        {t.subCategory && <p className="text-[8px] font-black text-slate-300 uppercase italic opacity-70">"{t.subCategory}"</p>}
+                                        {t.subCategory && <p className="text-[8px] font-black text-slate-300 uppercase italic opacity-70">{t.subCategory}</p>}
                                     </div>
                                 </div>
                             ))}
@@ -312,11 +317,16 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
                                         </div>
                                         <div>
                                             <p className="font-black text-xs text-slate-800 uppercase tracking-tight">{tx.category || tx.note || 'Transfer'}</p>
-                                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{formatDate(tx.date)}</p>
+                                            <div className="flex flex-col gap-0.5">
+                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">
+                                                    {tx.type === 'transfer' ? `${tx.account} ➔ ${tx.toAccount}` : tx.account} • {formatDate(tx.date)}
+                                                </p>
+                                                {tx.note && <p className="text-[8px] text-slate-500 italic opacity-80 leading-none">"{tx.note}"</p>}
+                                            </div>
                                         </div>
                                     </div>
                                     <span className={`font-black text-sm tracking-tighter ${isIncoming ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                        {isIncoming ? '+' : '-'}{formatCurrency(tx.amount)}
+                                        {isIncoming ? '+' : tx.type === 'expense' ? '-' : '⇌'}{formatCurrency(tx.amount)}
                                     </span>
                                 </div>
                             )})}

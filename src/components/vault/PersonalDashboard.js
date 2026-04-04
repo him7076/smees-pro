@@ -105,7 +105,7 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                 <div className="flex gap-1.5">
                     <button onClick={() => setPTab('ledger')} className={`p-2 rounded-xl transition-all ${pTab === 'ledger' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><List size={16}/></button>
                     <button onClick={() => setPTab('stats')} className={`p-2 rounded-xl transition-all ${pTab === 'stats' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><PieIcon size={16}/></button>
-                    <button onClick={() => setPTab('manage')} className={`p-2 rounded-xl transition-all ${pTab === 'manage' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><Settings size={16}/></button>
+                    <button onClick={() => setPTab('manage')} className={`p-2 rounded-xl transition-all ${pTab === 'manage' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><Landmark size={16}/></button>
                 </div>
             </div>
 
@@ -142,13 +142,16 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                         <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm group-active:scale-90 transition-all ${t.type === 'income' ? 'bg-emerald-50 text-emerald-600' : t.type === 'expense' ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'}`}>
                                             {t.type === 'income' ? <ArrowUpRight size={20}/> : t.type === 'expense' ? <ArrowDownLeft size={20}/> : <ArrowRightLeft size={20}/>}
                                         </div>
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <p className="text-[11px] font-black text-slate-800 tracking-tight leading-none uppercase">{t.category || t.note || 'Internal Transfer'}</p>
-                                                <button onClick={(e) => { e.stopPropagation(); deleteTransaction(t.id); }} className="opacity-0 group-hover:opacity-100 p-1 text-rose-300 hover:text-rose-500 transition-all"><Trash2 size={12}/></button>
-                                            </div>
-                                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{t.date} • <span className="text-slate-500 font-black">{t.account}</span></p>
+                                        <div className="flex flex-col gap-0.5">
+                                            <p className="text-[11px] font-black text-slate-800 tracking-tight leading-none uppercase">{t.category || t.note || 'Internal Transfer'}</p>
+                                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+                                                {t.date} • <span className="text-slate-500 font-black">{t.type === 'transfer' ? `${t.account} ➔ ${t.toAccount}` : t.account}</span>
+                                            </p>
+                                            {t.note && <p className="text-[7px] text-slate-400 italic opacity-80 leading-none">"{t.note}"</p>}
                                         </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={(e) => { e.stopPropagation(); deleteTransaction(t.id); }} className="opacity-0 group-hover:opacity-100 p-1 text-rose-300 hover:text-rose-500 transition-all"><Trash2 size={12}/></button>
                                     </div>
                                     <p className={`text-xs font-black tracking-tighter ${t.type === 'income' ? 'text-emerald-600' : t.type === 'expense' ? 'text-rose-600' : 'text-blue-600'}`}>
                                         {t.type === 'expense' ? '-' : t.type === 'income' ? '+' : ''}{formatCurrency(t.amount)}

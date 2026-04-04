@@ -137,18 +137,18 @@ const Dashboard = ({ data, setModal, setViewDetail }) => {
                 </div>
             </div>
             
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                    { label: 'Liquid Liquidity', value: formatCurrency(stats.cashBal + stats.bankBal), sub: `Cash: ${formatCurrency(stats.cashBal)} | Bank: ${formatCurrency(stats.bankBal)}`, color: 'bg-indigo-600 shadow-indigo-600/20', type: 'liquid_assets', icon: <Banknote size={16}/> },
-                    { label: 'Active Pipeline', value: stats.activeTasks, sub: 'Running Ops', color: 'bg-slate-800 shadow-slate-900/20', type: 'tasks', icon: <ChevronRight size={16}/> }
+                    { label: 'Total Sales', value: formatCurrency(stats.sales), sub: 'Gross Revenue', color: 'bg-emerald-600 shadow-emerald-600/20', type: 'sales', icon: <TrendingUp size={16}/> },
+                    { label: 'Total Expenses', value: formatCurrency(stats.expenses), sub: 'Operational Outflow', color: 'bg-rose-600 shadow-rose-600/20', type: 'expense', icon: <FileText size={16}/> },
+                    { label: 'Gross Profit', value: formatCurrency(stats.grossProfit), sub: 'Net Yield', color: 'bg-blue-600 shadow-blue-600/20', type: 'profit', icon: <TrendingUp size={16}/> },
+                    { label: 'Liquid Balance', value: formatCurrency(stats.cashBal + stats.bankBal), sub: `C: ${formatCurrency(stats.cashBal)} | B: ${formatCurrency(stats.bankBal)}`, color: 'bg-indigo-600 shadow-indigo-600/20', type: 'liquid_assets', icon: <Banknote size={16}/> },
                 ].map((card, i) => (
                     <div 
                         key={i} 
                         onClick={() => {
                             if (card.type === 'liquid_assets') {
                                 setModal({ type: 'financial_book' });
-                            } else if (card.type === 'tasks') {
-                                navigate('/tasks');
                             } else {
                                 setModal({ type: 'dashboard_drilldown', filter: card.type, items: stats.filteredTxs.filter(t => t.type === card.type || (card.type === 'profit' && t.type === 'sales')) });
                             }

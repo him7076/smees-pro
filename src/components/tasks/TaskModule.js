@@ -19,7 +19,7 @@ const TaskModule = ({ data, setData, user, setViewDetail, setModal }) => {
     const { deleteRecord } = useDatabase(data, setData);
     const [sort, setSort] = useState(localStorage.getItem('smees_task_sort') || 'DateAsc');
     const [search, setSearch] = useState('');
-    const [statusFilter, setStatusFilter] = useState('To Do');
+    const [statusFilter, setStatusFilter] = useState('All');
     const [viewMode, setViewMode] = useState('tasks');
     const [duplicateView, setDuplicateView] = useState(null); 
     const [amcSearch, setAmcSearch] = useState('');
