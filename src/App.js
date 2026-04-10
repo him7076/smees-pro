@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from './services/firebase';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
+import { usePushNotifications } from './hooks/usePushNotifications';
 import { checkPermission, formatCurrency, getPartyBalances, getItemStock, getBillStats, getFilteredAttendance, getTransactionTotals } from './utils/helpers';
 import { doc, setDoc, getDoc, deleteDoc } from "firebase/firestore";
 import { db } from './services/firebase';
@@ -51,6 +52,9 @@ const App = () => {
     const [user, setUser] = useState(null);
     const [authLoading, setAuthLoading] = useState(true);
     const { data, setData, syncing, syncData, loading: dataLoading } = useFirebaseSync();
+
+    // Initialize Push Notifications
+    usePushNotifications(user);
 
     const [uiConfig, setUiConfig] = useState(() => {
         const saved = localStorage.getItem('smees_ui_config');
