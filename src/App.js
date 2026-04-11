@@ -45,6 +45,7 @@ import AssetDetailView from './components/masters/AssetDetailView';
 import BackupRestore from './components/layout/BackupRestore';
 import SystemMenu from './components/layout/SystemMenu';
 import TaskSettings from './components/tasks/TaskSettings';
+import CloseFYModal from './components/layout/CloseFYModal';
 
 
 const App = () => {
@@ -454,6 +455,7 @@ const App = () => {
                                 {modal.type === 'personalFinance' && <PersonalFinanceView data={data} setData={setData} onBack={() => setViewDetail(null)} accountId={viewDetail?.accountId} setModal={setModal} />}
                                 {modal.type === 'task' && <TaskForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} context={modal.context} />}
                                 {modal.type === 'convertTask' && <ConvertTaskModal task={modal.data} data={data} setData={setData} onClose={() => setModal(null)} />}
+                                {modal.type === 'closeFY' && <CloseFYModal data={data} setData={setData} onClose={() => setModal(null)} />}
                                 {modal.type === 'asset' && <AssetForm data={data} setData={setData} record={modal.data} onClose={() => setModal(null)} />}
                                 {modal.type === 'financial_book' && (
                                     <div className="h-full">

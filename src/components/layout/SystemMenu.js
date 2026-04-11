@@ -10,7 +10,13 @@ const SystemMenu = ({ setModal, onClose }) => {
             icon: <Database size={20} className="text-blue-600"/>,
             onClick: () => setModal({ type: 'backup' })
         },
-        // More items can be added here later as requested by the user
+        { 
+            id: 'closeFY', 
+            label: 'Close Financial Year', 
+            desc: 'Transition to new fiscal period & reset counters',
+            icon: <RefreshCw size={20} className="text-amber-600"/>,
+            onClick: () => setModal({ type: 'closeFY' })
+        },
     ];
 
     return (
