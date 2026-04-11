@@ -45,8 +45,8 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
 
     const nextId = useMemo(() => {
         if (record) return record.id;
-        return getNextId(data, type).id;
-    }, [data, type, record]);
+        return getNextId(data, type, tx.date).id;
+    }, [data, type, record, tx.date]);
 
     const itemStock = useMemo(() => getItemStock(data), [data]);
     const partyBalances = useMemo(() => getPartyBalances(data), [data]);
