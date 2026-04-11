@@ -32,7 +32,7 @@ export const INITIAL_DATA = {
       estimate: 100,
       transaction: 1000
   },
-  counters_25_26: {
+  counters_26_27: {
       sales: 1, 
       purchase: 1, 
       expense: 1, 

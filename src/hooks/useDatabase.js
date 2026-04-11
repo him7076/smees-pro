@@ -41,7 +41,7 @@ export const useDatabase = (data, setData) => {
                     ? [finalRecord, ... (prevData[collectionName] || [])] 
                     : (prevData[collectionName] || []).map(r => r.id === finalRecord.id ? finalRecord : r);
                 
-                const counterKey = finalRecord.isNewFY ? 'counters_25_26' : 'counters';
+                const counterKey = finalRecord.isNewFY ? 'counters_26_27' : 'counters';
                 const newData = { 
                     ...prevData, 
                     [collectionName]: updatedList,
@@ -57,7 +57,7 @@ export const useDatabase = (data, setData) => {
             
             // 4. Update appropriate counters
             if (isNew) {
-                const counterFileName = finalRecord.isNewFY ? "counters_25_26" : "counters";
+                const counterFileName = finalRecord.isNewFY ? "counters_26_27" : "counters";
                 const counterPath = isPersonal ? [personalDb, "settings", "counters"] : [db, "settings", counterFileName];
                 await setDoc(doc(...counterPath), nextCounters, { merge: true });
             }

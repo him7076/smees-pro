@@ -19,13 +19,13 @@ export const getNextId = (data, type, date) => {
 
   // 1. Resolve Financial Year context
   const targetDate = date ? new Date(date) : new Date();
-  const transitionDate = new Date('2025-04-01');
+  const transitionDate = new Date('2026-04-01');
   
   const isTransaction = ['sales', 'purchase', 'expense', 'payment', 'estimate'].includes(type);
   const isNewFY = isTransaction && targetDate >= transitionDate;
   
-  const fyPrefix = isNewFY ? '2025-2026/' : '';
-  const counterObjKey = isNewFY ? 'counters_25_26' : 'counters';
+  const fyPrefix = isNewFY ? '2026-2027/' : '';
+  const counterObjKey = isNewFY ? 'counters_26_27' : 'counters';
   
   const counters = (data && data[counterObjKey]) ? data[counterObjKey] : (INITIAL_DATA[counterObjKey] || (!isNewFY ? INITIAL_DATA.counters : {}));
   let num = parseInt(counters[counterKey] || 1); 

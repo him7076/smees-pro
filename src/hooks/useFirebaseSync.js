@@ -104,7 +104,7 @@ export const useFirebaseSync = () => {
         });
 
         // --- 3. SETTINGS & METADATA SYNC ---
-        const settingsDocs = ['counters', 'categories', 'company', 'counters_25_26'];
+        const settingsDocs = ['counters', 'categories', 'company', 'counters_26_27'];
         settingsDocs.forEach(sDoc => {
             const unsub = onSnapshot(doc(db, "settings", sDoc), (snapshot) => {
                 if (snapshot.exists()) {
