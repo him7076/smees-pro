@@ -24,7 +24,7 @@ export const getNextId = (data, type, date) => {
   const isTransaction = ['sales', 'purchase', 'expense', 'payment', 'estimate'].includes(type);
   const isNewFY = isTransaction && targetDate >= transitionDate;
   
-  const fyPrefix = isNewFY ? '2026-2027/' : '';
+  const fyPrefix = isNewFY ? '2026-2027_' : '';
   const counterObjKey = isNewFY ? 'counters_26_27' : 'counters';
   
   const counters = (data && data[counterObjKey]) ? data[counterObjKey] : (INITIAL_DATA[counterObjKey] || (!isNewFY ? INITIAL_DATA.counters : {}));
