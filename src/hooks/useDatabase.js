@@ -27,9 +27,10 @@ export const useDatabase = (data, setData) => {
 
             // 1. ID Generation Logic
             if (isNew) {
-                const { id, nextCounters: updatedCounters } = getNextId(data, type);
+                const { id, nextCounters: updatedCounters, isNewFY } = getNextId(data, type, record.date);
                 finalRecord.id = id;
                 finalRecord.createdAt = new Date().toISOString();
+                finalRecord.isNewFY = isNewFY; // Tag it for counter path resolution
                 nextCounters = updatedCounters;
             }
             finalRecord.updatedAt = new Date().toISOString();
@@ -40,10 +41,11 @@ export const useDatabase = (data, setData) => {
                     ? [finalRecord, ... (prevData[collectionName] || [])] 
                     : (prevData[collectionName] || []).map(r => r.id === finalRecord.id ? finalRecord : r);
                 
+                const counterKey = finalRecord.isNewFY ? 'counters_25_26' : 'counters';
                 const newData = { 
                     ...prevData, 
                     [collectionName]: updatedList,
-                    ...(isNew ? { counters: nextCounters } : {})
+                    ...(isNew ? { [counterKey]: nextCounters } : {})
                 };
                 
                 localStorage.setItem('smees_data', JSON.stringify(newData));
@@ -55,7 +57,8 @@ export const useDatabase = (data, setData) => {
             
             // 4. Update appropriate counters
             if (isNew) {
-                const counterPath = isPersonal ? [personalDb, "settings", "counters"] : [db, "settings", "counters"];
+                const counterFileName = finalRecord.isNewFY ? "counters_25_26" : "counters";
+                const counterPath = isPersonal ? [personalDb, "settings", "counters"] : [db, "settings", counterFileName];
                 await setDoc(doc(...counterPath), nextCounters, { merge: true });
             }
 

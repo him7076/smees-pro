@@ -31,5 +31,12 @@ export const INITIAL_DATA = {
       staff: 103, 
       estimate: 100,
       transaction: 1000
+  },
+  counters_25_26: {
+      sales: 1, 
+      purchase: 1, 
+      expense: 1, 
+      payment: 1,
+      estimate: 1
   }
 };

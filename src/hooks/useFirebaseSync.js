@@ -32,7 +32,7 @@ export const useFirebaseSync = () => {
         setLoading(true);
         const unsubscribers = [];
         let loadedCount = 0;
-        const totalListeners = 12; // 6 biz + 3 personal + 3 settings docs
+        const totalListeners = 13; // 6 biz + 3 personal + 4 settings docs
 
         const checkLoaded = () => {
             loadedCount++;
@@ -104,7 +104,7 @@ export const useFirebaseSync = () => {
         });
 
         // --- 3. SETTINGS & METADATA SYNC ---
-        const settingsDocs = ['counters', 'categories', 'company'];
+        const settingsDocs = ['counters', 'categories', 'company', 'counters_25_26'];
         settingsDocs.forEach(sDoc => {
             const unsub = onSnapshot(doc(db, "settings", sDoc), (snapshot) => {
                 if (snapshot.exists()) {

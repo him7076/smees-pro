@@ -1,6 +1,6 @@
 import { INITIAL_DATA } from './constants';
 
-export const getNextId = (data, type) => {
+export const getNextId = (data, type, date) => {
   let prefix = type.charAt(0).toUpperCase();
   let counterKey = type;
 
@@ -17,10 +17,22 @@ export const getNextId = (data, type) => {
   else if (type === 'personalTask') { prefix = 'PT'; counterKey = 'personalTask'; }
   else if (type === 'personalTransaction') { prefix = 'PX'; counterKey = 'personalTransaction'; }
 
-  const counters = (data && data.counters) ? data.counters : INITIAL_DATA.counters;
+  // 1. Resolve Financial Year context
+  const targetDate = date ? new Date(date) : new Date();
+  const transitionDate = new Date('2025-04-01');
+  
+  const isTransaction = ['sales', 'purchase', 'expense', 'payment', 'estimate'].includes(type);
+  const isNewFY = isTransaction && targetDate >= transitionDate;
+  
+  const fyPrefix = isNewFY ? '2025-2026/' : '';
+  const counterObjKey = isNewFY ? 'counters_25_26' : 'counters';
+  
+  const counters = (data && data[counterObjKey]) ? data[counterObjKey] : (INITIAL_DATA[counterObjKey] || (!isNewFY ? INITIAL_DATA.counters : {}));
   let num = parseInt(counters[counterKey] || 1); 
   
-  let newId = `${prefix}-${num}`;
+  // Format ID: Legacy "Sales:-1063", New "Sales:2025-2026/1"
+  let newId = isNewFY ? `${prefix}${fyPrefix}${num}` : `${prefix}-${num}`;
+
   let isDuplicate = true;
   while(isDuplicate) {
       isDuplicate = (data.transactions && data.transactions.some(t => t.id === newId)) || 
@@ -33,13 +45,13 @@ export const getNextId = (data, type) => {
                     (data.personalAccounts && data.personalAccounts.some(t => t.id === newId));
       if(isDuplicate) {
           num++; 
-          newId = `${prefix}-${num}`;
+          newId = isNewFY ? `${prefix}${fyPrefix}${num}` : `${prefix}-${num}`;
       }
   }
 
   const nextCounters = { ...counters };
   nextCounters[counterKey] = num + 1;
-  return { id: newId, nextCounters };
+  return { id: newId, nextCounters, isNewFY };
 };
 
 export const formatCurrency = (amount) => `₹${parseFloat(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
