@@ -466,97 +466,87 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                     {selectedParty.assets.map((a, i) => (
                                         <option key={i} value={a.name} disabled={tx.linkedAssets.some(la => la.name === a.name)}>{a.name} ({a.brand})</option>
                                     ))}
-                                </select>
-                            </div>
                         )}
 
                     </div>
-                </div>
-
+                </div>                
                 {/* Items Section */}
                 {type !== 'payment' && (
                     <div className="space-y-6">
                         <div className="flex justify-between items-center px-2">
                             <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><ShoppingBag size={16}/> Items / Breakdown</h4>
-                            <button onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-200 active:scale-95 transition-all">Add Line</button>
                         </div>
+                        
                         <div className="space-y-4">
                             {tx.items.map((line, idx) => {
                                 const master = data.items.find(i => i.id === line.itemId);
                                 return (
-                                    <div key={idx} className={`p-4 bg-white border border-slate-100 rounded-[28px] shadow-sm relative animate-in slide-in-from-bottom-2 ${line.isLinked ? 'ml-6 bg-orange-50/10 border-orange-50' : ''}`}>
-                                        <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute top-2 right-2 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={14}/></button>
+                                    <div key={idx} className={`p-5 bg-white border border-slate-100 rounded-[32px] shadow-sm relative space-y-4 animate-in slide-in-from-bottom-2 ${line.isLinked ? 'ml-6 bg-orange-50/10 border-orange-50' : ''}`}>
+                                        <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-3 -right-3 bg-white p-2 rounded-full shadow-xl border border-slate-50 text-rose-500 hover:scale-110 transition-all"><Trash2 size={16}/></button>
                                         
-                                        <div className="flex flex-col gap-3">
-                                            {/* Primary Line: Product & Brand */}
-                                            <div className="grid grid-cols-1 sm:grid-cols-[2fr,1fr] gap-2">
+                                        <div className="grid grid-cols-1 md:grid-cols-[2fr,1fr] gap-4">
+                                            <SearchableSelect 
+                                                options={data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))}
+                                                value={line.itemId}
+                                                onChange={v => updateLine(idx, 'itemId', v)}
+                                                placeholder="Identify Product..."
+                                            />
+                                            {master && (
                                                 <SearchableSelect 
-                                                    options={data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))}
-                                                    value={line.itemId}
-                                                    onChange={v => updateLine(idx, 'itemId', v)}
-                                                    placeholder="Product..."
+                                                    placeholder={master.brands?.length ? "Brand/Variant" : "No Variants"}
+                                                    options={master.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}` })) || []}
+                                                    value={line.brand || ''}
+                                                    onChange={v => updateLine(idx, 'brand', v)}
+                                                    onAddNew={() => setAddBrandModal({ item: master, idx, name: '', sellPrice: master.sellPrice, buyPrice: master.buyPrice })}
                                                 />
-                                                {master && (
-                                                    <SearchableSelect 
-                                                        placeholder="Brand..."
-                                                        options={master.brands?.map(b => ({ id: b.name, name: b.name })) || []}
-                                                        value={line.brand || ''}
-                                                        onChange={v => updateLine(idx, 'brand', v)}
-                                                        onAddNew={() => setAddBrandModal({ item: master, idx })}
-                                                    />
-                                                )}
-                                            </div>
-
-                                            {/* Metrics Line: Qty, Price, Warranty, Total */}
-                                            <div className={`grid ${type === 'sales' ? 'grid-cols-5' : 'grid-cols-4'} gap-2 items-center`}>
-                                                <div className="col-span-1">
-                                                    <label className="text-[8px] font-black text-slate-400 uppercase tracking-tighter block mb-0.5">Qty</label>
-                                                    <input type="number" className="w-full px-2 py-2.5 bg-slate-50 border border-slate-50 rounded-lg text-xs font-black outline-none" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} />
-                                                </div>
-                                                {type === 'sales' && (
-                                                <div className="col-span-1">
-                                                    <label className="text-[8px] font-black text-rose-400 uppercase tracking-tighter block mb-0.5">Buy</label>
-                                                    <input type="number" className="w-full px-2 py-2.5 bg-rose-50/50 border border-rose-50 rounded-lg text-xs font-black text-rose-700 outline-none" value={line.buyPrice || line.purchasePrice || 0} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />
-                                                </div>
-                                                )}
-                                                <div className="col-span-1">
-                                                    <label className="text-[8px] font-black text-emerald-400 uppercase tracking-tighter block mb-0.5">Price</label>
-                                                    <input type="number" className="w-full px-2 py-2.5 bg-emerald-50/50 border border-emerald-50 rounded-lg text-xs font-black text-emerald-700 outline-none" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
-                                                </div>
-                                                <div className="col-span-1">
-                                                    <label className="text-[8px] font-black text-blue-400 uppercase tracking-tighter block mb-0.5">Warrnt</label>
-                                                    <select className="w-full px-2 py-2.5 bg-blue-50/50 border border-blue-50 rounded-lg text-[9px] font-black text-blue-700 outline-none" onChange={(e) => {
-                                                        const months = parseInt(e.target.value);
-                                                        if(!months) return;
-                                                        const d = new Date(tx.date || new Date()); 
-                                                        d.setMonth(d.getMonth() + months);
-                                                        updateLine(idx, 'warrantyDate', d.toISOString().split('T')[0]);
-                                                    }}>
-                                                        <option value="">-</option>
-                                                        <option value="6">6M</option><option value="12">1Y</option><option value="24">2Y</option>
-                                                    </select>
-                                                </div>
-                                                <div className="col-span-1 text-right">
-                                                    <label className="text-[8px] font-black text-slate-400 uppercase tracking-tighter block mb-0.5">Sum</label>
-                                                    <p className="text-[11px] font-black text-slate-900 tracking-tighter truncate">{formatCurrency(line.qty * line.price)}</p>
-                                                </div>
-                                            </div>
-
-                                            {/* Linked Proposals (Small row) */}
-                                            {(line.linkedItems || []).length > 0 && (
-                                                <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                                                    {(line.linkedItems || []).map((lItem, lIdx) => (
-                                                        <button key={lIdx} onClick={() => addLinkedItem(idx, lIdx)} className="flex-none px-3 py-1.5 bg-blue-900 text-white rounded-lg flex items-center gap-1.5 font-black text-[8px] uppercase tracking-widest active:scale-95 transition-all">
-                                                            <Plus size={10}/> Link: {lItem.name}
-                                                        </button>
-                                                    ))}
-                                                </div>
                                             )}
                                         </div>
+
+                                        <div className={`grid ${type === 'sales' ? 'grid-cols-4' : 'grid-cols-3'} gap-4`}>
+                                            <div className="space-y-1.5">
+                                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Qty</label>
+                                                <input type="number" className="w-full p-3 bg-slate-50 border border-slate-50 rounded-xl text-xs font-black outline-none focus:bg-white focus:border-blue-100" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <label className="text-[9px] font-black text-emerald-400 uppercase tracking-widest ml-1">{type === 'purchase' ? 'Buy Rate' : 'Sell Rate'}</label>
+                                                <input type="number" className="w-full p-3 bg-emerald-50/30 border border-emerald-50 rounded-xl text-xs font-black text-emerald-700 outline-none focus:bg-white" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
+                                            </div>
+                                            {type === 'sales' && (
+                                            <div className="space-y-1.5">
+                                                <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate</label>
+                                                <input type="number" className="w-full p-3 bg-rose-50/30 border border-rose-50 rounded-xl text-xs font-black text-rose-700 outline-none focus:bg-white" value={line.buyPrice || line.purchasePrice || 0} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />
+                                            </div>
+                                            )}
+                                            <div className="space-y-1.5">
+                                                <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Warranty</label>
+                                                <select className="w-full p-3 bg-blue-50/30 border border-blue-50 rounded-xl text-[10px] font-black text-blue-700 outline-none" onChange={(e) => {
+                                                    const months = parseInt(e.target.value);
+                                                    if(!months) return;
+                                                    const d = new Date(tx.date || new Date()); 
+                                                    d.setMonth(d.getMonth() + months);
+                                                    updateLine(idx, 'warrantyDate', d.toISOString().split('T')[0]);
+                                                }}>
+                                                    <option value="">-</option>
+                                                    <option value="6">6M</option>
+                                                    <option value="12">1Y</option>
+                                                    <option value="24">2Y</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        {(line.linkedItems || []).map((lItem, lIdx) => (
+                                            <button key={lIdx} onClick={() => addLinkedItem(idx, lIdx)} className="w-full py-3 bg-indigo-50 text-indigo-700 rounded-2xl flex items-center justify-center gap-2 font-black text-[9px] uppercase tracking-widest border border-indigo-100 active:scale-95 transition-all shadow-sm">
+                                                <Plus size={14}/> Add Related: {lItem.name} {lItem.brand ? `(${lItem.brand})` : ''}
+                                            </button>
+                                        ))}
+
+                                        <input className="w-full text-xs p-3 bg-slate-50 border border-slate-50 rounded-xl font-bold" placeholder="Line notes / description..." value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
                                     </div>
                                 );
                             })}
                         </div>
+
+                        <button onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="w-full py-5 border-2 border-dashed border-slate-200 text-slate-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-slate-50 transition-all flex items-center justify-center gap-2 mt-4"><Plus size={16}/> New Line Item</button>
                     </div>
                 )}
 
@@ -697,32 +687,45 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                         <div className="space-y-6">
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Variant Name</label>
-                                <input id="new_b_name" autoFocus className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none focus:ring-4 focus:ring-blue-500/10 transition-all" placeholder="e.g. 10 Meter / Heavy Duty" />
+                                <input 
+                                    value={addBrandModal.name || ''} 
+                                    onChange={e => setAddBrandModal({...addBrandModal, name: e.target.value})}
+                                    autoFocus 
+                                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none focus:ring-4 focus:ring-blue-500/10 transition-all font-black" 
+                                    placeholder="e.g. 10 Meter / Heavy Duty" 
+                                />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sale Price</label>
-                                    <input id="new_b_sell" type="number" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none" defaultValue={addBrandModal.item.sellPrice} />
+                                    <input 
+                                        type="number" 
+                                        value={addBrandModal.sellPrice || 0} 
+                                        onChange={e => setAddBrandModal({...addBrandModal, sellPrice: e.target.value})}
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none" 
+                                    />
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Buy Price</label>
-                                    <input id="new_b_buy" type="number" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none" defaultValue={addBrandModal.item.buyPrice} />
+                                    <input 
+                                        type="number" 
+                                        value={addBrandModal.buyPrice || 0} 
+                                        onChange={e => setAddBrandModal({...addBrandModal, buyPrice: e.target.value})}
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none" 
+                                    />
                                 </div>
                             </div>
                             <button 
                                 onClick={async () => {
-                                    const n = document.getElementById('new_b_name').value;
-                                    const s = parseFloat(document.getElementById('new_b_sell').value||0);
-                                    const b = parseFloat(document.getElementById('new_b_buy').value||0);
-                                    if(!n) return alert("Required");
+                                    const { name, sellPrice, buyPrice, item, idx } = addBrandModal;
+                                    if(!name) return alert("Required");
                                     
-                                    const item = addBrandModal.item;
-                                    const newBrands = [...(item.brands || []), { name: n, sellPrice: s, buyPrice: b }];
+                                    const newBrands = [...(item.brands || []), { name, sellPrice: parseFloat(sellPrice||0), buyPrice: parseFloat(buyPrice||0) }];
                                     const updatedItem = { ...item, brands: newBrands, updatedAt: new Date().toISOString() };
                                     
                                     await setDoc(doc(db, "items", item.id), updatedItem, { merge: true });
                                     setData(prev => ({ ...prev, items: prev.items.map(i => i.id === item.id ? updatedItem : i) }));
-                                    updateLine(addBrandModal.idx, 'brand', n);
+                                    updateLine(idx, 'brand', name);
                                     setAddBrandModal(null);
                                 }}
                                 className="w-full py-6 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-slate-200 active:scale-95 transition-all mt-4"

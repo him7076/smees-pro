@@ -352,14 +352,18 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                 </button>
                                             ))}
 
-                                            <div className="grid grid-cols-2 gap-4">
+                                            <div className="grid grid-cols-3 gap-4">
                                                 <div className="space-y-1.5">
                                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Quantity</label>
                                                     <input type="number" className="w-full p-3 bg-white border border-slate-100 rounded-xl text-xs font-black" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
                                                 </div>
                                                 <div className="space-y-1.5">
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Unit Rate</label>
-                                                    <input type="number" className="w-full p-3 bg-white border border-slate-100 rounded-xl text-xs font-black" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
+                                                    <label className="text-[9px] font-black text-emerald-400 uppercase tracking-widest ml-1">Sell Rate</label>
+                                                    <input type="number" className="w-full p-3 bg-white border border-slate-100 rounded-xl text-xs font-black text-emerald-600" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate</label>
+                                                    <input type="number" className="w-full p-3 bg-white border border-slate-100 rounded-xl text-xs font-black text-rose-600" value={line.buyPrice || 0} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} />
                                                 </div>
                                             </div>
                                             <input className="w-full text-xs p-3 bg-white border border-slate-100 rounded-xl font-bold" placeholder="Line memo (e.g. Broken part replacement)" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} />
