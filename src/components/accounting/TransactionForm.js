@@ -461,13 +461,9 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                         </div>
                                     ))}
                                 </div>
-                                <select className="w-full p-4 bg-white border border-indigo-200 rounded-2xl text-xs font-black text-indigo-600 outline-none shadow-sm" value="" onChange={e => handleAddAsset(e.target.value)}>
-                                    <option value="">+ Connect Asset Data</option>
-                                    {selectedParty.assets.map((a, i) => (
-                                        <option key={i} value={a.name} disabled={tx.linkedAssets.some(la => la.name === a.name)}>{a.name} ({a.brand})</option>
-                                    ))}
+                                </select>
+                            </div>
                         )}
-
                     </div>
                 </div>                
                 {/* Items Section */}
