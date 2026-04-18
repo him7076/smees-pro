@@ -1,0 +1,9 @@
+{
+  "appId": "com.smees.pro",
+  "appName": "SMEES Pro",
+  "webDir": "build",
+  "server": {
+    "url": "https://smees-pro.vercel.app",
+    "cleartext": true
+  }
+}

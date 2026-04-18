@@ -303,6 +303,12 @@ const PersonalFinanceView = ({ data, setData, onBack, setModal, accountId }) => 
                                     <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest">Live Valuation</p>
                                     <p className={`text-3xl font-black tracking-tighter ${selectedAccountForTx.balance >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{formatCurrency(selectedAccountForTx.balance)}</p>
                                 </div>
+                                <button 
+                                    onClick={() => setModal({ type: 'personalFinance', record: { account: selectedAccountForTx.name } })}
+                                    className="w-14 h-14 bg-slate-900 text-white rounded-[24px] shadow-xl flex items-center justify-center active:scale-95 transition-all"
+                                >
+                                    <Plus size={24}/>
+                                </button>
                             </div>
                         </div>
 

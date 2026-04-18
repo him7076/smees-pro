@@ -88,10 +88,14 @@ export const getBillStats = (bill, transactions) => {
         used = (bill.linkedBills || []).reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
     } else {
         // For bills (sales/purchase), 'used' is what OTHER payments have linked to THIS bill
+        // IMPROVED: Robust ID comparison for different formats (Legacy vs New)
+        const normalize = (id) => (id || '').toString().replace(/[:\-]/g, '').toLowerCase();
+        const billIdNorm = normalize(bill.id);
+
         used = (transactions || [])
             .filter(t => t.status !== 'Cancelled' && t.type === 'payment' && t.linkedBills)
             .reduce((sum, t) => {
-                 const link = t.linkedBills?.find(l => l.billId?.toString() === bill.id?.toString());
+                 const link = t.linkedBills?.find(l => normalize(l.billId) === billIdNorm);
                  return sum + (link ? parseFloat(link.amount || 0) : 0);
             }, 0);
     }
@@ -99,17 +103,15 @@ export const getBillStats = (bill, transactions) => {
     const amount = isPayment ? parseFloat(bill.amount || 0) : getTransactionTotals(bill).final;
     const pending = Math.max(0, amount - used);
     
-    const wasUsed = used > 0.5;
-    const isFull = pending <= 0.5;
-
+    const tolerance = 0.5; // Tolerance for floating point precision issues
     let status = 'UNPAID';
     if (isPayment) {
-        if (isFull) status = 'FULLY USED';
-        else if (wasUsed) status = 'PARTIALLY USED';
+        if (used >= amount - tolerance) status = 'FULLY USED';
+        else if (used > 0) status = 'PARTIALLY USED';
         else status = 'UNUSED';
     } else {
-        if (isFull) status = 'PAID';
-        else if (wasUsed) status = 'PARTIAL';
+        if (used >= amount - tolerance) status = 'PAID';
+        else if (used > 0) status = 'PARTIAL';
         else status = 'UNPAID';
     }
 

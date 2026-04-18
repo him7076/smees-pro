@@ -49,7 +49,7 @@ export const useFirebaseSync = () => {
             
             // Optimization: Apply limits and filters to high-volume collections
             if (colName === 'transactions') {
-                q = query(q, orderBy('date', 'desc'), limit(500));
+                q = query(q, orderBy('date', 'desc'), limit(2000));
             } else if (colName === 'tasks') {
                 q = query(q, orderBy('createdAt', 'desc'), limit(500));
             } else if (colName === 'attendance') {
@@ -83,7 +83,7 @@ export const useFirebaseSync = () => {
         personalCollections.forEach(({ key, col }) => {
             let q = collection(personalDb, col);
             if (key === 'personalTransactions') {
-                q = query(q, orderBy('date', 'desc'), limit(500));
+                q = query(q, orderBy('date', 'desc'), limit(2000));
             } else if (key === 'personalTasks') {
                 q = query(q, orderBy('createdAt', 'desc'), limit(500));
             }

@@ -509,7 +509,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                 <input type="number" className="w-full p-3 bg-slate-50 border border-slate-50 rounded-xl text-xs font-black outline-none focus:bg-white focus:border-blue-100" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} />
                                             </div>
                                             <div className="space-y-1.5">
-                                                <label className="text-[9px] font-black text-emerald-400 uppercase tracking-widest ml-1">{type === 'purchase' ? 'Buy Rate' : 'Sell Rate'}</label>
+                                                <label className="text-[9px] font-black text-emerald-400 uppercase tracking-widest ml-1">{type === 'purchase' ? 'Buy Rate' : type === 'expense' ? 'Rate' : 'Sell Rate'}</label>
                                                 <input type="number" className="w-full p-3 bg-emerald-50/30 border border-emerald-50 rounded-xl text-xs font-black text-emerald-700 outline-none focus:bg-white" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
                                             </div>
                                             {type === 'sales' && (
@@ -597,25 +597,26 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                         <input type="number" className="w-full bg-transparent text-left font-black text-white text-3xl outline-none" value={tx.amount} onChange={e=>setTx({...tx, amount: e.target.value})} />
                                     </div>
                                 </div>
-                            )}
-                            {['sales', 'purchase', 'expense'].includes(type) && (
+                                                  {['sales', 'purchase', 'expense'].includes(type) && (
                                 <>
                                 <div className="flex justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
-                                    <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest pt-1">{type === 'purchase' ? 'Amt Paid' : 'Amt Recv'}</span>
-                                    <input type="number" className="w-32 bg-transparent text-right font-black text-emerald-400 text-xl outline-none" value={type === 'purchase' ? tx.paid : tx.received} onChange={e=>setTx({...tx, [type === 'purchase' ? 'paid' : 'received']: e.target.value})} />
+                                    <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest pt-1">{type === 'purchase' || type === 'expense' ? 'Amt Paid' : 'Amt Recv'}</span>
+                                    <input type="number" className="w-32 bg-transparent text-right font-black text-emerald-400 text-xl outline-none" value={type === 'sales' ? tx.received : tx.paid} onChange={e=>setTx({...tx, [type === 'sales' ? 'received' : 'paid']: e.target.value})} />
                                 </div>
-                                <div className="p-3 bg-white/5 rounded-2xl border border-white/5">
-                                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-2">Payment Mode</span>
-                                    <div className="flex gap-1.5">
-                                        {['Cash', 'Bank', 'UPI', 'Credit'].map(m => (
-                                            <button key={m} onClick={() => setTx({...tx, paymentMode: m})} className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${tx.paymentMode === m ? 'bg-white text-slate-900 shadow-lg' : 'bg-transparent text-slate-500 hover:text-white'}`}>
-                                                {m}
-                                            </button>
-                                        ))}
+                                {(parseFloat(type === 'sales' ? tx.received : tx.paid || 0) > 0) && (
+                                    <div className="p-3 bg-white/5 rounded-2xl border border-white/5 animate-in fade-in zoom-in-95">
+                                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-2">Payment Mode</span>
+                                        <div className="flex gap-1.5">
+                                            {['Cash', 'Bank', 'UPI', 'Credit'].map(m => (
+                                                <button key={m} onClick={() => setTx({...tx, paymentMode: m})} className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${tx.paymentMode === m ? 'bg-white text-slate-900 shadow-lg' : 'bg-transparent text-slate-500 hover:text-white'}`}>
+                                                    {m}
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                                 </>
-                            )}
+                            )}        )}
                             {unpaidBills.length > 0 && (
                                 <button onClick={() => setShowLinking(true)} className="w-full flex items-center justify-between p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl text-indigo-400 font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all">
                                     <span className="flex items-center gap-2"><LinkIcon size={14}/> Link Pending Bills</span>

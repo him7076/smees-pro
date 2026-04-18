@@ -386,6 +386,57 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                     Commit Record
                 </button>
             </div>
+
+            {/* Add Brand Modal */}
+            {addBrandModal && (
+                <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+                    <div className="bg-white p-8 rounded-[40px] w-full max-w-sm shadow-2xl animate-in zoom-in-95 border border-slate-100">
+                        <div className="flex justify-between items-center mb-6">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Plus size={14}/> Define New Variant</p>
+                            <button onClick={() => setAddBrandModal(null)} className="p-2 bg-slate-50 rounded-full"><X size={18}/></button>
+                        </div>
+                        <p className="text-xs font-black text-slate-800 uppercase mb-6 bg-slate-50 p-3 rounded-xl border border-slate-100 truncate">{addBrandModal.item.name}</p>
+                        
+                        <div className="space-y-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Variant Name</label>
+                                <input 
+                                    value={addBrandModal.name || ''} 
+                                    onChange={e => setAddBrandModal({...addBrandModal, name: e.target.value})}
+                                    autoFocus 
+                                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none focus:ring-4 focus:ring-blue-500/10 transition-all" 
+                                    placeholder="e.g. 10 Meter / Heavy Duty" 
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sale Price</label>
+                                    <input type="number" value={addBrandModal.sellPrice || 0} onChange={e => setAddBrandModal({...addBrandModal, sellPrice: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Buy Price</label>
+                                    <input type="number" value={addBrandModal.buyPrice || 0} onChange={e => setAddBrandModal({...addBrandModal, buyPrice: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none" />
+                                </div>
+                            </div>
+                            <button 
+                                onClick={async () => {
+                                    const { name, sellPrice, buyPrice, item, idx } = addBrandModal;
+                                    if(!name) return alert("Required");
+                                    const newBrands = [...(item.brands || []), { name, sellPrice: parseFloat(sellPrice||0), buyPrice: parseFloat(buyPrice||0) }];
+                                    const updatedItem = { ...item, brands: newBrands, updatedAt: new Date().toISOString() };
+                                    await setDoc(doc(db, "items", item.id), updatedItem, { merge: true });
+                                    setData(prev => ({ ...prev, items: prev.items.map(i => i.id === item.id ? updatedItem : i) }));
+                                    updateItem(idx, 'brand', name);
+                                    setAddBrandModal(null);
+                                }}
+                                className="w-full py-6 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl active:scale-95 transition-all mt-4"
+                            >
+                                Secure New Variant
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
