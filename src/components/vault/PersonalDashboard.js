@@ -496,35 +496,43 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                 <p className="text-xs font-black text-blue-600 uppercase tracking-widest mt-0.5">{selectedAccount.name}</p>
                             </div>
                         </div>
-                        <button 
-                            onClick={() => {
-                                const win = window.open('', '_blank');
-                                const accTxs = transactions.filter(t => t.account === selectedAccount.name || t.toAccount === selectedAccount.name).sort((a,b) => new Date(a.date) - new Date(b.date));
-                                let bal = parseFloat(selectedAccount.initialBalance || 0);
-                                const html = `
-                                    <html><head><title>${selectedAccount.name} Statement</title>
-                                    <style>body{font-family:sans-serif;padding:40px;color:#333;line-height:1.2} table{width:100%;border-collapse:collapse;margin-top:20px} th{text-align:left;padding:12px;background:#f8fafc;border-bottom:2px solid #e2e8f0;font-size:10px;text-transform:uppercase} td{padding:12px;border-bottom:1px solid #f1f5f9;font-size:12px} .dr{color:#e11d48} .cr{color:#059669} .bal{font-weight:bold}</style>
-                                    </head><body>
-                                    <h2>Account Statement</h2>
-                                    <p><strong>Account:</strong> ${selectedAccount.name} (${selectedAccount.type})</p>
-                                    <p><strong>Current Balance:</strong> ${formatCurrency(stats.accBals[selectedAccount.name])}</p>
-                                    <table><thead><tr><th>Date</th><th>Description</th><th>Type</th><th>Flow</th><th>Balance</th></tr></thead>
-                                    <tbody>
-                                    <tr><td>--</td><td>Initial Balance</td><td>--</td><td>--</td><td class="bal">${formatCurrency(bal)}</td></tr>
-                                    ${accTxs.map(t => {
-                                        const isIn = t.toAccount === selectedAccount.name || (t.account === selectedAccount.name && t.type === 'income');
-                                        const flow = isIn ? parseFloat(t.amount) : -parseFloat(t.amount);
-                                        bal += flow;
-                                        return `<tr><td>${t.date}</td><td>${t.category || t.note || 'Internal'}</td><td>${t.type.toUpperCase()}</td><td class="${flow >= 0 ? 'cr' : 'dr'}">${flow >= 0 ? '+' : ''}${formatCurrency(t.amount)}</td><td class="bal">${formatCurrency(bal)}</td></tr>`;
-                                    }).join('')}
-                                    </tbody></table>
-                                    <script>window.print();</script></body></html>
-                                `;
-                                win.document.write(html);
-                                win.document.close();
-                            }}
-                            className="p-3 bg-slate-900 text-white rounded-2xl shadow-xl shadow-slate-200 active:scale-95 transition-all"
-                        ><Share2 size={16}/></button>
+                        <div className="flex gap-2">
+                             <button 
+                                 onClick={() => setModal({ type: 'personalTransaction', data: { account: selectedAccount.name }, context: 'personal' })}
+                                 className="p-3 bg-blue-600 text-white rounded-2xl shadow-xl shadow-blue-200 active:scale-95 transition-all"
+                             >
+                                 <Plus size={16}/>
+                             </button>
+                             <button 
+                                 onClick={() => {
+                                     const win = window.open('', '_blank');
+                                     const accTxs = transactions.filter(t => t.account === selectedAccount.name || t.toAccount === selectedAccount.name).sort((a,b) => new Date(a.date) - new Date(b.date));
+                                     let bal = parseFloat(selectedAccount.initialBalance || 0);
+                                     const html = `
+                                         <html><head><title>${selectedAccount.name} Statement</title>
+                                         <style>body{font-family:sans-serif;padding:40px;color:#333;line-height:1.2} table{width:100%;border-collapse:collapse;margin-top:20px} th{text-align:left;padding:12px;background:#f8fafc;border-bottom:2px solid #e2e8f0;font-size:10px;text-transform:uppercase} td{padding:12px;border-bottom:1px solid #f1f5f9;font-size:12px} .dr{color:#e11d48} .cr{color:#059669} .bal{font-weight:bold}</style>
+                                         </head><body>
+                                         <h2>Account Statement</h2>
+                                         <p><strong>Account:</strong> ${selectedAccount.name} (${selectedAccount.type})</p>
+                                         <p><strong>Current Balance:</strong> ${formatCurrency(stats.accBals[selectedAccount.name])}</p>
+                                         <table><thead><tr><th>Date</th><th>Description</th><th>Type</th><th>Flow</th><th>Balance</th></tr></thead>
+                                         <tbody>
+                                         <tr><td>--</td><td>Initial Balance</td><td>--</td><td>--</td><td class="bal">${formatCurrency(bal)}</td></tr>
+                                         ${accTxs.map(t => {
+                                             const isIn = t.toAccount === selectedAccount.name || (t.account === selectedAccount.name && t.type === 'income');
+                                             const flow = isIn ? parseFloat(t.amount) : -parseFloat(t.amount);
+                                             bal += flow;
+                                             return `<tr><td>${t.date}</td><td>${t.category || t.note || 'Internal'}</td><td>${t.type.toUpperCase()}</td><td class="${flow >= 0 ? 'cr' : 'dr'}">${flow >= 0 ? '+' : ''}${formatCurrency(t.amount)}</td><td class="bal">${formatCurrency(bal)}</td></tr>`;
+                                         }).join('')}
+                                         </tbody></table>
+                                         <script>window.print();</script></body></html>
+                                     `;
+                                     win.document.write(html);
+                                     win.document.close();
+                                 }}
+                                 className="p-3 bg-slate-900 text-white rounded-2xl shadow-xl shadow-slate-200 active:scale-95 transition-all"
+                             ><Share2 size={16}/></button>
+                        </div>
                     </div>
                     
                     <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-10">
