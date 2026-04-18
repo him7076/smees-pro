@@ -12,7 +12,7 @@ const PersonalFinanceForm = ({ data, setData, record, onClose, intent }) => {
     const categories = data.personalCategories || { income: ['Salary'], expense: ['Food'], transfer: [] };
     const accounts = data.personalAccounts || [{ id: 'cash', name: 'Cash', group: 'Cash', initialBalance: 0 }];
 
-    const [type, setType] = useState(record ? record.type : (intent || 'expense'));
+    const [type, setType] = useState(record?.type || intent || 'expense');
     const [form, setForm] = useState(record ? {
         ...record,
         date: record.date || new Date().toISOString().split('T')[0],
@@ -79,7 +79,7 @@ const PersonalFinanceForm = ({ data, setData, record, onClose, intent }) => {
             {/* STICKY HEADER - LEGACY STYLE */}
             <div className="p-4 border-b flex items-center justify-between bg-white shadow-sm">
                 <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-900 transition-colors"><X size={24} /></button>
-                <h2 className="font-black text-slate-900 uppercase tracking-[0.2em]">Add {type.toUpperCase()}</h2>
+                <h2 className="font-black text-slate-900 uppercase tracking-[0.2em]">Add {(type || '').toUpperCase()}</h2>
                 <div className="w-10"></div>
             </div>
 
