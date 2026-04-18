@@ -597,7 +597,8 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                         <input type="number" className="w-full bg-transparent text-left font-black text-white text-3xl outline-none" value={tx.amount} onChange={e=>setTx({...tx, amount: e.target.value})} />
                                     </div>
                                 </div>
-                                                  {['sales', 'purchase', 'expense'].includes(type) && (
+                            )}
+                            {['sales', 'purchase', 'expense'].includes(type) && (
                                 <>
                                 <div className="flex justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
                                     <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest pt-1">{type === 'purchase' || type === 'expense' ? 'Amt Paid' : 'Amt Recv'}</span>
@@ -616,7 +617,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                     </div>
                                 )}
                                 </>
-                            )}        )}
+                            )}
                             {unpaidBills.length > 0 && (
                                 <button onClick={() => setShowLinking(true)} className="w-full flex items-center justify-between p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl text-indigo-400 font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all">
                                     <span className="flex items-center gap-2"><LinkIcon size={14}/> Link Pending Bills</span>
