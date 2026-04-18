@@ -498,7 +498,7 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                         </div>
                         <div className="flex gap-2">
                              <button 
-                                 onClick={() => setModal({ type: 'personalTransaction', data: { account: selectedAccount.name }, context: 'personal' })}
+                                 onClick={() => setModal({ type: 'personalTransaction', data: { account: selectedAccount.name }, intent: 'expense', context: 'personal' })}
                                  className="p-3 bg-blue-600 text-white rounded-2xl shadow-xl shadow-blue-200 active:scale-95 transition-all"
                              >
                                  <Plus size={16}/>
