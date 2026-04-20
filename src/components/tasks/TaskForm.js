@@ -78,6 +78,19 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
         setForm({ ...form, itemsUsed: n });
     };
 
+    const addSubItem = (lineIdx, subItemData) => {
+        const n = [...form.itemsUsed];
+        if (!n[lineIdx].subItems) n[lineIdx].subItems = [];
+        n[lineIdx].subItems.push({ ...subItemData, qty: 1 });
+        setForm({ ...form, itemsUsed: n });
+    };
+
+    const removeSubItem = (lineIdx, subIdx) => {
+        const n = [...form.itemsUsed];
+        n[lineIdx].subItems.splice(subIdx, 1);
+        setForm({ ...form, itemsUsed: n });
+    };
+
     const addLinkedItem = (parentIdx, linkIdx) => {
         const parentLine = form.itemsUsed[parentIdx];
         const linkInfo = parentLine.linkedItems[linkIdx];
@@ -329,48 +342,119 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                             <div className="space-y-4 pt-2 animate-in slide-in-from-top-4">
                                 {form.itemsUsed.map((line, idx) => {
                                     const master = data.items.find(i => i.id === line.itemId);
+                                    const bundleOptions = data.items
+                                        .filter(i => (i.category || '').toLowerCase().includes('bundle') || (i.category || '').toLowerCase().includes('service'))
+                                        .map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }));
+
                                     return (
-                                        <div key={idx} className="p-5 border border-slate-100 rounded-[32px] bg-slate-50 relative space-y-4 shadow-sm">
+                                        <div key={idx} className={`p-5 border border-slate-100 rounded-[32px] bg-white relative space-y-4 shadow-sm animate-in slide-in-from-top-2 ${line.isBundle ? 'ring-2 ring-slate-900/5' : ''}`}>
                                             <button onClick={() => setForm({ ...form, itemsUsed: form.itemsUsed.filter((_, i) => i !== idx) })} className="absolute -top-3 -right-3 bg-white p-2 rounded-full shadow-xl border border-slate-50 text-rose-500"><Trash2 size={16}/></button>
                                     
                                             <div className="grid grid-cols-1 md:grid-cols-[2fr,1fr] gap-4">
-                                                <SearchableSelect options={data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))} value={line.itemId} onChange={v => updateItem(idx, 'itemId', v)} placeholder="Identify Product..." />
-                                                {master && (
+                                                <div className="space-y-1">
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{line.isBundle ? 'Bundle / Service Name' : 'Product / Item Name'}</label>
                                                     <SearchableSelect 
-                                                        placeholder={master.brands?.length ? "Brand/Variant" : "No Variants"}
-                                                        options={master.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}` })) || []}
-                                                        value={line.brand || ''}
-                                                        onChange={v => updateItem(idx, 'brand', v)}
-                                                        onAddNew={() => setAddBrandModal({ item: master, idx })}
+                                                        options={line.isBundle ? bundleOptions : data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))}
+                                                        value={line.itemId} 
+                                                        onChange={v => updateItem(idx, 'itemId', v)} 
+                                                        onAddNew={() => setAddItemModal({ idx })}
+                                                        placeholder={line.isBundle ? "Select Bundle Service..." : "Search Product..."}
                                                     />
+                                                </div>
+                                                {master && !line.isBundle && (
+                                                    <div className="space-y-1">
+                                                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Brand/Var</label>
+                                                        <SearchableSelect 
+                                                            placeholder={master.brands?.length ? "Brand/Variant" : "No Variants"}
+                                                            options={master.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}` })) || []}
+                                                            value={line.brand || ''}
+                                                            onChange={v => updateItem(idx, 'brand', v)}
+                                                            onAddNew={() => setAddBrandModal({ item: master, idx })}
+                                                        />
+                                                    </div>
                                                 )}
                                             </div>
-                                            
-                                            {(line.linkedItems || []).map((lItem, lIdx) => (
-                                                <button key={lIdx} onClick={() => addLinkedItem(idx, lIdx)} className="w-full py-3 bg-indigo-50 text-indigo-700 rounded-2xl flex items-center justify-center gap-2 font-black text-[9px] uppercase tracking-widest border border-indigo-100 active:scale-95 transition-all shadow-sm">
-                                                    <Plus size={14}/> Add Related: {lItem.name} {lItem.brand ? `(${lItem.brand})` : ''}
-                                                </button>
-                                            ))}
 
                                             <div className="grid grid-cols-3 gap-4">
                                                 <div className="space-y-1.5">
                                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Quantity</label>
-                                                    <input type="number" className="w-full p-3 bg-white border border-slate-100 rounded-xl text-xs font-black" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
+                                                    <input type="number" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black shadow-inner" value={line.qty} onChange={e => updateItem(idx, 'qty', e.target.value)} />
                                                 </div>
                                                 <div className="space-y-1.5">
                                                     <label className="text-[9px] font-black text-emerald-400 uppercase tracking-widest ml-1">Sell Rate</label>
-                                                    <input type="number" className="w-full p-3 bg-white border border-slate-100 rounded-xl text-xs font-black text-emerald-600" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
+                                                    <input type="number" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-emerald-600 shadow-inner" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
                                                 </div>
                                                 <div className="space-y-1.5">
                                                     <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate</label>
-                                                    <input type="number" className="w-full p-3 bg-white border border-slate-100 rounded-xl text-xs font-black text-rose-600" value={line.buyPrice || 0} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} />
+                                                    <input type="number" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-rose-600 shadow-inner" value={line.buyPrice || 0} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} />
                                                 </div>
                                             </div>
-                                            <input className="w-full text-xs p-3 bg-white border border-slate-100 rounded-xl font-bold" placeholder="Line memo (e.g. Broken part replacement)" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} />
+
+                                            {line.isBundle && (
+                                                <div className="p-4 bg-slate-900 rounded-[28px] border border-slate-800 space-y-3">
+                                                    <div className="flex justify-between items-center mb-1">
+                                                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><ShoppingBag size={10}/> Kit Components</p>
+                                                        <span className="text-[8px] bg-white/10 px-2 py-0.5 rounded text-blue-400 font-bold">{line.subItems?.length || 0} Items</span>
+                                                    </div>
+                                                    
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                        {(line.subItems || []).map((sub, sIdx) => {
+                                                            const subMaster = data.items.find(i => i.id === sub.itemId);
+                                                            return (
+                                                                <div key={sIdx} className="bg-white/5 p-3 rounded-2xl border border-white/5">
+                                                                    <div className="flex justify-between items-start mb-2">
+                                                                        <p className="text-[10px] font-black text-white truncate">{subMaster?.name || 'Part'}</p>
+                                                                        <button onClick={() => removeSubItem(idx, sIdx)} className="text-rose-400"><Trash2 size={10}/></button>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-3 gap-2">
+                                                                        <div className="bg-white/10 p-1 rounded-xl">
+                                                                            <p className="text-[7px] font-black text-slate-500 mb-0.5">QTY</p>
+                                                                            <input type="number" className="w-full bg-transparent text-[9px] text-white font-black outline-none" value={sub.qty} onChange={e => {
+                                                                                const ni = [...form.itemsUsed];
+                                                                                ni[idx].subItems[sIdx].qty = e.target.value;
+                                                                                setForm({...form, itemsUsed: ni});
+                                                                            }} />
+                                                                        </div>
+                                                                        <div className="bg-white/10 p-1 rounded-xl">
+                                                                            <p className="text-[7px] font-black text-blue-400 mb-0.5">BUY</p>
+                                                                            <input type="number" className="w-full bg-transparent text-[9px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => {
+                                                                                const ni = [...form.itemsUsed];
+                                                                                ni[idx].subItems[sIdx].buyPrice = e.target.value;
+                                                                                setForm({...form, itemsUsed: ni});
+                                                                            }} />
+                                                                        </div>
+                                                                        <div className="bg-white/10 p-1 rounded-xl">
+                                                                            <p className="text-[7px] font-black text-emerald-400 mb-0.5">SELL</p>
+                                                                            <div className="text-[9px] text-emerald-400 font-black truncate">₹{subMaster?.sellPrice || 0}</div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+
+                                                    <div className="pt-2">
+                                                        <SearchableSelect 
+                                                            options={data.items.map(i => ({ id: i.id, name: i.name, subText: `Cost: ₹${i.buyPrice}` }))}
+                                                            placeholder="+ Attach Component..."
+                                                            onChange={v => {
+                                                                const item = data.items.find(i => i.id === v);
+                                                                if (item) addSubItem(idx, { itemId: item.id, buyPrice: item.buyPrice });
+                                                            }}
+                                                            className="transaction-sub-select"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <input className="w-full text-xs p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold" placeholder="Line memo (e.g. Broken part replacement)" value={line.description || ''} onChange={e => updateItem(idx, 'description', e.target.value)} />
                                         </div>
                                     );
                                 })}
-                                <button onClick={() => setForm({ ...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0 }] })} className="w-full py-5 border-2 border-dashed border-slate-200 text-slate-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-slate-50 transition-all flex items-center justify-center gap-2"><Plus size={16}/> New Line Item</button>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button onClick={() => setForm({ ...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0, isBundle: false }] })} className="py-5 border-2 border-dashed border-slate-200 text-slate-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-slate-50 transition-all flex flex-col items-center justify-center gap-1"><Plus size={16}/> Add Normal</button>
+                                    <button onClick={() => setForm({ ...form, itemsUsed: [...form.itemsUsed, { itemId: '', qty: 1, price: 0, buyPrice: 0, isBundle: true, subItems: [] }] })} className="py-5 border-2 border-dashed border-blue-100 bg-blue-50/50 text-blue-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-50 transition-all flex flex-col items-center justify-center gap-1"><ShoppingBag size={16}/> Add Bundle</button>
+                                </div>
                             </div>
                         )}
                         {!showItems && form.itemsUsed.length > 0 && <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest bg-indigo-50 p-2 rounded-xl border border-indigo-100 text-center">{form.itemsUsed.length} Material Entries Defined</p>}
