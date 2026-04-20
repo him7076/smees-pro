@@ -520,6 +520,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                 <input type="number" className="w-full p-3 bg-rose-50/30 border border-rose-50 rounded-xl text-xs font-black text-rose-700 outline-none focus:bg-white" value={line.buyPrice || line.purchasePrice || 0} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />
                                             </div>
                                             )}
+                                        </div>
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
                                             <div className="space-y-1">
                                                 <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Line Total</p>
