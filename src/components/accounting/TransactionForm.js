@@ -504,6 +504,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                 const subItemsCost = (line.subItems || []).reduce((acc, sub) => acc + (parseFloat(sub.qty || 0) * parseFloat(sub.buyPrice || 0)), 0);
                                 const lineProfit = (parseFloat(line.price || 0) - parseFloat(line.buyPrice || 0)) * parseFloat(line.qty || 0) - subItemsCost;
 
+                                return (
                                     <div key={idx} className={`p-5 bg-white border border-slate-100 rounded-[32px] shadow-sm relative space-y-4 animate-in slide-in-from-bottom-2 ${line.isLinked ? 'ml-6 bg-orange-50/10 border-orange-50' : ''}`}>
                                         <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-3 -right-3 bg-white p-2 rounded-full shadow-xl border border-slate-50 text-rose-500 hover:scale-110 transition-all"><Trash2 size={16}/></button>
                                         
