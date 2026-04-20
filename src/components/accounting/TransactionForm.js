@@ -83,19 +83,21 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         newItems[idx][field] = val;
 
         if (field === 'itemId') {
-            const item = data.items.find(i => i.id === val);
+            const list = newItems[idx].isBundle ? (data.bundles || []) : data.items;
+            const item = list.find(i => i.id === val);
             if (item) {
-                newItems[idx].price = type === 'purchase' ? item.buyPrice : item.sellPrice;
-                newItems[idx].buyPrice = item.buyPrice;
+                newItems[idx].price = type === 'purchase' ? item.buyPrice : (item.sellPrice || 0);
+                newItems[idx].buyPrice = item.buyPrice || 0;
                 newItems[idx].description = item.description || '';
                 newItems[idx].brand = '';
                 newItems[idx].linkedItems = item.linkedItems || [];
-                newItems[idx].subItems = []; // Always initialize for bundles
+                newItems[idx].subItems = item.templateItems || []; // Allow template items to load
             }
         }
 
         if (field === 'brand') {
-            const item = data.items.find(i => i.id === newItems[idx].itemId);
+            const list = newItems[idx].isBundle ? (data.bundles || []) : data.items;
+            const item = list.find(i => i.id === newItems[idx].itemId);
             if (item && item.brands) {
                 const brandData = item.brands.find(b => b.name === val);
                 if (brandData) {
@@ -112,15 +114,25 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         if (!newItems[lineIdx].subItems) newItems[lineIdx].subItems = [];
         newItems[lineIdx].subItems.push({
             ...subItemData,
-            price: 0, // Customer doesn't see sub-item prices
+            price: subItemData.sellPrice || 0,
             qty: 1
         });
+        
+        // Auto-calculate parent buyPrice
+        const totalBuy = newItems[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+        newItems[lineIdx].buyPrice = totalBuy;
+        
         setTx({ ...tx, items: newItems });
     };
 
     const removeSubItem = (lineIdx, subIdx) => {
         const newItems = [...tx.items];
         newItems[lineIdx].subItems.splice(subIdx, 1);
+        
+        // Recalculate parent buyPrice
+        const totalBuy = newItems[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+        newItems[lineIdx].buyPrice = totalBuy;
+        
         setTx({ ...tx, items: newItems });
     };
 
@@ -499,15 +511,29 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                         
                         <div className="space-y-4">
                             {tx.items.map((line, idx) => {
-                                const master = data.items.find(i => i.id === line.itemId);
+                                const master = line.isBundle ? (data.bundles || []).find(i => i.id === line.itemId) : data.items.find(i => i.id === line.itemId);
                                 const subItemsCost = (line.subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
                                 const lineSubTotal = (parseFloat(line.qty || 0) * parseFloat(line.price || 0));
-                                const lineProfit = (parseFloat(line.price || 0) - parseFloat(line.buyPrice || 0)) * parseFloat(line.qty || 0) - subItemsCost;
+                                
+                                // P&L Breakdown
+                                const materialPL = (line.subItems || [])
+                                    .filter(s => {
+                                        const original = data.items.find(mi => mi.id === s.itemId);
+                                        return (original?.category || '').toLowerCase().includes('good') || !(original?.category || '').toLowerCase().includes('service');
+                                    })
+                                    .reduce((acc, s) => acc + (parseFloat(s.qty || 0) * (parseFloat(s.price || 0) - parseFloat(s.buyPrice || 0))), 0);
+                                
+                                const servicePL = (line.subItems || [])
+                                    .filter(s => {
+                                        const original = data.items.find(mi => mi.id === s.itemId);
+                                        return (original?.category || '').toLowerCase().includes('service');
+                                    })
+                                    .reduce((acc, s) => acc + (parseFloat(s.qty || 0) * (parseFloat(s.price || 0) - parseFloat(s.buyPrice || 0))), 0);
 
-                                // Filter options for bundles if needed
-                                const bundleOptions = data.items
-                                    .filter(i => (i.category || '').toLowerCase().includes('bundle') || (i.category || '').toLowerCase().includes('service'))
-                                    .map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }));
+                                const lineProfit = (parseFloat(line.price || 0) - parseFloat(line.buyPrice || subItemsCost || 0)) * parseFloat(line.qty || 0);
+
+                                // Filter options for bundles
+                                const bundleOptions = (data.bundles || []).map(i => ({ id: i.id, name: i.name, subText: 'Service Kit' }));
 
                                 return (
                                     <div key={idx} className={`p-5 bg-white border border-slate-100 rounded-[32px] shadow-sm relative space-y-4 animate-in slide-in-from-bottom-2 ${line.isBundle ? 'ring-2 ring-slate-900/5' : ''}`}>
@@ -627,12 +653,24 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                                         const ni = [...tx.items];
                                                                         ni[idx].subItems[sIdx].price = e.target.value;
                                                                         setTx({...tx, items: ni});
-                                                                    }} disabled />
+                                                                    }} />
                                                                 </div>
                                                             </div>
                                                         </div>
                                                     );
                                                 })}
+
+                                                {/* P&L BREAKDOWN Summary */}
+                                                <div className="grid grid-cols-2 gap-3 pt-2">
+                                                    <div className="bg-white/5 p-3 rounded-2xl border border-white/5">
+                                                        <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Service P&L</p>
+                                                        <p className={`text-xs font-black ${servicePL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(servicePL)}</p>
+                                                    </div>
+                                                    <div className="bg-white/5 p-3 rounded-2xl border border-white/5">
+                                                        <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Material P&L</p>
+                                                        <p className={`text-xs font-black ${materialPL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(materialPL)}</p>
+                                                    </div>
+                                                </div>
 
                                                 <div className="grid grid-cols-[1.5fr,1fr] gap-2 pt-2">
                                                     <SearchableSelect 
@@ -659,20 +697,33 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                         </div>
 
                         <div className="grid grid-cols-2 gap-4 mt-6">
-                            <button 
-                                onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, isBundle: false }]})} 
-                                className="py-6 border-2 border-dashed border-slate-200 text-slate-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-slate-50 hover:border-slate-300 transition-all flex flex-col items-center justify-center gap-2"
-                            >
-                                <Plus size={20}/>
-                                Add Regular Item
-                            </button>
-                            <button 
-                                onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, isBundle: true, subItems: [] }]})} 
-                                className="py-6 border-2 border-dashed border-blue-100 bg-blue-50/10 text-blue-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-50 hover:border-blue-200 transition-all flex flex-col items-center justify-center gap-2"
-                            >
-                                <ShoppingBag size={20}/>
-                                Add Service/Kit Bundle
-                            </button>
+                            {(type === 'sales' || type === 'estimate') && (
+                                <>
+                                    <button 
+                                        onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, isBundle: false }]})} 
+                                        className="py-6 border-2 border-dashed border-slate-200 text-slate-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-slate-50 hover:border-slate-300 transition-all flex flex-col items-center justify-center gap-2"
+                                    >
+                                        <Plus size={20}/>
+                                        Add Regular Item
+                                    </button>
+                                    <button 
+                                        onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, isBundle: true, subItems: [] }]})} 
+                                        className="py-6 border-2 border-dashed border-blue-100 bg-blue-50/10 text-blue-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-50 hover:border-blue-200 transition-all flex flex-col items-center justify-center gap-2"
+                                    >
+                                        <ShoppingBag size={20}/>
+                                        Add Service/Kit Bundle
+                                    </button>
+                                </>
+                            )}
+                            {(type === 'purchase' || type === 'expense') && (
+                                <button 
+                                    onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, isBundle: false }]})} 
+                                    className="col-span-2 py-6 border-2 border-dashed border-slate-200 text-slate-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-slate-50 hover:border-slate-300 transition-all flex flex-col items-center justify-center gap-2"
+                                >
+                                    <Plus size={20}/>
+                                    Add New Line Item
+                                </button>
+                            )}
                         </div>
                     </div>
                 )}
