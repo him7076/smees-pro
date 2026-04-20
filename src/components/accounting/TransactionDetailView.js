@@ -23,41 +23,58 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
         received: parseFloat(tx?.received || tx?.paid || (tx?.type === 'payment' ? tx?.amount : 0) || 0) + linkedPaid
     };
 
-    // Enhanced Profit Calculation Logic for Breakdown
+    // Enhanced Profit Calculation Logic for Breakdown (Recursive for Bundles)
     const profitData = React.useMemo(() => {
         if (!tx) return { itemBreakdown: [], totalMaterialProfit:0, totalServiceProfit:0, grossProfit:0 };
         let totalMaterialProfit = 0;
         let totalServiceProfit = 0;
         
         const itemBreakdown = (tx.items || []).map(item => {
-            const master = (data.items || []).find(mi => mi.id === item.itemId);
+            const master = (data.items || []).find(mi => mi.id === item.itemId) || (data.bundles || []).find(bi => bi.id === item.itemId);
             let itemName = item.itemName || item.name || master?.name || 'Unknown Item';
             if (itemName === 'Product' && master?.name) itemName = master.name;
             const type = master?.type || 'Goods';
-            const buy = parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0);
             const sell = parseFloat(item.price || 0);
             const qty = parseFloat(item.qty || 1);
-            const profitValue = (sell - buy) * qty;
 
-            const isService = type === 'Service' || itemName.toLowerCase().includes('service');
-            
-            if (isService) totalServiceProfit += profitValue;
-            else totalMaterialProfit += profitValue;
+            let itemMaterialProfit = 0;
+            let itemServiceProfit = 0;
+
+            if (item.isBundle && item.subItems?.length > 0) {
+                item.subItems.forEach(sub => {
+                    const subMaster = (data.items || []).find(mi => mi.id === sub.itemId);
+                    const subBuy = parseFloat(sub.buyPrice || 0);
+                    const subSell = parseFloat(sub.price || 0);
+                    const subQty = parseFloat(sub.qty || 1) * qty;
+                    const subProfit = (subSell - subBuy) * subQty;
+
+                    const isSubService = (subMaster?.category || subMaster?.type || '').toLowerCase().includes('service');
+                    if (isSubService) itemServiceProfit += subProfit;
+                    else itemMaterialProfit += subProfit;
+                });
+            } else {
+                const buy = parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0);
+                const profitValue = (sell - buy) * qty;
+                const isService = type === 'Service' || itemName.toLowerCase().includes('service');
+                if (isService) itemServiceProfit = profitValue;
+                else itemMaterialProfit = profitValue;
+            }
+
+            totalMaterialProfit += itemMaterialProfit;
+            totalServiceProfit += itemServiceProfit;
 
             return {
                 ...item,
                 itemName,
-                materialProfit: isService ? 0 : profitValue,
-                serviceProfit: isService ? profitValue : 0,
-                type: isService ? 'Service' : 'Material'
+                materialProfit: itemMaterialProfit,
+                serviceProfit: itemServiceProfit,
+                type: (itemServiceProfit > itemMaterialProfit) ? 'Service' : 'Material'
             };
         });
 
-        // Adjusted Gross Profit (Accounting for Invoice Discount)
         const grossProfit = totalMaterialProfit + totalServiceProfit - totals.discount;
-
         return { itemBreakdown, totalMaterialProfit, totalServiceProfit, grossProfit };
-    }, [tx?.items, data.items, totals.discount]);
+    }, [tx?.items, data.items, data.bundles, totals.discount]);
 
     const shareInvoice = () => {
         const win = window.open('', '_blank');
@@ -296,10 +313,10 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                         <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 leading-none"><Package size={14}/> Operational Breakdown</h4>
                         <div className="space-y-3">
                             {profitData.itemBreakdown.map((item, i) => (
-                                <div key={i} className="p-4 bg-slate-50 rounded-[24px] border border-slate-50 hover:bg-white hover:border-slate-100 transition-all">
+                                <div key={i} className={`p-4 bg-slate-50 rounded-[28px] border border-slate-100 hover:bg-white transition-all ${item.isBundle ? 'ring-1 ring-blue-500/10 bg-blue-50/5' : ''}`}>
                                     <div className="flex justify-between items-start mb-2">
                                         <div className="flex-1 pr-4">
-                                            <p className="text-xs font-black text-slate-800 tracking-tight leading-tight">{item.itemName}</p>
+                                            <p className="text-xs font-black text-slate-800 tracking-tight leading-tight uppercase">{item.itemName}</p>
                                             <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">
                                                 {item.qty} Qty × {formatCurrency(item.price)}
                                                 {item.brand && <span className="text-blue-500 ml-2 border-l border-slate-200 pl-2">VARIANT: {item.brand}</span>}
@@ -307,13 +324,36 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                                         </div>
                                         <p className="text-xs font-black text-slate-900">{formatCurrency(item.qty * item.price)}</p>
                                     </div>
+
+                                    {/* Recursive Bundle Component List */}
+                                    {item.isBundle && item.subItems?.length > 0 && (
+                                        <div className="mt-3 pt-3 border-t border-slate-200/50 space-y-2">
+                                            <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Embedded Material & Service Trace</p>
+                                            {item.subItems.map((sub, sidx) => {
+                                                const sMaster = data.items.find(m => m.id === sub.itemId);
+                                                return (
+                                                    <div key={sidx} className="flex justify-between items-center text-[9px] font-bold text-slate-600 bg-white/50 p-2 rounded-xl">
+                                                        <span className="flex-1 truncate pr-2">{sMaster?.name || 'Part'} {sub.brand ? `[${sub.brand}]` : ''}</span>
+                                                        <span className="text-slate-400 whitespace-nowrap">{sub.qty} Unit(s)</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
                                     
                                     {/* Profit Indicator */}
                                     {user.role === 'admin' && tx.type === 'sales' && (
-                                        <div className="flex gap-2 mt-2 pt-2 border-t border-slate-200/50">
-                                            <div className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter ${item.type === 'Service' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                {item.type} {item.type === 'Service' ? formatCurrency(item.serviceProfit) : formatCurrency(item.materialProfit)}
-                                            </div>
+                                        <div className="flex gap-2 mt-3 pt-3 border-t border-slate-200/50">
+                                            {item.materialProfit !== 0 && (
+                                                <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                                    Material Gain: {formatCurrency(item.materialProfit)}
+                                                </div>
+                                            )}
+                                            {item.serviceProfit !== 0 && (
+                                                <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-blue-50 text-blue-700 border border-blue-100">
+                                                    Service Yield: {formatCurrency(item.serviceProfit)}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
