@@ -620,7 +620,9 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                             </div>
                                         </div>
 
-                                        {/* BUNDLE / SUB-ITEMS MANAGEMEN                                                {(line.subItems || []).map((sub, sIdx) => {
+                                        {line.isBundle && (
+                                            <div className="p-4 bg-slate-900 rounded-3xl border border-slate-800 space-y-3">
+                                                {(line.subItems || []).map((sub, sIdx) => {
                                                     const subMaster = data.items.find(i => i.id === sub.itemId);
                                                     return (
                                                         <div key={sIdx} className="bg-slate-800/80 p-4 rounded-[28px] border border-white/10 animate-in slide-in-from-top-2 space-y-3 mb-2">
