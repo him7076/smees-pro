@@ -971,7 +971,10 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                             <button 
                                 onClick={async () => {
                                     if(!addItemModal.name) return alert("Name is required");
-                                    const nextId = getNextId(data, 'item').id;
+                                    const isBundleLine = tx.items[addItemModal.idx].isBundle;
+                                    const collection = isBundleLine ? 'bundles' : 'items';
+                                    const nextId = getNextId(data, isBundleLine ? 'bundle' : 'item').id;
+                                    
                                     const newItem = {
                                         id: nextId,
                                         name: addItemModal.name,
@@ -979,20 +982,25 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                         buyPrice: parseFloat(addItemModal.buyPrice || 0),
                                         category: addItemModal.category || '',
                                         unit: addItemModal.unit || 'pcs',
-                                        type: 'Goods',
+                                        type: isBundleLine ? 'Service Kit' : 'Goods',
                                         brands: [],
                                         linkedItems: [],
+                                        templateItems: [], // For bundles
                                         createdAt: new Date().toISOString()
                                     };
 
-                                    await setDoc(doc(db, "items", nextId), newItem);
-                                    setData(prev => ({ ...prev, items: [...prev.items, newItem] }));
+                                    await setDoc(doc(db, collection, nextId), newItem);
+                                    if (isBundleLine) {
+                                        setData(prev => ({ ...prev, bundles: [...(prev.bundles || []), newItem] }));
+                                    } else {
+                                        setData(prev => ({ ...prev, items: [...prev.items, newItem] }));
+                                    }
                                     updateLine(addItemModal.idx, 'itemId', nextId);
                                     setAddItemModal(null);
                                 }}
                                 className="w-full py-6 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-blue-200 active:scale-95 transition-all mt-4"
                             >
-                                Create & Add to Bill
+                                {tx.items[addItemModal.idx].isBundle ? 'Create & Add Bundle' : 'Create & Add Item'}
                             </button>
                         </div>
                     </div>
