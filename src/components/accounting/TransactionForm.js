@@ -494,7 +494,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                 {type !== 'payment' && (
                     <div className="space-y-6">
                         <div className="flex justify-between items-center px-2">
-                            <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><ShoppingBag size={16}/> Items / Bundles</h4>
+                            <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><ShoppingBag size={16}/> Items & Service Bundles</h4>
                         </div>
                         
                         <div className="space-y-4">
@@ -505,25 +505,31 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                 const lineProfit = (parseFloat(line.price || 0) - parseFloat(line.buyPrice || 0)) * parseFloat(line.qty || 0) - subItemsCost;
 
                                 return (
-                                    <div key={idx} className={`p-5 bg-white border border-slate-100 rounded-[32px] shadow-sm relative space-y-4 animate-in slide-in-from-bottom-2 ${line.isLinked ? 'ml-6 bg-orange-50/10 border-orange-50' : ''}`}>
+                                    <div key={idx} className={`p-5 bg-white border border-slate-100 rounded-[32px] shadow-sm relative space-y-4 animate-in slide-in-from-bottom-2 ${line.isBundle ? 'ring-2 ring-slate-900/5' : ''}`}>
                                         <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-3 -right-3 bg-white p-2 rounded-full shadow-xl border border-slate-50 text-rose-500 hover:scale-110 transition-all"><Trash2 size={16}/></button>
                                         
                                         <div className="grid grid-cols-1 md:grid-cols-[2fr,1fr] gap-4">
-                                            <SearchableSelect 
-                                                options={data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))}
-                                                value={line.itemId}
-                                                onChange={v => updateLine(idx, 'itemId', v)}
-                                                onAddNew={() => setAddItemModal({ idx })}
-                                                placeholder="Identify Product..."
-                                            />
-                                            {master && (
+                                            <div className="space-y-1">
+                                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{line.isBundle ? 'Bundle / Service Name' : 'Product / Item Name'}</label>
                                                 <SearchableSelect 
-                                                    placeholder={master.brands?.length ? "Brand/Variant" : "No Variants"}
-                                                    options={master.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}` })) || []}
-                                                    value={line.brand || ''}
-                                                    onChange={v => updateLine(idx, 'brand', v)}
-                                                    onAddNew={() => setAddBrandModal({ item: master, idx, name: '', sellPrice: master.sellPrice, buyPrice: master.buyPrice })}
+                                                    options={data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))}
+                                                    value={line.itemId}
+                                                    onChange={v => updateLine(idx, 'itemId', v)}
+                                                    onAddNew={() => setAddItemModal({ idx })}
+                                                    placeholder="Search Item..."
                                                 />
+                                            </div>
+                                            {master && !line.isBundle && (
+                                                <div className="space-y-1">
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Brand/Var</label>
+                                                    <SearchableSelect 
+                                                        placeholder={master.brands?.length ? "Brand/Variant" : "No Variants"}
+                                                        options={master.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}` })) || []}
+                                                        value={line.brand || ''}
+                                                        onChange={v => updateLine(idx, 'brand', v)}
+                                                        onAddNew={() => setAddBrandModal({ item: master, idx, name: '', sellPrice: master.sellPrice, buyPrice: master.buyPrice })}
+                                                    />
+                                                </div>
                                             )}
                                         </div>
 
@@ -577,48 +583,59 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                         </div>
 
                                         {/* BUNDLE / SUB-ITEMS MANAGEMENT */}
-                                        <div className="p-4 bg-slate-900 rounded-3xl border border-slate-800 space-y-3">
-                                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex justify-between items-center">
-                                                <span>Internal Parts & Material (Hidden from Invoice)</span>
-                                                <span className="text-blue-400">{line.subItems?.length || 0} Parts Attached</span>
-                                            </p>
-                                            
-                                            {(line.subItems || []).map((sub, sIdx) => {
-                                                const subMaster = data.items.find(i => i.id === sub.itemId);
-                                                return (
-                                                    <div key={sIdx} className="bg-white/5 p-3 rounded-2xl flex items-center justify-between gap-3 border border-white/5">
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="text-xs font-black text-white truncate">{subMaster?.name || 'Item'}</p>
-                                                            <div className="flex gap-4 mt-1">
-                                                                <span className="text-[8px] font-black text-slate-500 uppercase">Cost: {formatCurrency(sub.buyPrice)}</span>
-                                                                <span className="text-[8px] font-black text-emerald-500 uppercase">Qty: {sub.qty}</span>
+                                        {line.isBundle && (
+                                            <div className="p-4 bg-slate-900 rounded-3xl border border-slate-800 space-y-3">
+                                                <div className="flex justify-between items-center">
+                                                    <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><Calculator size={12}/> Internal Components (Cost Tracking)</p>
+                                                    <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-lg text-blue-400 font-bold">{line.subItems?.length || 0} Parts Attached</span>
+                                                </div>
+                                                
+                                                {(line.subItems || []).map((sub, sIdx) => {
+                                                    const subMaster = data.items.find(i => i.id === sub.itemId);
+                                                    return (
+                                                        <div key={sIdx} className="bg-white/5 p-4 rounded-2xl grid grid-cols-1 md:grid-cols-[2fr,1fr,1.5fr,auto] items-center gap-4 border border-white/5 animate-in fade-in slide-in-from-left-2 transition-all">
+                                                            <div className="min-w-0">
+                                                                <p className="text-xs font-black text-white truncate">{subMaster?.name || 'Part'}</p>
+                                                                <p className="text-[8px] font-black text-slate-500 uppercase mt-0.5">Stock Item</p>
                                                             </div>
+                                                            <div className="space-y-1">
+                                                                <p className="text-[8px] font-black text-emerald-400 uppercase ml-1">Qty</p>
+                                                                <input type="number" className="w-full bg-white/10 border border-white/10 rounded-xl p-2 text-xs text-white text-center font-black outline-none focus:ring-2 focus:ring-emerald-500/30" value={sub.qty} onChange={e => {
+                                                                    const ni = [...tx.items];
+                                                                    ni[idx].subItems[sIdx].qty = e.target.value;
+                                                                    setTx({...tx, items: ni});
+                                                                }} />
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <p className="text-[8px] font-black text-blue-400 uppercase ml-1">Buy Rate (Manual)</p>
+                                                                <input type="number" className="w-full bg-white/10 border border-white/10 rounded-xl p-2 text-xs text-white text-center font-black outline-none focus:ring-2 focus:ring-blue-500/30" value={sub.buyPrice} onChange={e => {
+                                                                    const ni = [...tx.items];
+                                                                    ni[idx].subItems[sIdx].buyPrice = e.target.value;
+                                                                    setTx({...tx, items: ni});
+                                                                }} />
+                                                            </div>
+                                                            <button onClick={() => removeSubItem(idx, sIdx)} className="p-2 text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all self-center mt-3"><Trash2 size={16}/></button>
                                                         </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <input type="number" className="w-12 bg-white/10 rounded-lg p-1 text-[10px] text-white text-center outline-none" value={sub.qty} onChange={e => {
-                                                                const ni = [...tx.items];
-                                                                ni[idx].subItems[sIdx].qty = e.target.value;
-                                                                setTx({...tx, items: ni});
-                                                            }} />
-                                                            <button onClick={() => removeSubItem(idx, sIdx)} className="p-1.5 text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all"><Trash2 size={12}/></button>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
+                                                    );
+                                                })}
 
-                                            <div className="grid grid-cols-[1.5fr,1fr] gap-2 pt-2">
-                                                <SearchableSelect 
-                                                    options={data.items.map(i => ({ id: i.id, name: i.name, subText: `₹${i.buyPrice}` }))}
-                                                    placeholder="+ Add Internal Part..."
-                                                    onChange={v => {
-                                                        const item = data.items.find(i => i.id === v);
-                                                        if (item) addSubItem(idx, { itemId: item.id, buyPrice: item.buyPrice });
-                                                    }}
-                                                    className="transaction-sub-select"
-                                                />
-                                                <button onClick={() => addLinkedItem(idx, 0)} className="bg-blue-600/20 text-blue-400 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-600/30 transition-all">+ Add Suggested</button>
+                                                <div className="grid grid-cols-[1.5fr,1fr] gap-2 pt-2">
+                                                    <SearchableSelect 
+                                                        options={data.items.map(i => ({ id: i.id, name: i.name, subText: `Avg Buy: ₹${i.buyPrice}` }))}
+                                                        placeholder="+ Add Used Material / Service..."
+                                                        onChange={v => {
+                                                            const item = data.items.find(i => i.id === v);
+                                                            if (item) addSubItem(idx, { itemId: item.id, buyPrice: item.buyPrice });
+                                                        }}
+                                                        className="transaction-sub-select"
+                                                    />
+                                                    <div className="flex gap-2">
+                                                        <button onClick={() => addLinkedItem(idx, 0)} className="flex-1 bg-white/5 hover:bg-white/10 text-white rounded-2xl py-3 text-[9px] font-black uppercase tracking-widest border border-white/10 transition-all">+ Auto Add</button>
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </div>
+                                        )}
+
 
                                         <input className="w-full text-xs p-3 bg-slate-50 border border-slate-50 rounded-xl font-bold" placeholder="Line notes / description..." value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
                                     </div>
@@ -626,7 +643,22 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                             })}
                         </div>
 
-                        <button onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0 }]})} className="w-full py-5 border-2 border-dashed border-slate-200 text-slate-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-slate-50 transition-all flex items-center justify-center gap-2 mt-4"><Plus size={16}/> New Line Item</button>
+                        <div className="grid grid-cols-2 gap-4 mt-6">
+                            <button 
+                                onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, isBundle: false }]})} 
+                                className="py-6 border-2 border-dashed border-slate-200 text-slate-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-slate-50 hover:border-slate-300 transition-all flex flex-col items-center justify-center gap-2"
+                            >
+                                <Plus size={20}/>
+                                Add Regular Item
+                            </button>
+                            <button 
+                                onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, isBundle: true, subItems: [] }]})} 
+                                className="py-6 border-2 border-dashed border-blue-100 bg-blue-50/10 text-blue-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-50 hover:border-blue-200 transition-all flex flex-col items-center justify-center gap-2"
+                            >
+                                <ShoppingBag size={20}/>
+                                Add Service/Kit Bundle
+                            </button>
+                        </div>
                     </div>
                 )}
 
