@@ -486,6 +486,90 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                 )}
             </div>
 
+            {/* Quick Add Item Modal (Parity with TransactionForm) */}
+            {addItemModal && (
+                <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+                    <div className="bg-white p-8 rounded-[40px] w-full max-w-lg shadow-2xl animate-in zoom-in-95 border border-slate-100 overflow-y-auto max-h-[90vh] scrollbar-hide">
+                        <div className="flex justify-between items-center mb-6">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Package size={14}/> {form.itemsUsed[addItemModal.idx].isBundle ? 'Create New Bundle Kit' : 'Create New Master Item'}</p>
+                            <button onClick={() => setAddItemModal(null)} className="p-2 bg-slate-50 rounded-full"><X size={18}/></button>
+                        </div>
+                        
+                        <div className="space-y-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Name</label>
+                                <input autoFocus className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none focus:ring-4 focus:ring-blue-500/10 transition-all font-black" placeholder="Enter name..." onBlur={e => setAddItemModal(prev => ({...prev, name: e.target.value}))} />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sell Price</label>
+                                    <input type="number" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none" placeholder="0.00" onBlur={e => setAddItemModal(prev => ({...prev, sellPrice: e.target.value}))}/>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Buy Price</label>
+                                    <input type="number" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none" placeholder="0.00" onBlur={e => setAddItemModal(prev => ({...prev, buyPrice: e.target.value}))}/>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Category</label>
+                                    <SearchableSelect options={(data.categories?.item || []).map(c => ({ id: c, name: c }))} onChange={v => setAddItemModal(prev => ({...prev, category: v}))} placeholder="Category..." onAddNew={async (v) => {
+                                        const newCats = [...(data.categories?.item || []), v];
+                                        const updatedCategories = { ...data.categories, item: newCats };
+                                        await setDoc(doc(db, "settings", "categories"), updatedCategories, { merge: true });
+                                        setData(prev => ({ ...prev, categories: updatedCategories }));
+                                        setAddItemModal(prev => ({ ...prev, category: v }));
+                                    }}/>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Unit</label>
+                                    <select className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-black outline-none" onChange={e => setAddItemModal(prev => ({...prev, unit: e.target.value}))}>
+                                        <option>pcs</option><option>mtr</option><option>set</option><option>box</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <button 
+                                onClick={async () => {
+                                    if(!addItemModal.name) return alert("Name is required");
+                                    const isBundleLine = form.itemsUsed[addItemModal.idx].isBundle;
+                                    const collection = isBundleLine ? 'bundles' : 'items';
+                                    const nextId = getNextId(data, isBundleLine ? 'bundle' : 'item').id;
+                                    
+                                    const newItem = {
+                                        id: nextId,
+                                        name: addItemModal.name,
+                                        sellPrice: parseFloat(addItemModal.sellPrice || 0),
+                                        buyPrice: parseFloat(addItemModal.buyPrice || 0),
+                                        category: addItemModal.category || '',
+                                        unit: addItemModal.unit || 'pcs',
+                                        type: isBundleLine ? 'Service Kit' : 'Goods',
+                                        brands: [],
+                                        linkedItems: [],
+                                        templateItems: [],
+                                        createdAt: new Date().toISOString()
+                                    };
+
+                                    await setDoc(doc(db, collection, nextId), newItem);
+                                    if (isBundleLine) {
+                                        setData(prev => ({ ...prev, bundles: [...(prev.bundles || []), newItem] }));
+                                    } else {
+                                        setData(prev => ({ ...prev, items: [...prev.items, newItem] }));
+                                    }
+                                    updateItem(addItemModal.idx, 'itemId', nextId);
+                                    setAddItemModal(null);
+                                }}
+                                className="w-full py-6 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-blue-200 active:scale-95 transition-all mt-4"
+                            >
+                                {form.itemsUsed[addItemModal.idx].isBundle ? 'Create & Add Bundle' : 'Create & Add Item'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Fixed Save Button for Mobile (Floating Look) */}
             <div className="fixed bottom-0 left-0 right-0 p-6 bg-white/80 backdrop-blur-xl border-t border-slate-100 z-[120] flex gap-4 max-w-2xl mx-auto rounded-t-[40px] shadow-2xl">
                 <button onClick={onClose} className="flex-1 py-5 bg-slate-100 text-slate-400 rounded-3xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all">Discard</button>
