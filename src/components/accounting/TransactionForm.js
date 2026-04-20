@@ -115,12 +115,18 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         newItems[lineIdx].subItems.push({
             ...subItemData,
             price: subItemData.sellPrice || 0,
-            qty: 1
+            buyPrice: subItemData.buyPrice || 0,
+            qty: 1,
+            brand: '',
+            description: ''
         });
         
-        // Auto-calculate parent buyPrice
+        // Auto-calculate parent buyPrice AND sellPrice (Initially)
         const totalBuy = newItems[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+        const totalSell = newItems[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+        
         newItems[lineIdx].buyPrice = totalBuy;
+        newItems[lineIdx].price = totalSell;
         
         setTx({ ...tx, items: newItems });
     };
@@ -625,17 +631,20 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                 {(line.subItems || []).map((sub, sIdx) => {
                                                     const subMaster = data.items.find(i => i.id === sub.itemId);
                                                     return (
-                                                        <div key={sIdx} className="bg-white/5 p-3 rounded-2xl border border-white/5 animate-in slide-in-from-top-2">
-                                                            <div className="flex justify-between items-start mb-2">
-                                                                <p className="text-[11px] font-black text-white truncate pr-2">{subMaster?.name || 'Part'}</p>
+                                                        <div key={sIdx} className="bg-white/5 p-4 rounded-[28px] border border-white/5 animate-in slide-in-from-top-2 space-y-3">
+                                                            <div className="flex justify-between items-start">
+                                                                <p className="text-[11px] font-black text-white truncate pr-2 uppercase tracking-wider">{subMaster?.name || 'Part'}</p>
                                                                 <button onClick={() => removeSubItem(idx, sIdx)} className="text-rose-400 p-1 hover:bg-rose-500/10 rounded-lg"><Trash2 size={12}/></button>
                                                             </div>
+                                                            
                                                             <div className="grid grid-cols-3 gap-2">
                                                                 <div className="bg-white/10 p-1.5 rounded-xl border border-white/5">
                                                                     <p className="text-[7px] font-black text-slate-500 uppercase mb-0.5">Qty</p>
                                                                     <input type="number" className="w-full bg-transparent text-[10px] text-white font-black outline-none" value={sub.qty} onChange={e => {
                                                                         const ni = [...tx.items];
                                                                         ni[idx].subItems[sIdx].qty = e.target.value;
+                                                                        // Auto-recalc parent buyPrice
+                                                                        ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
                                                                         setTx({...tx, items: ni});
                                                                     }} />
                                                                 </div>
@@ -644,6 +653,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                                     <input type="number" className="w-full bg-transparent text-[10px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => {
                                                                         const ni = [...tx.items];
                                                                         ni[idx].subItems[sIdx].buyPrice = e.target.value;
+                                                                        ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
                                                                         setTx({...tx, items: ni});
                                                                     }} />
                                                                 </div>
@@ -656,9 +666,38 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                                     }} />
                                                                 </div>
                                                             </div>
+
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                                <div className="bg-white/10 p-1.5 rounded-xl border border-white/5">
+                                                                    <p className="text-[7px] font-black text-slate-500 uppercase mb-0.5 ml-1">Variant / Brand</p>
+                                                                    <select className="w-full bg-transparent text-[10px] text-white font-black outline-none scrollbar-hide" value={sub.brand || ''} onChange={e => {
+                                                                        const ni = [...tx.items];
+                                                                        ni[idx].subItems[sIdx].brand = e.target.value;
+                                                                        const bData = subMaster?.brands?.find(b => b.name === e.target.value);
+                                                                        if (bData) {
+                                                                            ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
+                                                                            ni[idx].subItems[sIdx].price = bData.sellPrice;
+                                                                            ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                        }
+                                                                        setTx({...tx, items: ni});
+                                                                    }}>
+                                                                        <option value="" className="text-slate-900">None</option>
+                                                                        {subMaster?.brands?.map((b, bi) => <option key={bi} value={b.name} className="text-slate-900">{b.name} (₹{b.sellPrice})</option>)}
+                                                                    </select>
+                                                                </div>
+                                                                <div className="bg-white/10 p-1.5 rounded-xl border border-white/5">
+                                                                    <p className="text-[7px] font-black text-slate-500 uppercase mb-0.5 ml-1">Spec / Desc</p>
+                                                                    <input className="w-full bg-transparent text-[10px] text-white font-black outline-none" placeholder="Add specs..." value={sub.description || ''} onChange={e => {
+                                                                        const ni = [...tx.items];
+                                                                        ni[idx].subItems[sIdx].description = e.target.value;
+                                                                        setTx({...tx, items: ni});
+                                                                    }} />
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     );
                                                 })}
+
 
                                                 {/* P&L BREAKDOWN Summary */}
                                                 <div className="grid grid-cols-2 gap-3 pt-2">
