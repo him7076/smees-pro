@@ -23,9 +23,9 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         received: 0,
         paid: 0,
         amount: 0, 
-        discountType: '%',
-        discountValue: 0,
-        roundOff: 0,
+        discountType: record?.discountType || '₹',
+        discountValue: record?.discountValue || 0,
+        roundOff: record?.roundOff || 0,
         notes: '',
         paymentMode: 'Cash',
         subType: (initialType === 'sales' || initialType === 'estimate') ? 'in' : 'out',
@@ -500,9 +500,14 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                         <div className="space-y-4">
                             {tx.items.map((line, idx) => {
                                 const master = data.items.find(i => i.id === line.itemId);
-                                const lineSubTotal = parseFloat(line.qty || 0) * parseFloat(line.price || 0);
-                                const subItemsCost = (line.subItems || []).reduce((acc, sub) => acc + (parseFloat(sub.qty || 0) * parseFloat(sub.buyPrice || 0)), 0);
+                                const subItemsCost = (line.subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                const lineSubTotal = (parseFloat(line.qty || 0) * parseFloat(line.price || 0));
                                 const lineProfit = (parseFloat(line.price || 0) - parseFloat(line.buyPrice || 0)) * parseFloat(line.qty || 0) - subItemsCost;
+
+                                // Filter options for bundles if needed
+                                const bundleOptions = data.items
+                                    .filter(i => (i.category || '').toLowerCase().includes('bundle') || (i.category || '').toLowerCase().includes('service'))
+                                    .map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }));
 
                                 return (
                                     <div key={idx} className={`p-5 bg-white border border-slate-100 rounded-[32px] shadow-sm relative space-y-4 animate-in slide-in-from-bottom-2 ${line.isBundle ? 'ring-2 ring-slate-900/5' : ''}`}>
@@ -512,13 +517,14 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                             <div className="space-y-1">
                                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{line.isBundle ? 'Bundle / Service Name' : 'Product / Item Name'}</label>
                                                 <SearchableSelect 
-                                                    options={data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))}
+                                                    options={line.isBundle ? bundleOptions : data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))}
                                                     value={line.itemId}
                                                     onChange={v => updateLine(idx, 'itemId', v)}
                                                     onAddNew={() => setAddItemModal({ idx })}
-                                                    placeholder="Search Item..."
+                                                    placeholder={line.isBundle ? "Select Bundle Service..." : "Search Product..."}
                                                 />
                                             </div>
+
                                             {master && !line.isBundle && (
                                                 <div className="space-y-1">
                                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Brand/Var</label>
@@ -593,28 +599,37 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                 {(line.subItems || []).map((sub, sIdx) => {
                                                     const subMaster = data.items.find(i => i.id === sub.itemId);
                                                     return (
-                                                        <div key={sIdx} className="bg-white/5 p-4 rounded-2xl grid grid-cols-1 md:grid-cols-[2fr,1fr,1.5fr,auto] items-center gap-4 border border-white/5 animate-in fade-in slide-in-from-left-2 transition-all">
-                                                            <div className="min-w-0">
-                                                                <p className="text-xs font-black text-white truncate">{subMaster?.name || 'Part'}</p>
-                                                                <p className="text-[8px] font-black text-slate-500 uppercase mt-0.5">Stock Item</p>
+                                                        <div key={sIdx} className="bg-white/5 p-3 rounded-2xl border border-white/5 animate-in slide-in-from-top-2">
+                                                            <div className="flex justify-between items-start mb-2">
+                                                                <p className="text-[11px] font-black text-white truncate pr-2">{subMaster?.name || 'Part'}</p>
+                                                                <button onClick={() => removeSubItem(idx, sIdx)} className="text-rose-400 p-1 hover:bg-rose-500/10 rounded-lg"><Trash2 size={12}/></button>
                                                             </div>
-                                                            <div className="space-y-1">
-                                                                <p className="text-[8px] font-black text-emerald-400 uppercase ml-1">Qty</p>
-                                                                <input type="number" className="w-full bg-white/10 border border-white/10 rounded-xl p-2 text-xs text-white text-center font-black outline-none focus:ring-2 focus:ring-emerald-500/30" value={sub.qty} onChange={e => {
-                                                                    const ni = [...tx.items];
-                                                                    ni[idx].subItems[sIdx].qty = e.target.value;
-                                                                    setTx({...tx, items: ni});
-                                                                }} />
+                                                            <div className="grid grid-cols-3 gap-2">
+                                                                <div className="bg-white/10 p-1.5 rounded-xl border border-white/5">
+                                                                    <p className="text-[7px] font-black text-slate-500 uppercase mb-0.5">Qty</p>
+                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-white font-black outline-none" value={sub.qty} onChange={e => {
+                                                                        const ni = [...tx.items];
+                                                                        ni[idx].subItems[sIdx].qty = e.target.value;
+                                                                        setTx({...tx, items: ni});
+                                                                    }} />
+                                                                </div>
+                                                                <div className="bg-white/10 p-1.5 rounded-xl border border-white/5">
+                                                                    <p className="text-[7px] font-black text-blue-400 uppercase mb-0.5">Buy</p>
+                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => {
+                                                                        const ni = [...tx.items];
+                                                                        ni[idx].subItems[sIdx].buyPrice = e.target.value;
+                                                                        setTx({...tx, items: ni});
+                                                                    }} />
+                                                                </div>
+                                                                <div className="bg-white/10 p-1.5 rounded-xl border border-white/5">
+                                                                    <p className="text-[7px] font-black text-emerald-400 uppercase mb-0.5">Sell</p>
+                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-emerald-400 font-black outline-none" value={sub.price || 0} onChange={e => {
+                                                                        const ni = [...tx.items];
+                                                                        ni[idx].subItems[sIdx].price = e.target.value;
+                                                                        setTx({...tx, items: ni});
+                                                                    }} disabled />
+                                                                </div>
                                                             </div>
-                                                            <div className="space-y-1">
-                                                                <p className="text-[8px] font-black text-blue-400 uppercase ml-1">Buy Rate (Manual)</p>
-                                                                <input type="number" className="w-full bg-white/10 border border-white/10 rounded-xl p-2 text-xs text-white text-center font-black outline-none focus:ring-2 focus:ring-blue-500/30" value={sub.buyPrice} onChange={e => {
-                                                                    const ni = [...tx.items];
-                                                                    ni[idx].subItems[sIdx].buyPrice = e.target.value;
-                                                                    setTx({...tx, items: ni});
-                                                                }} />
-                                                            </div>
-                                                            <button onClick={() => removeSubItem(idx, sIdx)} className="p-2 text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all self-center mt-3"><Trash2 size={16}/></button>
                                                         </div>
                                                     );
                                                 })}
@@ -667,13 +682,12 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                     <div className="space-y-6">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Apply Discount</label>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Discount</label>
                                 <div className="flex bg-white rounded-[24px] border border-slate-200 overflow-hidden shadow-sm h-[54px] md:h-auto ring-4 ring-slate-50">
-                                    <div className="bg-slate-100 px-3 flex items-center text-slate-500 font-black text-xs">{tx.discountType}</div>
                                     <input type="number" className="flex-1 p-4 text-sm font-black outline-none bg-transparent" placeholder="0.00" value={tx.discountValue || ''} onChange={e=>setTx({...tx, discountValue: e.target.value})} />
                                     <div className="flex bg-slate-50 p-1.5 gap-1.5 border-l">
-                                        <button onClick={()=>setTx({...tx, discountType: '%'})} className={`px-5 rounded-2xl text-[11px] font-black transition-all ${tx.discountType === '%' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 scale-105' : 'text-slate-400 hover:text-slate-600'}`}>%</button>
-                                        <button onClick={()=>setTx({...tx, discountType: '₹'})} className={`px-5 rounded-2xl text-[11px] font-black transition-all ${tx.discountType === '₹' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 scale-105' : 'text-slate-400 hover:text-slate-600'}`}>₹</button>
+                                        <button onClick={()=>setTx({...tx, discountType: '₹'})} className={`px-4 rounded-xl text-[11px] font-black transition-all ${tx.discountType === '₹' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400'}`}>₹</button>
+                                        <button onClick={()=>setTx({...tx, discountType: '%'})} className={`px-4 rounded-xl text-[11px] font-black transition-all ${tx.discountType === '%' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400'}`}>%</button>
                                     </div>
                                 </div>
                             </div>
