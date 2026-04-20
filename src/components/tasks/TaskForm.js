@@ -354,7 +354,7 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                 <div className="space-y-1">
                                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{line.isBundle ? 'Bundle / Service Name' : 'Product / Item Name'}</label>
                                                     <SearchableSelect 
-                                                        options={line.isBundle ? bundleOptions : data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))}
+                                                        options={line.isBundle ? (data.bundles || []).map(i => ({ id: i.id, name: i.name, subText: 'Service Kit' })) : data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))}
                                                         value={line.itemId} 
                                                         onChange={v => updateItem(idx, 'itemId', v)} 
                                                         onAddNew={() => setAddItemModal({ idx })}
@@ -385,8 +385,8 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                     <input type="number" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-emerald-600 shadow-inner" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
                                                 </div>
                                                 <div className="space-y-1.5">
-                                                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate</label>
-                                                    <input type="number" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-rose-600 shadow-inner" value={line.buyPrice || 0} onChange={e => updateItem(idx, 'buyPrice', e.target.value)} />
+                                                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate (Auto)</label>
+                                                    <input type="number" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-rose-600 shadow-inner" value={line.buyPrice || 0} readOnly />
                                                 </div>
                                             </div>
 
@@ -412,6 +412,8 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                                             <input type="number" className="w-full bg-transparent text-[9px] text-white font-black outline-none" value={sub.qty} onChange={e => {
                                                                                 const ni = [...form.itemsUsed];
                                                                                 ni[idx].subItems[sIdx].qty = e.target.value;
+                                                                                // Recalc parent buyPrice
+                                                                                ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
                                                                                 setForm({...form, itemsUsed: ni});
                                                                             }} />
                                                                         </div>
@@ -420,17 +422,38 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                                             <input type="number" className="w-full bg-transparent text-[9px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => {
                                                                                 const ni = [...form.itemsUsed];
                                                                                 ni[idx].subItems[sIdx].buyPrice = e.target.value;
+                                                                                ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
                                                                                 setForm({...form, itemsUsed: ni});
                                                                             }} />
                                                                         </div>
                                                                         <div className="bg-white/10 p-1 rounded-xl">
                                                                             <p className="text-[7px] font-black text-emerald-400 mb-0.5">SELL</p>
-                                                                            <div className="text-[9px] text-emerald-400 font-black truncate">₹{subMaster?.sellPrice || 0}</div>
+                                                                            <input type="number" className="w-full bg-transparent text-[9px] text-emerald-400 font-black outline-none" value={sub.price || 0} onChange={e => {
+                                                                                const ni = [...form.itemsUsed];
+                                                                                ni[idx].subItems[sIdx].price = e.target.value;
+                                                                                setForm({...form, itemsUsed: ni});
+                                                                            }} />
                                                                         </div>
                                                                     </div>
                                                                 </div>
                                                             );
                                                         })}
+                                                    </div>
+
+                                                    {/* P&L Analysis in Task */}
+                                                    <div className="grid grid-cols-2 gap-2 pt-2">
+                                                        <div className="bg-white/5 p-2 rounded-xl border border-white/5 flex flex-col items-center">
+                                                            <p className="text-[7px] font-black text-slate-500 uppercase">Service Yield</p>
+                                                            <p className="text-[10px] font-black text-emerald-400">
+                                                                {formatCurrency((line.subItems || []).filter(s => (data.items.find(mi => mi.id === s.itemId)?.category || '').toLowerCase().includes('service')).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * (parseFloat(s.price || 0) - parseFloat(s.buyPrice || 0))), 0))}
+                                                            </p>
+                                                        </div>
+                                                        <div className="bg-white/5 p-2 rounded-xl border border-white/5 flex flex-col items-center">
+                                                            <p className="text-[7px] font-black text-slate-500 uppercase">Material Yield</p>
+                                                            <p className="text-[10px] font-black text-emerald-400">
+                                                                {formatCurrency((line.subItems || []).filter(s => !(data.items.find(mi => mi.id === s.itemId)?.category || '').toLowerCase().includes('service')).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * (parseFloat(s.price || 0) - parseFloat(s.buyPrice || 0))), 0))}
+                                                            </p>
+                                                        </div>
                                                     </div>
 
                                                     <div className="pt-2">
@@ -439,7 +462,7 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                             placeholder="+ Attach Component..."
                                                             onChange={v => {
                                                                 const item = data.items.find(i => i.id === v);
-                                                                if (item) addSubItem(idx, { itemId: item.id, buyPrice: item.buyPrice });
+                                                                if (item) addSubItem(idx, { itemId: item.id, buyPrice: item.buyPrice, sellPrice: item.sellPrice });
                                                             }}
                                                             className="transaction-sub-select"
                                                         />
