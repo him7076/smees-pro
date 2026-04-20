@@ -43,6 +43,7 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
     const [showItems, setShowItems] = useState(false);
     const [showLocPicker, setShowLocPicker] = useState(false);
     const [addBrandModal, setAddBrandModal] = useState(null);
+    const [addItemModal, setAddItemModal] = useState(null);
 
     const nextId = useMemo(() => {
         if (record) return record.id;
