@@ -196,6 +196,16 @@ export const getItemStock = (data) => {
                 if (tx.type === 'sales') stock[itemId] -= qty;
                 if (tx.type === 'purchase') stock[itemId] += qty;
             }
+            // Add sub-items to stock calculation
+            line.subItems?.forEach(sub => {
+                const subId = (sub.itemId || '').toString();
+                if (subId && stock.hasOwnProperty(subId)) {
+                    const subQty = parseFloat(sub.qty || 0) * (parseFloat(line.qty || 1));
+                    if (tx.type === 'sales') stock[subId] -= subQty;
+                    // Usually we don't purchase-in bundles with sub-items this way, but consistent logic:
+                    if (tx.type === 'purchase') stock[subId] += subQty;
+                }
+            });
         });
     });
 
