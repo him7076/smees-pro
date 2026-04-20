@@ -40,15 +40,24 @@ const ConvertTaskModal = ({ task, data, setData, onClose }) => {
                 partyId: task.partyId || '',
                 type: 'sales',
                 items: (task.itemsUsed || []).map(item => {
-                    const master = data.items.find(i => i.id === item.itemId);
+                    const master = data.items.find(i => i.id === item.itemId) || (data.bundles || []).find(b => b.id === item.itemId);
                     return {
                         itemId: item.itemId || '',
-                        itemName: item.name || master?.name || 'Generic Item',
+                        itemName: item.itemName || item.name || master?.name || 'Generic Item',
                         qty: parseFloat(item.qty || 1),
                         price: parseFloat(item.price || 0),
                         buyPrice: parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0),
                         brand: item.brand || '',
-                        description: item.description || ''
+                        description: item.description || '',
+                        isBundle: item.isBundle || false,
+                        subItems: (item.subItems || []).map(sub => ({
+                            itemId: sub.itemId,
+                            qty: parseFloat(sub.qty || 1),
+                            price: parseFloat(sub.price || 0),
+                            buyPrice: parseFloat(sub.buyPrice || 0),
+                            brand: sub.brand || '',
+                            description: sub.description || ''
+                        }))
                     };
                 }),
                 received: parseFloat(received || 0),

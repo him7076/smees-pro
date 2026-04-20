@@ -402,24 +402,24 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                         {(line.subItems || []).map((sub, sIdx) => {
                                                             const subMaster = data.items.find(i => i.id === sub.itemId);
                                                             return (
-                                                                <div key={sIdx} className="bg-white/5 p-3 rounded-2xl border border-white/5">
-                                                                    <div className="flex justify-between items-start mb-2">
-                                                                        <p className="text-[10px] font-black text-white truncate">{subMaster?.name || 'Part'}</p>
-                                                                        <button onClick={() => removeSubItem(idx, sIdx)} className="text-rose-400"><Trash2 size={10}/></button>
+                                                                <div key={sIdx} className="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-3">
+                                                                    <div className="flex justify-between items-start">
+                                                                        <p className="text-[10px] font-black text-white truncate max-w-[150px]">{subMaster?.name || 'Part'}</p>
+                                                                        <button onClick={() => removeSubItem(idx, sIdx)} className="text-rose-400 p-1 bg-white/5 rounded-full hover:bg-rose-500/20 transition-all"><Trash2 size={10}/></button>
                                                                     </div>
+                                                                    
                                                                     <div className="grid grid-cols-3 gap-2">
-                                                                        <div className="bg-white/10 p-1 rounded-xl">
-                                                                            <p className="text-[7px] font-black text-slate-500 mb-0.5">QTY</p>
+                                                                        <div className="bg-white/10 p-1.5 rounded-xl border border-white/5">
+                                                                            <p className="text-[7px] font-black text-slate-500 mb-0.5 uppercase">Quantity</p>
                                                                             <input type="number" className="w-full bg-transparent text-[9px] text-white font-black outline-none" value={sub.qty} onChange={e => {
                                                                                 const ni = [...form.itemsUsed];
                                                                                 ni[idx].subItems[sIdx].qty = e.target.value;
-                                                                                // Recalc parent buyPrice
                                                                                 ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
                                                                                 setForm({...form, itemsUsed: ni});
                                                                             }} />
                                                                         </div>
-                                                                        <div className="bg-white/10 p-1 rounded-xl">
-                                                                            <p className="text-[7px] font-black text-blue-400 mb-0.5">BUY</p>
+                                                                        <div className="bg-white/10 p-1.5 rounded-xl border border-white/5 text-blue-400">
+                                                                            <p className="text-[7px] font-black text-slate-500 mb-0.5 uppercase">Buy Rate</p>
                                                                             <input type="number" className="w-full bg-transparent text-[9px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => {
                                                                                 const ni = [...form.itemsUsed];
                                                                                 ni[idx].subItems[sIdx].buyPrice = e.target.value;
@@ -427,11 +427,39 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                                                 setForm({...form, itemsUsed: ni});
                                                                             }} />
                                                                         </div>
-                                                                        <div className="bg-white/10 p-1 rounded-xl">
-                                                                            <p className="text-[7px] font-black text-emerald-400 mb-0.5">SELL</p>
+                                                                        <div className="bg-white/10 p-1.5 rounded-xl border border-white/5 text-emerald-400">
+                                                                            <p className="text-[7px] font-black text-slate-500 mb-0.5 uppercase">Sell Rate</p>
                                                                             <input type="number" className="w-full bg-transparent text-[9px] text-emerald-400 font-black outline-none" value={sub.price || 0} onChange={e => {
                                                                                 const ni = [...form.itemsUsed];
                                                                                 ni[idx].subItems[sIdx].price = e.target.value;
+                                                                                setForm({...form, itemsUsed: ni});
+                                                                            }} />
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1 border-t border-white/10">
+                                                                        <div className="bg-white/5 p-2 rounded-xl">
+                                                                            <p className="text-[7px] font-black text-slate-500 uppercase mb-1 ml-1">Variant / Brand</p>
+                                                                            <select className="w-full bg-slate-900/50 text-[9px] text-white font-black outline-none p-1 rounded border border-white/10" value={sub.brand || ''} onChange={e => {
+                                                                                const ni = [...form.itemsUsed];
+                                                                                ni[idx].subItems[sIdx].brand = e.target.value;
+                                                                                const bData = subMaster?.brands?.find(b => b.name === e.target.value);
+                                                                                if (bData) {
+                                                                                    ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
+                                                                                    ni[idx].subItems[sIdx].price = bData.sellPrice;
+                                                                                    ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                                }
+                                                                                setForm({...form, itemsUsed: ni});
+                                                                            }}>
+                                                                                <option value="" className="text-slate-900">Standard</option>
+                                                                                {subMaster?.brands?.map((b, bi) => <option key={bi} value={b.name} className="text-slate-900">{b.name}</option>)}
+                                                                            </select>
+                                                                        </div>
+                                                                        <div className="bg-white/5 p-2 rounded-xl">
+                                                                            <p className="text-[7px] font-black text-slate-500 uppercase mb-1 ml-1">Notes / Specifications</p>
+                                                                            <input className="w-full bg-transparent text-[9px] text-white font-black outline-none px-1" placeholder="Specifications..." value={sub.description || ''} onChange={e => {
+                                                                                const ni = [...form.itemsUsed];
+                                                                                ni[idx].subItems[sIdx].description = e.target.value;
                                                                                 setForm({...form, itemsUsed: ni});
                                                                             }} />
                                                                         </div>
