@@ -41,6 +41,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
 
     const [showLocPicker, setShowLocPicker] = useState(false);
     const [addBrandModal, setAddBrandModal] = useState(null);
+    const [addItemModal, setAddItemModal] = useState(null);
     const [showLinking, setShowLinking] = useState(false);
 
     const nextId = useMemo(() => {
@@ -490,6 +491,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                 options={data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))}
                                                 value={line.itemId}
                                                 onChange={v => updateLine(idx, 'itemId', v)}
+                                                onAddNew={() => setAddItemModal({ idx })}
                                                 placeholder="Identify Product..."
                                             />
                                             {master && (
@@ -518,9 +520,25 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                 <input type="number" className="w-full p-3 bg-rose-50/30 border border-rose-50 rounded-xl text-xs font-black text-rose-700 outline-none focus:bg-white" value={line.buyPrice || line.purchasePrice || 0} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />
                                             </div>
                                             )}
-                                            <div className="space-y-1.5">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                            <div className="space-y-1">
+                                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Line Total</p>
+                                                <p className="text-sm font-black text-slate-700 ml-1">{formatCurrency(parseFloat(line.qty || 0) * parseFloat(line.price || 0))}</p>
+                                            </div>
+                                            {type === 'sales' && (
+                                                <div className="space-y-1">
+                                                    <p className="text-[8px] font-black text-emerald-400 uppercase tracking-widest ml-1">Est. Yield</p>
+                                                    <div className="flex items-center gap-1 ml-1">
+                                                        {((parseFloat(line.price || 0) - parseFloat(line.buyPrice || line.purchasePrice || 0)) * parseFloat(line.qty || 0)) >= 0 ? <TrendingUp size={10} className="text-emerald-500"/> : <TrendingDown size={10} className="text-rose-500"/>}
+                                                        <p className={`text-xs font-black ${((parseFloat(line.price || 0) - parseFloat(line.buyPrice || line.purchasePrice || 0)) * parseFloat(line.qty || 0)) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                            {formatCurrency((parseFloat(line.price || 0) - parseFloat(line.buyPrice || line.purchasePrice || 0)) * parseFloat(line.qty || 0))}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div className="space-y-1.5 md:col-span-2">
                                                 <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Warranty</label>
-                                                <select className="w-full p-3 bg-blue-50/30 border border-blue-50 rounded-xl text-[10px] font-black text-blue-700 outline-none" onChange={(e) => {
+                                                <select className="w-full p-2 bg-white border border-blue-100 rounded-xl text-[10px] font-black text-blue-700 outline-none" onChange={(e) => {
                                                     const months = parseInt(e.target.value);
                                                     if(!months) return;
                                                     const d = new Date(tx.date || new Date()); 
@@ -556,10 +574,13 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                     <div className="space-y-6">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Adjust (%) Or (₹)</label>
-                                <div className="flex bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                                    <input type="number" className="flex-1 p-4 text-sm font-black outline-none bg-transparent" value={tx.discountValue} onChange={e=>setTx({...tx, discountValue: e.target.value})} />
-                                    <button onClick={()=>setTx({...tx, discountType: tx.discountType==='₹'?'%':'₹'})} className="px-5 bg-slate-900 text-white text-[10px] font-black uppercase">{tx.discountType}</button>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Apply Discount</label>
+                                <div className="flex bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm h-[54px] md:h-auto">
+                                    <input type="number" className="flex-1 p-4 text-sm font-black outline-none bg-transparent" placeholder="0.00" value={tx.discountValue || ''} onChange={e=>setTx({...tx, discountValue: e.target.value})} />
+                                    <div className="flex bg-slate-50 p-1">
+                                        <button onClick={()=>setTx({...tx, discountType: '%'})} className={`px-4 rounded-xl text-[10px] font-black transition-all ${tx.discountType === '%' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400'}`}>%</button>
+                                        <button onClick={()=>setTx({...tx, discountType: '₹'})} className={`px-4 rounded-xl text-[10px] font-black transition-all ${tx.discountType === '₹' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400'}`}>₹</button>
+                                    </div>
                                 </div>
                             </div>
                             <div className="space-y-2">
@@ -734,6 +755,85 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                 className="w-full py-6 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-slate-200 active:scale-95 transition-all mt-4"
                             >
                                 Secure New Variant
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Quick Add Item Modal */}
+            {addItemModal && (
+                <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+                    <div className="bg-white p-8 rounded-[40px] w-full max-w-lg shadow-2xl animate-in zoom-in-95 border border-slate-100 overflow-y-auto max-h-[90vh] scrollbar-hide">
+                        <div className="flex justify-between items-center mb-6">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Package size={14}/> Create New Master Item</p>
+                            <button onClick={() => setAddItemModal(null)} className="p-2 bg-slate-50 rounded-full"><X size={18}/></button>
+                        </div>
+                        
+                        <div className="space-y-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Product Name</label>
+                                <input 
+                                    autoFocus 
+                                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none focus:ring-4 focus:ring-blue-500/10 transition-all" 
+                                    placeholder="Enter item name..."
+                                    onBlur={e => setAddItemModal(prev => ({...prev, name: e.target.value}))}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sell Price</label>
+                                    <input type="number" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none" placeholder="0.00" onBlur={e => setAddItemModal(prev => ({...prev, sellPrice: e.target.value}))}/>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Buy Price</label>
+                                    <input type="number" className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-sm outline-none" placeholder="0.00" onBlur={e => setAddItemModal(prev => ({...prev, buyPrice: e.target.value}))}/>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Category</label>
+                                    <SearchableSelect 
+                                        options={(data.categories?.item || []).map(c => ({ id: c, name: c }))}
+                                        onChange={v => setAddItemModal(prev => ({...prev, category: v}))}
+                                        placeholder="Category..."
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Unit</label>
+                                    <select className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-black outline-none" onChange={e => setAddItemModal(prev => ({...prev, unit: e.target.value}))}>
+                                        <option>pcs</option><option>mtr</option><option>set</option><option>box</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <button 
+                                onClick={async () => {
+                                    if(!addItemModal.name) return alert("Name is required");
+                                    const nextId = getNextId(data, 'item').id;
+                                    const newItem = {
+                                        id: nextId,
+                                        name: addItemModal.name,
+                                        sellPrice: parseFloat(addItemModal.sellPrice || 0),
+                                        buyPrice: parseFloat(addItemModal.buyPrice || 0),
+                                        category: addItemModal.category || '',
+                                        unit: addItemModal.unit || 'pcs',
+                                        type: 'Goods',
+                                        brands: [],
+                                        linkedItems: [],
+                                        createdAt: new Date().toISOString()
+                                    };
+
+                                    await setDoc(doc(db, "items", nextId), newItem);
+                                    setData(prev => ({ ...prev, items: [...prev.items, newItem] }));
+                                    updateLine(addItemModal.idx, 'itemId', nextId);
+                                    setAddItemModal(null);
+                                }}
+                                className="w-full py-6 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-blue-200 active:scale-95 transition-all mt-4"
+                            >
+                                Create & Add to Bill
                             </button>
                         </div>
                     </div>
