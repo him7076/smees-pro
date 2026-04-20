@@ -710,7 +710,6 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                         <p className={`text-xs font-black ${materialPL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(materialPL)}</p>
                                                     </div>
                                                 </div>
- </div>
 
                                                 <div className="grid grid-cols-[1.5fr,1fr] gap-2 pt-2">
                                                     <SearchableSelect 
