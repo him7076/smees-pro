@@ -620,10 +620,8 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                     if(!addItemModal.name) return alert("Name is required");
                                     const isBundleLine = form.itemsUsed[addItemModal.idx].isBundle;
                                     const collection = isBundleLine ? 'bundles' : 'items';
-                                    const nextId = getNextId(data, isBundleLine ? 'bundle' : 'item').id;
                                     
                                     const newItem = {
-                                        id: nextId,
                                         name: addItemModal.name,
                                         sellPrice: parseFloat(addItemModal.sellPrice || 0),
                                         buyPrice: parseFloat(addItemModal.buyPrice || 0),
@@ -632,17 +630,11 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                         type: isBundleLine ? 'Service Kit' : 'Goods',
                                         brands: [],
                                         linkedItems: [],
-                                        templateItems: [],
-                                        createdAt: new Date().toISOString()
+                                        templateItems: []
                                     };
 
-                                    await setDoc(doc(db, collection, nextId), newItem);
-                                    if (isBundleLine) {
-                                        setData(prev => ({ ...prev, bundles: [...(prev.bundles || []), newItem] }));
-                                    } else {
-                                        setData(prev => ({ ...prev, items: [...prev.items, newItem] }));
-                                    }
-                                    updateItem(addItemModal.idx, 'itemId', nextId);
+                                    const savedId = await saveRecord(collection, newItem, isBundleLine ? 'bundle' : 'item');
+                                    updateItem(addItemModal.idx, 'itemId', savedId);
                                     setAddItemModal(null);
                                 }}
                                 className="w-full py-6 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-blue-200 active:scale-95 transition-all mt-4"
