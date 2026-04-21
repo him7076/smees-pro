@@ -64,36 +64,21 @@ export const formatTime = (isoString) => isoString ? new Date(isoString).toLocal
 
 export const getTransactionTotals = (tx) => {
   if (tx.status === 'Cancelled') return { gross: 0, final: 0, paid: 0, status: 'CANCELLED', amount: 0, roundOff: 0 };
+  const gross = tx.items?.reduce((acc, i) => acc + (parseFloat(i.qty || 0) * parseFloat(i.price || 0)), 0) || 0;
   
-  // 1. Calculate Per-Item Discount and Gross
-  let gross = 0;
-  let lineDiscountTotal = 0;
+  let discVal = parseFloat(tx.discountValue || 0);
+  if (tx.discountType === '%') discVal = (gross * discVal) / 100;
   
-  (tx.items || []).forEach(i => {
-    const lineGross = parseFloat(i.qty || 0) * parseFloat(i.price || 0);
-    gross += lineGross;
-    
-    let lineDisc = parseFloat(i.discountValue || 0);
-    if (i.discountType === '%') lineDisc = (lineGross * lineDisc) / 100;
-    lineDiscountTotal += lineDisc;
-  });
-
-  // 2. Global Discount
-  let globalDiscVal = parseFloat(tx.discountValue || 0);
-  if (tx.discountType === '%') globalDiscVal = (gross * globalDiscVal) / 100;
-  
-  const totalDiscount = lineDiscountTotal + globalDiscVal;
   const roundOff = parseFloat(tx.roundOff || 0); 
   
-  const rawFinal = gross - totalDiscount + roundOff;
+  const rawFinal = gross - discVal + roundOff;
   const final = Math.round(rawFinal * 100) / 100; 
   
   const paid = parseFloat(tx.received || tx.paid || 0);
   let status = 'UNPAID';
   if (paid >= final - 0.1 && final > 0) status = 'PAID';
   else if (paid > 0) status = 'PARTIAL';
-  
-  return { gross, final, paid, status, amount: parseFloat(tx.amount || 0) || final, roundOff, totalDiscount };
+  return { gross, final, paid, status, amount: parseFloat(tx.amount || 0) || final, roundOff, discount: discVal };
 };
 
 export const getBillStats = (bill, transactions) => {

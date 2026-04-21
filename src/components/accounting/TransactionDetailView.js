@@ -149,18 +149,16 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                             <th>Item / Description</th>
                             <th style="text-align:center">Qty</th>
                             <th style="text-align:right">Price</th>
-                            <th style="text-align:right">Disc</th>
                             <th style="text-align:right">Total</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${(profitData.itemBreakdown.length > 0 ? profitData.itemBreakdown : [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount, discountValue: 0 }]).map(i => `
+                        ${(profitData.itemBreakdown.length > 0 ? profitData.itemBreakdown : [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount }]).map(i => `
                             <tr>
                                 <td>${i.itemName} ${i.brand ? `<br><small style="color:#888">${i.brand}</small>` : ''}</td>
                                 <td style="text-align:center">${i.qty}</td>
                                 <td style="text-align:right">${(parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
-                                <td style="text-align:right">${i.discountValue > 0 ? (i.discountType === '%' ? `${i.discountValue}%` : (parseFloat(i.discountValue)).toLocaleString('en-IN')) : '-'}</td>
-                                <td style="text-align:right">${(parseFloat(i.qty || 1) * parseFloat(i.price || 0) - (i.itemLineDiscount || 0)).toLocaleString('en-IN')}</td>
+                                <td style="text-align:right">${(parseFloat(i.qty || 1) * parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -168,9 +166,9 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
 
                 <div class="totals-area">
                     <div class="totals-table">
-                        <div><span>Subtotal</span> <span>${(parseFloat(tx.grossTotal || tx.amount || 0)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>
-                        ${tx.discountValue > 0 ? `<div><span>Discount</span> <span>- ${(parseFloat(tx.discountValue)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>` : ''}
-                        <div class="grand"><span>Grand Total</span> <span>₹${(parseFloat(tx.finalTotal || tx.amount || 0)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>
+                        <div><span>Subtotal</span> <span>${(parseFloat(totals.gross)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>
+                        ${totals.discount > 0 ? `<div><span>Discount (${tx.discountType || '₹'})</span> <span>- ${(parseFloat(totals.discount)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>` : ''}
+                        <div class="grand"><span>Grand Total</span> <span>₹${(parseFloat(totals.final)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>
                     </div>
                 </div>
 
