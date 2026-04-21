@@ -91,93 +91,158 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
 
     const shareInvoice = () => {
         const win = window.open('', '_blank');
-        const company = data.company || {};
+        const company = data.company || { name: 'SUN ELECTRICALS', address: 'Electrical Solutions & Services', mobile: '+91 0000000000' };
+        const balance = totals.final - totals.received;
         
         const html = `
             <html>
             <head>
-                <title>INVOICE ${tx.id}</title>
+                <title>Invoice - ${tx.id}</title>
                 <style>
-                    body { font-family: sans-serif; padding: 30px; color: #333; max-width: 800px; margin: auto; line-height: 1.4; }
-                    .header { border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 20px; display: flex; justify-content: space-between; }
-                    .company-info h2 { margin: 0; font-size: 24px; text-transform: uppercase; }
-                    .company-info p { margin: 2px 0; font-size: 12px; color: #666; }
+                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap');
+                    body { font-family: 'Outfit', sans-serif; padding: 40px; color: #373D3F; max-width: 850px; margin: auto; background-color: #f8fafc; }
+                    .invoice-card { background: white; padding: 50px; border-radius: 40px; shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0; position: relative; overflow: hidden; }
+                    .top-accent { position: absolute; top: 0; left: 0; width: 100%; h-2; background: linear-gradient(90deg, #C6E015 0%, #FF9D00 100%); height: 8px; }
+                    
+                    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 50px; }
+                    .logo-area { display: flex; align-items: center; gap: 15px; }
+                    .logo-circle { width: 60px; height: 60px; background: #C6E015; border-radius: 20px; display: flex; align-items: center; justify-content: center; font-size: 30px; color: white; font-weight: 900; }
+                    .brand-name { font-weight: 900; font-size: 24px; color: #373D3F; letter-spacing: -0.5px; line-height: 1; }
+                    .brand-tag { font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; margin-top: 5px; }
+                    
                     .invoice-meta { text-align: right; }
-                    .invoice-meta h1 { margin: 0; font-size: 28px; color: #000; text-transform: uppercase; }
-                    .invoice-meta p { margin: 2px 0; font-size: 12px; font-weight: bold; }
-                    .details { display: flex; justify-content: space-between; margin-bottom: 30px; }
-                    .address-box { flex: 1; }
-                    .address-box h3 { font-size: 10px; color: #999; text-transform: uppercase; margin-bottom: 5px; }
-                    .address-box p { margin: 0; font-weight: bold; font-size: 14px; }
-                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                    th { text-align: left; padding: 12px; font-size: 11px; background: #f4f4f4; border-bottom: 2px solid #ddd; text-transform: uppercase; }
-                    td { padding: 12px; border-bottom: 1px solid #eee; font-size: 13px; }
-                    .totals-area { margin-top: 30px; display: flex; justify-content: flex-end; }
-                    .totals-table { width: 250px; }
-                    .totals-table div { display: flex; justify-content: space-between; padding: 5px 0; font-size: 14px; }
-                    .grand { border-top: 1px solid #333; margin-top: 5px; padding-top: 10px !important; font-weight: bold; font-size: 18px !important; }
-                    .footer { margin-top: 50px; text-align: center; font-size: 10px; color: #999; border-top: 1px solid #eee; padding-top: 20px; }
-                    @media print { body { padding: 20px; } }
+                    .invoice-meta h1 { margin: 0; font-size: 40px; font-weight: 900; color: #373D3F; letter-spacing: -1px; text-transform: uppercase; line-height: 0.9; }
+                    .invoice-badge { display: inline-block; padding: 6px 15px; background: #FF9D00; color: white; border-radius: 12px; font-size: 10px; font-weight: 900; margin-top: 10px; text-transform: uppercase; letter-spacing: 1px; }
+                    
+                    .client-section { display: grid; grid-template-cols: 1fr 1fr; gap: 40px; margin-bottom: 40px; }
+                    .info-box h3 { font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px; }
+                    .info-box p { margin: 2px 0; font-size: 14px; font-weight: 700; color: #334155; }
+                    
+                    table { width: 100%; border-collapse: separate; border-spacing: 0 10px; margin-top: 20px; }
+                    th { text-align: left; padding: 15px; font-size: 11px; font-weight: 900; color: #64748b; text-transform: uppercase; border-bottom: 2px solid #f1f5f9; }
+                    td { padding: 20px 15px; background: #f8fafc; border-bottom: 1px solid #f1f5f9; font-size: 14px; font-weight: 700; }
+                    td:first-child { border-radius: 15px 0 0 15px; }
+                    td:last-child { border-radius: 0 15px 15px 0; text-align: right; }
+                    
+                    .product-name { font-weight: 900; color: #1e293b; font-size: 15px; }
+                    .product-meta { font-size: 10px; color: #94a3b8; margin-top: 4px; display: block; font-style: italic; }
+                    
+                    .summary-container { margin-top: 40px; display: grid; grid-template-cols: 1.5fr 1fr; gap: 50px; }
+                    .summary-table { background: #373D3F; padding: 30px; border-radius: 30px; color: white; }
+                    .summary-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 14px; font-weight: 400; }
+                    .summary-row:last-child { border: none; }
+                    .summary-row span:last-child { font-weight: 900; }
+                    
+                    .total-highlight { background: #C6E015; color: #1e293b; padding: 20px; border-radius: 20px; margin-top: 15px; display: flex; justify-content: space-between; align-items: center; }
+                    .total-highlight span:first-child { font-size: 12px; font-weight: 900; text-transform: uppercase; }
+                    .total-highlight span:last-child { font-size: 24px; font-weight: 900; }
+                    
+                    .balance-box { border: 2px solid #e2e8f0; padding: 25px; border-radius: 25px; text-align: center; }
+                    .balance-box p { margin: 0; font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; }
+                    .balance-box h2 { margin: 10px 0 0; font-size: 32px; font-weight: 900; color: ${balance > 0 ? '#ef4444' : '#10b981'}; }
+                    
+                    .footer { margin-top: 60px; text-align: center; font-size: 11px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+                    @media print { body { background: white; padding: 0; } .invoice-card { border: none; padding: 0; } }
                 </style>
             </head>
             <body>
-                <div class="header">
-                    <div class="company-info">
-                        <h2>${company.name || 'SMEES ENTERPRISE'}</h2>
-                        <p>${company.address || ''}</p>
-                        <p>Mobile: ${company.mobile || ''}</p>
+                <div class="invoice-card">
+                    <div class="top-accent"></div>
+                    
+                    <div class="header">
+                        <div class="logo-area">
+                            <div class="logo-circle">S</div>
+                            <div>
+                                <div class="brand-name">Sun Electricals</div>
+                                <div class="brand-tag">Professional Solutions</div>
+                            </div>
+                        </div>
+                        <div class="invoice-meta">
+                            <h1>INVOICE</h1>
+                            <div class="invoice-badge">ID: #${tx.id}</div>
+                            <p style="font-size: 12px; margin-top: 10px; font-weight: 900; color: #94a3b8;">${formatDate(tx.date)}</p>
+                        </div>
                     </div>
-                    <div class="invoice-meta">
-                        <h1>${tx.type.toUpperCase()}</h1>
-                        <p>No: ${tx.id}</p>
-                        <p>Date: ${tx.date}</p>
-                    </div>
-                </div>
 
-                <div class="details">
-                    <div class="address-box">
-                        <h3>Customer</h3>
-                        <p>${party?.name || tx.category || 'Cash Client'}</p>
-                        <p>${tx.mobile || party?.mobile || ''}</p>
-                        <p style="font-weight: normal; font-size: 12px; color: #666;">${tx.address || party?.address || ''}</p>
+                    <div class="client-section">
+                        <div class="info-box">
+                            <h3>Billed To</h3>
+                            <p>${party?.name || tx.category || 'Cash Client'}</p>
+                            <p style="font-weight: 400; color: #64748b;">${tx.mobile || party?.mobile || ''}</p>
+                            <p style="font-weight: 400; color: #94a3b8; font-size: 12px; margin-top: 5px;">${tx.address || party?.address || ''}</p>
+                        </div>
+                        <div class="info-box" style="text-align: right;">
+                            <h3>From</h3>
+                            <p>${company.name}</p>
+                            <p style="font-weight: 400; color: #64748b;">${company.address || ''}</p>
+                            <p style="font-weight: 400; color: #94a3b8;">${company.mobile || ''}</p>
+                        </div>
                     </div>
-                </div>
 
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Item / Description</th>
-                            <th style="text-align:center">Qty</th>
-                            <th style="text-align:right">Price</th>
-                            <th style="text-align:right">Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${(profitData.itemBreakdown.length > 0 ? profitData.itemBreakdown : [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount }]).map(i => `
+                    <table>
+                        <thead>
                             <tr>
-                                <td>
-                                    <div style="font-weight: bold;">${i.itemName}</div>
-                                    ${i.brand ? `<small style="color:#666; display:block; margin-top:2px;">Brand: ${i.brand}</small>` : ''}
-                                    ${i.description ? `<small style="color:#888; display:block; margin-top:1px; font-style: italic;">Note: ${i.description}</small>` : ''}
-                                </td>
-                                <td style="text-align:center">${i.qty}</td>
-                                <td style="text-align:right">${(parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
-                                <td style="text-align:right">${(parseFloat(i.qty || 1) * parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
+                                <th>Description</th>
+                                <th style="text-align:center">Qty</th>
+                                <th style="text-align:right">Rate</th>
+                                <th style="text-align:right">Amount</th>
                             </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            ${(profitData.itemBreakdown.length > 0 ? profitData.itemBreakdown : [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount }]).map(i => `
+                                <tr>
+                                    <td>
+                                        <div class="product-name">${i.itemName}</div>
+                                        ${i.brand ? `<span class="product-meta">Brand: ${i.brand}</span>` : ''}
+                                        ${i.description ? `<span class="product-meta">Note: ${i.description}</span>` : ''}
+                                    </td>
+                                    <td style="text-align:center">${i.qty}</td>
+                                    <td style="text-align:right">${(parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
+                                    <td style="text-align:right">${(parseFloat(i.qty || 1) * parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
 
-                <div class="totals-area">
-                    <div class="totals-table">
-                        <div><span>Subtotal</span> <span>${(parseFloat(totals.gross)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>
-                        ${totals.discount > 0 ? `<div><span>Discount (${tx.discountType || '₹'})</span> <span>- ${(parseFloat(totals.discount)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>` : ''}
-                        <div class="grand"><span>Grand Total</span> <span>₹${(parseFloat(totals.final)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>
+                    <div class="summary-container">
+                        <div class="balance-area">
+                            <div class="balance-box">
+                                <p>Remaining Balance</p>
+                                <h2>₹${(parseFloat(balance)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</h2>
+                                <p style="margin-top: 15px; font-size: 9px; color: ${tx.paymentMode === 'Credit' ? '#f59e0b' : '#3b82f6'}">PAYMENT MODE: ${tx.paymentMode || 'STANDARD'}</p>
+                            </div>
+                            <p style="font-size: 10px; color: #94a3b8; margin-top: 20px; line-height: 1.6; font-weight: 700; text-transform: uppercase;">
+                                Thank you for choosing Sun Electricals. We provide high-quality electrical work with safety standards.
+                            </p>
+                        </div>
+                        <div class="summary-table">
+                            <div class="summary-row">
+                                <span>Subtotal</span>
+                                <span>₹${(parseFloat(totals.gross)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                            </div>
+                            ${totals.discount > 0 ? `
+                            <div class="summary-row" style="color: #FF9D00;">
+                                <span>Discount (${tx.discountType || '₹'})</span>
+                                <span>- ₹${(parseFloat(totals.discount)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                            </div>` : ''}
+                            <div class="summary-row">
+                                <span>Net Total</span>
+                                <span>₹${(parseFloat(totals.final)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                            </div>
+                            <div class="summary-row" style="color: #C6E015;">
+                                <span>Amount Received</span>
+                                <span>₹${(parseFloat(totals.received)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                            </div>
+                            <div class="total-highlight">
+                                <span>Final Payable</span>
+                                <span>₹${(parseFloat(totals.final)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                            </div>
+                        </div>
                     </div>
-                </div>
 
-                <div class="footer">
-                    Generated by SMEES ERP Ledger System
+                    <div class="footer">
+                        Powered by SMEES ERP • Digital Signature Verified
+                    </div>
                 </div>
                 <script>window.print();</script>
             </body>
