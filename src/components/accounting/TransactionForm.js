@@ -87,6 +87,14 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         const newItems = [...tx.items];
         newItems[idx][field] = val;
 
+        if (field === 'qty' && newItems[idx].isBundle) {
+            const totalBuy = (newItems[idx].subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+            const totalSell = (newItems[idx].subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+            const parentQty = parseFloat(val || 1);
+            newItems[idx].buyPrice = totalBuy / parentQty;
+            newItems[idx].price = totalSell / parentQty;
+        }
+
         if (field === 'itemId') {
             const list = newItems[idx].isBundle ? (data.bundles || []) : data.items;
             const item = list.find(i => i.id === val);
@@ -126,12 +134,13 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
             description: ''
         });
         
-        // Auto-calculate parent buyPrice AND sellPrice (Initially)
+        // Auto-calculate parent buyPrice AND sellPrice (Per-Unit Cost)
         const totalBuy = newItems[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
         const totalSell = newItems[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
         
-        newItems[lineIdx].buyPrice = totalBuy;
-        newItems[lineIdx].price = totalSell;
+        const parentQty = parseFloat(newItems[lineIdx].qty || 1);
+        newItems[lineIdx].buyPrice = totalBuy / parentQty;
+        newItems[lineIdx].price = totalSell / parentQty;
         
         setTx({ ...tx, items: newItems });
     };
@@ -140,9 +149,13 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         const newItems = [...tx.items];
         newItems[lineIdx].subItems.splice(subIdx, 1);
         
-        // Recalculate parent buyPrice
+        // Recalculate parent buyPrice (Per-Unit)
         const totalBuy = newItems[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-        newItems[lineIdx].buyPrice = totalBuy;
+        const totalSell = newItems[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+        
+        const parentQty = parseFloat(newItems[lineIdx].qty || 1);
+        newItems[lineIdx].buyPrice = totalBuy / parentQty;
+        newItems[lineIdx].price = totalSell / parentQty;
         
         setTx({ ...tx, items: newItems });
     };
@@ -660,7 +673,11 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                                                 if (bData) {
                                                                                     ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
                                                                                     ni[idx].subItems[sIdx].price = bData.sellPrice;
-                                                                                    ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                                    const totalBuy = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                                    const totalSell = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+                                                                                    const parentQty = parseFloat(ni[idx].qty || 1);
+                                                                                    ni[idx].buyPrice = totalBuy / parentQty;
+                                                                                    ni[idx].price = totalSell / parentQty;
                                                                                 }
                                                                                 setTx({...tx, items: ni});
                                                                             }}>

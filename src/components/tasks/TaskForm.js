@@ -81,19 +81,49 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                 n[idx].buyPrice = item.buyPrice || 0;
             }
         }
+
+        if (field === 'qty' && n[idx].isBundle) {
+            const totalBuy = (n[idx].subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+            const totalSell = (n[idx].subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+            const pQty = parseFloat(val || 1);
+            n[idx].buyPrice = totalBuy / pQty;
+            n[idx].price = totalSell / pQty;
+        }
+
         setForm({ ...form, itemsUsed: n });
     };
 
     const addSubItem = (lineIdx, subItemData) => {
         const n = [...form.itemsUsed];
         if (!n[lineIdx].subItems) n[lineIdx].subItems = [];
-        n[lineIdx].subItems.push({ ...subItemData, qty: 1 });
+        n[lineIdx].subItems.push({ 
+            ...subItemData, 
+            qty: 1, 
+            price: subItemData.sellPrice || 0,
+            buyPrice: subItemData.buyPrice || 0,
+            brand: '',
+            description: ''
+        });
+        
+        const totalBuy = n[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+        const totalSell = n[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+        const pQty = parseFloat(n[lineIdx].qty || 1);
+        n[lineIdx].buyPrice = totalBuy / pQty;
+        n[lineIdx].price = totalSell / pQty;
+
         setForm({ ...form, itemsUsed: n });
     };
 
     const removeSubItem = (lineIdx, subIdx) => {
         const n = [...form.itemsUsed];
         n[lineIdx].subItems.splice(subIdx, 1);
+        
+        const totalBuy = n[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+        const totalSell = n[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+        const pQty = parseFloat(n[lineIdx].qty || 1);
+        n[lineIdx].buyPrice = totalBuy / pQty;
+        n[lineIdx].price = totalSell / pQty;
+
         setForm({ ...form, itemsUsed: n });
     };
 
@@ -440,12 +470,16 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                                                             const ni = [...form.itemsUsed];
                                                                                             ni[idx].subItems[sIdx].brand = e.target.value;
                                                                                             const bData = subMaster?.brands?.find(b => b.name === e.target.value);
-                                                                                            if (bData) {
-                                                                                                ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
-                                                                                                ni[idx].subItems[sIdx].price = bData.sellPrice;
-                                                                                                ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-                                                                                            }
-                                                                                            setForm({...form, itemsUsed: ni});
+                                                                                                if (bData) {
+                                                                                                    ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
+                                                                                                    ni[idx].subItems[sIdx].price = bData.sellPrice;
+                                                                                                    const totalBuy = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                                                    const totalSell = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+                                                                                                    const pQty = parseFloat(ni[idx].qty || 1);
+                                                                                                    ni[idx].buyPrice = totalBuy / pQty;
+                                                                                                    ni[idx].price = totalSell / pQty;
+                                                                                                }
+                                                                                                setForm({...form, itemsUsed: ni});
                                                                                         }}
                                                                                     >
                                                                                         <option value="" className="text-slate-900">Standard</option>
@@ -457,7 +491,11 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                                                     <input type="number" className="w-full bg-transparent text-[10px] text-white font-black outline-none" value={sub.qty} onChange={e => {
                                                                                         const ni = [...form.itemsUsed];
                                                                                         ni[idx].subItems[sIdx].qty = e.target.value;
-                                                                                        ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                                        const totalBuy = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                                        const totalSell = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+                                                                                        const pQty = parseFloat(ni[idx].qty || 1);
+                                                                                        ni[idx].buyPrice = totalBuy / pQty;
+                                                                                        ni[idx].price = totalSell / pQty;
                                                                                         setForm({...form, itemsUsed: ni});
                                                                                     }} />
                                                                                 </div>
@@ -469,7 +507,11 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                                                     <input type="number" className="w-full bg-transparent text-[10px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => {
                                                                                         const ni = [...form.itemsUsed];
                                                                                         ni[idx].subItems[sIdx].buyPrice = e.target.value;
-                                                                                        ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                                        const totalBuy = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                                        const totalSell = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+                                                                                        const pQty = parseFloat(ni[idx].qty || 1);
+                                                                                        ni[idx].buyPrice = totalBuy / pQty;
+                                                                                        ni[idx].price = totalSell / pQty;
                                                                                         setForm({...form, itemsUsed: ni});
                                                                                     }} />
                                                                                 </div>
