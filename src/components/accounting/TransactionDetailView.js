@@ -89,31 +89,37 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
         return { itemBreakdown, totalMaterialProfit, totalServiceProfit, grossProfit };
     }, [tx?.items, data.items, data.bundles, totals.discount]);
 
-    const shareToWhatsApp = () => {
+    const shareInvoice = () => {
         const companyName = data.company?.name || 'Sun Electricals';
         const msg = `*${companyName} - Invoice*
 ----------------------------
 *ID:* #${tx.id}
 *Date:* ${tx.date}
 *Client:* ${party?.name || tx.category || 'N/A'}
-*Status:* ${tx.status}
+*Total:* ${formatCurrency(totals.final)}
+*Balance:* ${formatCurrency(totals.final - totals.received)}
 
-*Summary:*
-Gross: ${formatCurrency(totals.gross)}
-Discount: ${formatCurrency(totals.discount)}
-*Total Payable:* ${formatCurrency(totals.final)}
-Received: ${formatCurrency(totals.received)}
-*Balance Due:* ${formatCurrency(totals.final - totals.received)}
+*Details:* ${window.location.origin}?txId=${tx.id}
 
-*Items:*
-${(tx.items || []).map(i => `- ${i.itemName || 'Item'} x ${i.qty}`).join('\n')}
-
-Thank you for your business!`;
+Thank you!`;
         const phone = tx.mobile || party?.mobile || '';
-        window.open(`https://wa.me/${phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank');
+        if (navigator.share) {
+            navigator.share({
+                title: `Invoice #${tx.id}`,
+                text: msg,
+                url: window.location.origin + `?txId=${tx.id}`
+            }).catch(() => {
+                window.open(`https://wa.me/${phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank');
+            });
+        } else {
+            window.open(`https://wa.me/${phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank');
+        }
+        
+        // Also open print console for PDF generation
+        printInvoice();
     };
 
-    const shareInvoice = () => {
+    const printInvoice = () => {
         const win = window.open('', '_blank');
         const company = data.company || { name: 'SUN ELECTRICALS', address: 'Electrical Solutions & Services', mobile: '+91' };
         const balance = totals.final - totals.received;
@@ -124,43 +130,39 @@ Thank you for your business!`;
                 <title>Bill #${tx.id}</title>
                 <style>
                     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-                    body { font-family: 'Inter', sans-serif; padding: 20px; color: #1e293b; max-width: 800px; margin: auto; background: #fff; }
-                    .bill-container { border: 2px solid #f1f5f9; padding: 30px; border-radius: 20px; position: relative; }
+                    body { font-family: 'Inter', sans-serif; padding: 10px; color: #1e293b; max-width: 800px; margin: auto; background: #fff; }
+                    .bill-container { border: 1px solid #f1f5f9; padding: 20px; border-radius: 12px; }
                     
-                    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid #C6E015; padding-bottom: 20px; margin-bottom: 25px; }
-                    .logo-box { display: flex; align-items: center; gap: 12px; }
-                    .bulb-ico { width: 45px; height: 45px; background: #C6E015; border-radius: 12px; position: relative; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 24px; box-shadow: 0 10px 15px -3px rgba(198, 224, 21, 0.3); }
-                    .bulb-ico::after { content: ''; position: absolute; top: -5px; right: -5px; width: 15px; height: 15px; background: #FF9D00; border-radius: 50%; border: 3px solid white; }
+                    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #C6E015; padding-bottom: 12px; margin-bottom: 15px; }
+                    .logo-box { display: flex; align-items: center; gap: 10px; }
+                    .bulb-ico { width: 35px; height: 35px; background: #C6E015; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 18px; }
                     
-                    .title-area h1 { margin: 0; font-size: 28px; font-weight: 900; letter-spacing: -1px; color: #334155; }
-                    .title-area p { margin: 3px 0 0; font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
+                    .title-area h1 { margin: 0; font-size: 20px; font-weight: 900; color: #334155; }
+                    .title-area p { margin: 0; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; }
                     
-                    .meta-grid { display: grid; grid-template-cols: 1.5fr 1fr; gap: 30px; margin-bottom: 30px; background: #f8fafc; padding: 20px; border-radius: 15px; }
-                    .client-box h3 { font-size: 10px; font-weight: 900; color: #C6E015; text-transform: uppercase; margin: 0 0 8px; }
-                    .client-box p { margin: 0; font-size: 14px; font-weight: 700; color: #1e293b; }
-                    .client-box small { color: #64748b; font-size: 12px; display: block; margin-top: 2px; }
+                    .top-info { display: flex; justify-content: space-between; align-items: flex-start; background: #f8fafc; padding: 15px; border-radius: 10px; margin-bottom: 15px; }
+                    .client-info h3 { font-size: 9px; font-weight: 900; color: #C6E015; text-transform: uppercase; margin: 0 0 4px; }
+                    .client-info p { margin: 0; font-size: 13px; font-weight: 700; }
+                    .client-info small { color: #64748b; font-size: 11px; display: block; }
 
-                    .bill-details { text-align: right; }
-                    .bill-details p { margin: 2px 0; font-size: 12px; font-weight: 700; color: #64748b; }
-                    .bill-details b { color: #1e293b; }
+                    .bill-meta { text-align: right; }
+                    .bill-meta p { margin: 0; font-size: 11px; font-weight: 700; color: #64748b; }
+                    .bill-meta b { color: #1e293b; margin-left: 5px; }
 
-                    table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-                    th { text-align: left; padding: 12px 10px; font-size: 10px; font-weight: 900; color: #94a3b8; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; }
-                    td { padding: 12px 10px; border-bottom: 1px solid #f1f5f9; font-size: 13px; font-weight: 600; line-height: 1.3; }
-                    .item-name { font-weight: 800; color: #334155; }
-                    .item-desc { font-size: 10px; color: #94a3b8; display: block; font-weight: 500; margin-top: 2px; }
+                    table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+                    th { text-align: left; padding: 8px 5px; font-size: 9px; font-weight: 900; color: #94a3b8; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; }
+                    td { padding: 8px 5px; border-bottom: 1px solid #f1f5f9; font-size: 12px; font-weight: 600; line-height: 1.2; }
+                    .item-name { font-weight: 800; color: #334155; display: block; }
+                    .item-desc { font-size: 9px; color: #94a3b8; font-weight: 500; }
 
-                    .summary-grid { display: grid; grid-template-cols: 1.2fr 1fr; gap: 40px; align-items: start; }
-                    .notes-box { font-size: 10px; color: #94a3b8; font-weight: 600; line-height: 1.6; padding-top: 10px; }
-                    
-                    .calc-box { background: #f8fafc; padding: 20px; border-radius: 15px; }
-                    .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px dashed #e2e8f0; }
-                    .row:last-child { border: none; }
-                    .row.grand { border-top: 2px solid #334155; margin-top: 10px; padding-top: 15px; font-size: 18px; font-weight: 900; color: #334155; border-bottom: none; }
-                    .row.paid { color: #10b981; }
-                    .row.due { color: #ef4444; border-top: 2px solid #ef4444; margin-top: 5px; padding-top: 10px; }
+                    .summary-flex { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+                    .calc-area { flex: 1; max-width: 280px; background: #f8fafc; padding: 12px; border-radius: 10px; }
+                    .row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 11px; border-bottom: 1px dashed #e2e8f0; }
+                    .row.grand { border-top: 1.5px solid #334155; margin-top: 8px; padding-top: 10px; font-size: 15px; font-weight: 900; color: #334155; border-bottom: none; }
+                    .row.due { color: #ef4444; font-weight: 900; }
 
-                    .foot { margin-top: 50px; text-align: center; border-top: 1px solid #f1f5f9; padding-top: 20px; font-size: 10px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: 2px; }
+                    .terms { flex: 1.5; font-size: 8px; color: #94a3b8; line-height: 1.4; }
+                    .foot { margin-top: 25px; text-align: center; font-size: 8px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; }
                     @media print { body { padding: 0; } .bill-container { border: none; padding: 0; } }
                 </style>
             </head>
@@ -170,34 +172,34 @@ Thank you for your business!`;
                         <div class="logo-box">
                             <div class="bulb-ico">S</div>
                             <div>
-                                <h1 style="margin:0; font-size:22px; font-weight:900; color:#334155;">SUN ELECTRICALS</h1>
-                                <p style="margin:0; font-size:10px; color:#FF9D00; font-weight:900; letter-spacing:1px;">SOLUTIONS & SERVICES</p>
+                                <h1 style="margin:0; font-size:18px; font-weight:900; color:#334155;">SUN ELECTRICALS</h1>
+                                <p style="margin:0; font-size:8px; color:#FF9D00; font-weight:900; letter-spacing:1px;">SOLUTIONS & SERVICES</p>
                             </div>
                         </div>
-                        <div class="title-area" style="text-align:right">
+                        <div class="title-area">
                             <h1>TAX INVOICE</h1>
                             <p>Transaction #${tx.id}</p>
                         </div>
                     </div>
 
-                    <div class="meta-grid">
-                        <div class="client-box">
+                    <div class="top-info">
+                        <div class="client-info">
                             <h3>Billed To</h3>
                             <p>${party?.name || tx.category || 'Cash Client'}</p>
                             <small>${tx.mobile || party?.mobile || ''}</small>
                             <small>${tx.address || party?.address || ''}</small>
                         </div>
-                        <div class="bill-details">
+                        <div class="bill-meta">
                             <p>DATE: <b>${tx.date}</b></p>
-                            <p>PAYMENT: <b>${tx.paymentMode || 'CASH'}</b></p>
                             <p>STATUS: <b style="color:#10b981">${tx.status || 'ACTIVE'}</b></p>
+                            <p>PAYMENT: <b>${tx.paymentMode || 'CASH'}</b></p>
                         </div>
                     </div>
 
                     <table>
                         <thead>
                             <tr>
-                                <th style="width:50%">Item Description</th>
+                                <th style="width:60%">Item Description</th>
                                 <th style="text-align:center">Qty</th>
                                 <th style="text-align:right">Rate</th>
                                 <th style="text-align:right">Total</th>
@@ -207,9 +209,8 @@ Thank you for your business!`;
                             ${(profitData.itemBreakdown.length > 0 ? profitData.itemBreakdown : [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount }]).map(i => `
                                 <tr>
                                     <td>
-                                        <span class="item-name">${i.itemName}</span>
-                                        ${i.brand ? `<span class="item-desc">Brand: ${i.brand}</span>` : ''}
-                                        ${i.description ? `<span class="item-desc">Note: ${i.description}</span>` : ''}
+                                        <b class="item-name">${i.itemName}</b>
+                                        ${i.description ? `<span class="item-desc">${i.description}</span>` : ''}
                                     </td>
                                     <td style="text-align:center">${i.qty}</td>
                                     <td style="text-align:right">${(parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
@@ -219,25 +220,25 @@ Thank you for your business!`;
                         </tbody>
                     </table>
 
-                    <div class="summary-grid">
-                        <div class="notes-box">
-                            <p style="color:#C6E015; margin-bottom:5px;">TERMS & CONDITIONS</p>
-                            1. Goods once sold will not be taken back.<br>
-                            2. 18% interest will be charged if payment is delayed.<br>
+                    <div class="summary-flex">
+                        <div class="terms">
+                            <p style="color:#C6E015; margin:0 0 2px; font-weight:900;">TERMS</p>
+                            1. Goods once sold will not be returned.<br>
+                            2. 18% interest on delayed payment.<br>
                             3. Subject to local jurisdiction.
-                            <div style="margin-top:40px; font-weight:900; color:#334155; font-size:12px;">Authorized Signatory</div>
+                            <div style="margin-top:20px; font-weight:900; color:#334155; font-size:10px;">Auth. Signatory</div>
                         </div>
-                        <div class="calc-box">
+                        <div class="calc-area">
                             <div class="row"><span>Subtotal</span> <span>₹${(parseFloat(totals.gross)).toLocaleString('en-IN')}</span></div>
                             ${totals.discount > 0 ? `<div class="row" style="color:#FF9D00"><span>Discount</span> <span>- ₹${(parseFloat(totals.discount)).toLocaleString('en-IN')}</span></div>` : ''}
                             <div class="row grand"><span>Total</span> <span>₹${(parseFloat(totals.final)).toLocaleString('en-IN')}</span></div>
-                            <div class="row paid"><span>Total Paid</span> <span>₹${(parseFloat(totals.received)).toLocaleString('en-IN')}</span></div>
+                            <div class="row paid" style="color:#10b981"><span>Paid</span> <span>₹${(parseFloat(totals.received)).toLocaleString('en-IN')}</span></div>
                             <div class="row due"><span>Balance Due</span> <span>₹${(parseFloat(balance)).toLocaleString('en-IN')}</span></div>
                         </div>
                     </div>
 
                     <div class="foot">
-                        Generated by SMEES ERP • www.smeesenterprise.com
+                        Ledger System • www.smeesenterprise.com
                     </div>
                 </div>
                 <script>window.print();</script>
@@ -264,14 +265,10 @@ Thank you for your business!`;
                 </div>
                 <div className="flex gap-2">
                     {tx.status !== 'Cancelled' && (
-                        <div className="flex gap-1">
-                            <button onClick={shareInvoice} className="p-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 active:scale-95 transition-all flex items-center gap-2">
-                                <Share2 size={16}/> <span className="text-[9px] font-black uppercase">Print Bill</span>
-                            </button>
-                            <button onClick={shareToWhatsApp} className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 active:scale-95 transition-all flex items-center gap-2">
-                                <MessageCircle size={16}/> <span className="text-[9px] font-black uppercase">WhatsApp</span>
-                            </button>
-                        </div>
+                        <button onClick={shareInvoice} className="p-3 bg-slate-900 text-white rounded-2xl shadow-xl shadow-slate-200 active:scale-95 transition-all flex items-center gap-2">
+                            <Share2 size={20}/>
+                            <span className="text-[10px] font-black uppercase tracking-widest px-2">Share & Print</span>
+                        </button>
                     )}
                     {checkPermission(user, 'canEditTasks') && (
                         <div className="flex gap-2">
