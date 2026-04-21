@@ -89,18 +89,29 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
 
         if (field === 'qty' && newItems[idx].isBundle) {
             const totalBuy = (newItems[idx].subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-            const totalSell = (newItems[idx].subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
             const parentQty = parseFloat(val || 1);
             newItems[idx].buyPrice = totalBuy / parentQty;
-            newItems[idx].price = totalSell / parentQty;
         }
 
         if (field === 'itemId') {
             const list = newItems[idx].isBundle ? (data.bundles || []) : data.items;
             const item = list.find(i => i.id === val);
             if (item) {
-                newItems[idx].price = type === 'purchase' ? item.buyPrice : (item.sellPrice || 0);
-                newItems[idx].buyPrice = item.buyPrice || 0;
+                newItems[idx].price = item.sellPrice || 0;
+                
+                // Get Last Purchase Price for normal items
+                let lpp = item.buyPrice || 0;
+                if (!newItems[idx].isBundle) {
+                    const lastPurchase = (data.transactions || [])
+                        .filter(tx => tx.type === 'purchase' && tx.items.some(it => it.itemId === val))
+                        .sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+                    if (lastPurchase) {
+                        const itLine = lastPurchase.items.find(it => it.itemId === val);
+                        if (itLine) lpp = itLine.buyPrice || itLine.price || lpp;
+                    }
+                }
+                newItems[idx].buyPrice = lpp;
+
                 newItems[idx].description = item.description || '';
                 newItems[idx].brand = '';
                 newItems[idx].linkedItems = item.linkedItems || [];
@@ -583,8 +594,14 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                             </div>
                                             {type === 'sales' ? (
                                                 <div className="space-y-1.5">
-                                                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate</label>
-                                                    <input type="number" className="w-full p-3 bg-rose-50/30 border border-rose-50 rounded-xl text-xs font-black text-rose-700 outline-none focus:bg-white" value={line.buyPrice || 0} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} disabled={isBundle}/>
+                                                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate {line.isBundle ? '(Auto)' : '(Edit)'}</label>
+                                                    <input 
+                                                        type="number" 
+                                                        className={`w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-rose-600 shadow-inner ${line.isBundle ? 'opacity-70' : ''}`} 
+                                                        value={line.buyPrice || 0} 
+                                                        readOnly={line.isBundle}
+                                                        onChange={e => updateLine(idx, 'buyPrice', e.target.value)}
+                                                    />
                                                 </div>
                                             ) : (type === 'purchase' && (
                                                 <div className="space-y-1.5">

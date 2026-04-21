@@ -65,7 +65,20 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
 
         if (field === 'itemId' && item) {
             n[idx].price = item.sellPrice || 0;
-            n[idx].buyPrice = item.buyPrice || 0;
+            
+            // Get Last Purchase Price for normal items
+            let lpp = item.buyPrice || 0;
+            if (!n[idx].isBundle) {
+                const lastPurchase = (data.transactions || [])
+                    .filter(tx => tx.type === 'purchase' && tx.items.some(it => it.itemId === val))
+                    .sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+                if (lastPurchase) {
+                    const itLine = lastPurchase.items.find(it => it.itemId === val);
+                    if (itLine) lpp = itLine.buyPrice || itLine.price || lpp;
+                }
+            }
+            n[idx].buyPrice = lpp;
+
             n[idx].description = item.description || '';
             n[idx].brand = '';
             n[idx].linkedItems = item.linkedItems || [];
@@ -84,10 +97,9 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
 
         if (field === 'qty' && n[idx].isBundle) {
             const totalBuy = (n[idx].subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-            const totalSell = (n[idx].subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
             const pQty = parseFloat(val || 1);
             n[idx].buyPrice = totalBuy / pQty;
-            n[idx].price = totalSell / pQty;
+            // Removed sell price re-calc to keep it stable
         }
 
         setForm({ ...form, itemsUsed: n });
@@ -421,8 +433,14 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                     <input type="number" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-emerald-600 shadow-inner" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
                                                 </div>
                                                 <div className="space-y-1.5">
-                                                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate (Auto)</label>
-                                                    <input type="number" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-rose-600 shadow-inner" value={line.buyPrice || 0} readOnly />
+                                                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate {line.isBundle ? '(Auto)' : '(Edit)'}</label>
+                                                    <input 
+                                                        type="number" 
+                                                        className={`w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-rose-600 shadow-inner ${line.isBundle ? 'opacity-70' : ''}`} 
+                                                        value={line.buyPrice || 0} 
+                                                        readOnly={line.isBundle}
+                                                        onChange={e => updateItem(idx, 'buyPrice', e.target.value)}
+                                                    />
                                                 </div>
                                             </div>
 
