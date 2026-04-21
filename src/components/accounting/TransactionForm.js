@@ -673,32 +673,27 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
 
                                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                                                                 <div className="bg-white/5 p-2.5 rounded-2xl border border-white/5">
-                                                                    <p className="text-[8px] font-black text-slate-500 uppercase mb-1.5 ml-1">Variant / Brand Selection</p>
-                                                                    <select className="w-full bg-slate-900/50 text-[10px] text-white font-black outline-none p-1.5 rounded-lg border border-white/10" value={sub.brand || ''} onChange={e => {
-                                                                        const ni = [...tx.items];
-                                                                        ni[idx].subItems[sIdx].brand = e.targ                                                                <div className="grid grid-cols-2 gap-3">
-                                                                    <div className="bg-white/5 p-2.5 rounded-2xl border border-white/5">
-                                                                        <div className="flex justify-between items-center mb-1">
-                                                                            <p className="text-[8px] font-black text-slate-500 uppercase">Brand / Variant</p>
-                                                                            <span className={`text-[8px] font-black ${(sub.price - sub.buyPrice) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                                                P&L: {formatCurrency((sub.price - sub.buyPrice) * sub.qty)}
-                                                                            </span>
-                                                                        </div>
-                                                                        <select className="w-full bg-transparent text-[10px] text-white font-black outline-none" value={sub.brand || ''} onChange={e => {
-                                                                            const ni = [...tx.items];
-                                                                            ni[idx].subItems[sIdx].brand = e.target.value;
-                                                                            const bData = subMaster?.brands?.find(b => b.name === e.target.value);
-                                                                            if (bData) {
-                                                                                ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
-                                                                                ni[idx].subItems[sIdx].price = bData.sellPrice;
-                                                                                ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-                                                                            }
-                                                                            setTx({...tx, items: ni});
-                                                                        }}>
-                                                                            <option value="" className="text-slate-900">Standard / Default</option>
-                                                                            {subMaster?.brands?.map((b, bi) => <option key={bi} value={b.name} className="text-slate-900">{b.name}</option>)}
-                                                                        </select>
+                                                                    <div className="flex justify-between items-center mb-1">
+                                                                        <p className="text-[8px] font-black text-slate-500 uppercase">Brand / Variant</p>
+                                                                        <span className={`text-[8px] font-black ${(sub.price - sub.buyPrice) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                                            P&L: {formatCurrency((sub.price - sub.buyPrice) * sub.qty)}
+                                                                        </span>
                                                                     </div>
+                                                                    <select className="w-full bg-transparent text-[10px] text-white font-black outline-none" value={sub.brand || ''} onChange={e => {
+                                                                        const ni = [...tx.items];
+                                                                        ni[idx].subItems[sIdx].brand = e.target.value;
+                                                                        const bData = subMaster?.brands?.find(b => b.name === e.target.value);
+                                                                        if (bData) {
+                                                                            ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
+                                                                            ni[idx].subItems[sIdx].price = bData.sellPrice;
+                                                                            ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                        }
+                                                                        setTx({...tx, items: ni});
+                                                                    }}>
+                                                                        <option value="" className="text-slate-900">Standard / Default</option>
+                                                                        {subMaster?.brands?.map((b, bi) => <option key={bi} value={b.name} className="text-slate-900">{b.name}</option>)}
+                                                                    </select>
+                                                                </div>
                                                                     <div className="bg-white/5 p-2.5 rounded-2xl border border-white/5">
                                                                         <p className="text-[8px] font-black text-slate-500 uppercase mb-1.5 ml-1">Sub-Item Net Total</p>
                                                                         <p className="text-[10px] text-blue-400 font-black px-1">{formatCurrency(sub.qty * sub.price)}</p>
