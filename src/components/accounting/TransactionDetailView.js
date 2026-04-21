@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Share2, MapPin, Package, ChevronRight, Link as LinkIcon, Banknote, Landmark, Trash2, Edit2, Layout } from 'lucide-react';
+import { ArrowLeft, Share2, MapPin, Package, ChevronRight, Link as LinkIcon, Banknote, Landmark, Trash2, Edit2, Layout, MessageCircle } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 
 const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal, cancelTransaction, restoreTransaction, deleteRecord, checkPermission }) => {
@@ -89,112 +89,127 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
         return { itemBreakdown, totalMaterialProfit, totalServiceProfit, grossProfit };
     }, [tx?.items, data.items, data.bundles, totals.discount]);
 
+    const shareToWhatsApp = () => {
+        const companyName = data.company?.name || 'Sun Electricals';
+        const msg = `*${companyName} - Invoice*
+----------------------------
+*ID:* #${tx.id}
+*Date:* ${tx.date}
+*Client:* ${party?.name || tx.category || 'N/A'}
+*Status:* ${tx.status}
+
+*Summary:*
+Gross: ${formatCurrency(totals.gross)}
+Discount: ${formatCurrency(totals.discount)}
+*Total Payable:* ${formatCurrency(totals.final)}
+Received: ${formatCurrency(totals.received)}
+*Balance Due:* ${formatCurrency(totals.final - totals.received)}
+
+*Items:*
+${(tx.items || []).map(i => `- ${i.itemName || 'Item'} x ${i.qty}`).join('\n')}
+
+Thank you for your business!`;
+        const phone = tx.mobile || party?.mobile || '';
+        window.open(`https://wa.me/${phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank');
+    };
+
     const shareInvoice = () => {
         const win = window.open('', '_blank');
-        const company = data.company || { name: 'SUN ELECTRICALS', address: 'Electrical Solutions & Services', mobile: '+91 0000000000' };
+        const company = data.company || { name: 'SUN ELECTRICALS', address: 'Electrical Solutions & Services', mobile: '+91' };
         const balance = totals.final - totals.received;
         
         const html = `
             <html>
             <head>
-                <title>Invoice - ${tx.id}</title>
+                <title>Bill #${tx.id}</title>
                 <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap');
-                    body { font-family: 'Outfit', sans-serif; padding: 40px; color: #373D3F; max-width: 850px; margin: auto; background-color: #f8fafc; }
-                    .invoice-card { background: white; padding: 50px; border-radius: 40px; shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0; position: relative; overflow: hidden; }
-                    .top-accent { position: absolute; top: 0; left: 0; width: 100%; h-2; background: linear-gradient(90deg, #C6E015 0%, #FF9D00 100%); height: 8px; }
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+                    body { font-family: 'Inter', sans-serif; padding: 20px; color: #1e293b; max-width: 800px; margin: auto; background: #fff; }
+                    .bill-container { border: 2px solid #f1f5f9; padding: 30px; border-radius: 20px; position: relative; }
                     
-                    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 50px; }
-                    .logo-area { display: flex; align-items: center; gap: 15px; }
-                    .logo-circle { width: 60px; height: 60px; background: #C6E015; border-radius: 20px; display: flex; align-items: center; justify-content: center; font-size: 30px; color: white; font-weight: 900; }
-                    .brand-name { font-weight: 900; font-size: 24px; color: #373D3F; letter-spacing: -0.5px; line-height: 1; }
-                    .brand-tag { font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; margin-top: 5px; }
+                    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid #C6E015; padding-bottom: 20px; margin-bottom: 25px; }
+                    .logo-box { display: flex; align-items: center; gap: 12px; }
+                    .bulb-ico { width: 45px; height: 45px; background: #C6E015; border-radius: 12px; position: relative; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 24px; box-shadow: 0 10px 15px -3px rgba(198, 224, 21, 0.3); }
+                    .bulb-ico::after { content: ''; position: absolute; top: -5px; right: -5px; width: 15px; height: 15px; background: #FF9D00; border-radius: 50%; border: 3px solid white; }
                     
-                    .invoice-meta { text-align: right; }
-                    .invoice-meta h1 { margin: 0; font-size: 40px; font-weight: 900; color: #373D3F; letter-spacing: -1px; text-transform: uppercase; line-height: 0.9; }
-                    .invoice-badge { display: inline-block; padding: 6px 15px; background: #FF9D00; color: white; border-radius: 12px; font-size: 10px; font-weight: 900; margin-top: 10px; text-transform: uppercase; letter-spacing: 1px; }
+                    .title-area h1 { margin: 0; font-size: 28px; font-weight: 900; letter-spacing: -1px; color: #334155; }
+                    .title-area p { margin: 3px 0 0; font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
                     
-                    .client-section { display: grid; grid-template-cols: 1fr 1fr; gap: 40px; margin-bottom: 40px; }
-                    .info-box h3 { font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px; }
-                    .info-box p { margin: 2px 0; font-size: 14px; font-weight: 700; color: #334155; }
+                    .meta-grid { display: grid; grid-template-cols: 1.5fr 1fr; gap: 30px; margin-bottom: 30px; background: #f8fafc; padding: 20px; border-radius: 15px; }
+                    .client-box h3 { font-size: 10px; font-weight: 900; color: #C6E015; text-transform: uppercase; margin: 0 0 8px; }
+                    .client-box p { margin: 0; font-size: 14px; font-weight: 700; color: #1e293b; }
+                    .client-box small { color: #64748b; font-size: 12px; display: block; margin-top: 2px; }
+
+                    .bill-details { text-align: right; }
+                    .bill-details p { margin: 2px 0; font-size: 12px; font-weight: 700; color: #64748b; }
+                    .bill-details b { color: #1e293b; }
+
+                    table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+                    th { text-align: left; padding: 12px 10px; font-size: 10px; font-weight: 900; color: #94a3b8; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; }
+                    td { padding: 12px 10px; border-bottom: 1px solid #f1f5f9; font-size: 13px; font-weight: 600; line-height: 1.3; }
+                    .item-name { font-weight: 800; color: #334155; }
+                    .item-desc { font-size: 10px; color: #94a3b8; display: block; font-weight: 500; margin-top: 2px; }
+
+                    .summary-grid { display: grid; grid-template-cols: 1.2fr 1fr; gap: 40px; align-items: start; }
+                    .notes-box { font-size: 10px; color: #94a3b8; font-weight: 600; line-height: 1.6; padding-top: 10px; }
                     
-                    table { width: 100%; border-collapse: separate; border-spacing: 0 10px; margin-top: 20px; }
-                    th { text-align: left; padding: 15px; font-size: 11px; font-weight: 900; color: #64748b; text-transform: uppercase; border-bottom: 2px solid #f1f5f9; }
-                    td { padding: 20px 15px; background: #f8fafc; border-bottom: 1px solid #f1f5f9; font-size: 14px; font-weight: 700; }
-                    td:first-child { border-radius: 15px 0 0 15px; }
-                    td:last-child { border-radius: 0 15px 15px 0; text-align: right; }
-                    
-                    .product-name { font-weight: 900; color: #1e293b; font-size: 15px; }
-                    .product-meta { font-size: 10px; color: #94a3b8; margin-top: 4px; display: block; font-style: italic; }
-                    
-                    .summary-container { margin-top: 40px; display: grid; grid-template-cols: 1.5fr 1fr; gap: 50px; }
-                    .summary-table { background: #373D3F; padding: 30px; border-radius: 30px; color: white; }
-                    .summary-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 14px; font-weight: 400; }
-                    .summary-row:last-child { border: none; }
-                    .summary-row span:last-child { font-weight: 900; }
-                    
-                    .total-highlight { background: #C6E015; color: #1e293b; padding: 20px; border-radius: 20px; margin-top: 15px; display: flex; justify-content: space-between; align-items: center; }
-                    .total-highlight span:first-child { font-size: 12px; font-weight: 900; text-transform: uppercase; }
-                    .total-highlight span:last-child { font-size: 24px; font-weight: 900; }
-                    
-                    .balance-box { border: 2px solid #e2e8f0; padding: 25px; border-radius: 25px; text-align: center; }
-                    .balance-box p { margin: 0; font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; }
-                    .balance-box h2 { margin: 10px 0 0; font-size: 32px; font-weight: 900; color: ${balance > 0 ? '#ef4444' : '#10b981'}; }
-                    
-                    .footer { margin-top: 60px; text-align: center; font-size: 11px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-                    @media print { body { background: white; padding: 0; } .invoice-card { border: none; padding: 0; } }
+                    .calc-box { background: #f8fafc; padding: 20px; border-radius: 15px; }
+                    .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px dashed #e2e8f0; }
+                    .row:last-child { border: none; }
+                    .row.grand { border-top: 2px solid #334155; margin-top: 10px; padding-top: 15px; font-size: 18px; font-weight: 900; color: #334155; border-bottom: none; }
+                    .row.paid { color: #10b981; }
+                    .row.due { color: #ef4444; border-top: 2px solid #ef4444; margin-top: 5px; padding-top: 10px; }
+
+                    .foot { margin-top: 50px; text-align: center; border-top: 1px solid #f1f5f9; padding-top: 20px; font-size: 10px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: 2px; }
+                    @media print { body { padding: 0; } .bill-container { border: none; padding: 0; } }
                 </style>
             </head>
             <body>
-                <div class="invoice-card">
-                    <div class="top-accent"></div>
-                    
+                <div class="bill-container">
                     <div class="header">
-                        <div class="logo-area">
-                            <div class="logo-circle">S</div>
+                        <div class="logo-box">
+                            <div class="bulb-ico">S</div>
                             <div>
-                                <div class="brand-name">Sun Electricals</div>
-                                <div class="brand-tag">Professional Solutions</div>
+                                <h1 style="margin:0; font-size:22px; font-weight:900; color:#334155;">SUN ELECTRICALS</h1>
+                                <p style="margin:0; font-size:10px; color:#FF9D00; font-weight:900; letter-spacing:1px;">SOLUTIONS & SERVICES</p>
                             </div>
                         </div>
-                        <div class="invoice-meta">
-                            <h1>INVOICE</h1>
-                            <div class="invoice-badge">ID: #${tx.id}</div>
-                            <p style="font-size: 12px; margin-top: 10px; font-weight: 900; color: #94a3b8;">${formatDate(tx.date)}</p>
+                        <div class="title-area" style="text-align:right">
+                            <h1>TAX INVOICE</h1>
+                            <p>Transaction #${tx.id}</p>
                         </div>
                     </div>
 
-                    <div class="client-section">
-                        <div class="info-box">
+                    <div class="meta-grid">
+                        <div class="client-box">
                             <h3>Billed To</h3>
                             <p>${party?.name || tx.category || 'Cash Client'}</p>
-                            <p style="font-weight: 400; color: #64748b;">${tx.mobile || party?.mobile || ''}</p>
-                            <p style="font-weight: 400; color: #94a3b8; font-size: 12px; margin-top: 5px;">${tx.address || party?.address || ''}</p>
+                            <small>${tx.mobile || party?.mobile || ''}</small>
+                            <small>${tx.address || party?.address || ''}</small>
                         </div>
-                        <div class="info-box" style="text-align: right;">
-                            <h3>From</h3>
-                            <p>${company.name}</p>
-                            <p style="font-weight: 400; color: #64748b;">${company.address || ''}</p>
-                            <p style="font-weight: 400; color: #94a3b8;">${company.mobile || ''}</p>
+                        <div class="bill-details">
+                            <p>DATE: <b>${tx.date}</b></p>
+                            <p>PAYMENT: <b>${tx.paymentMode || 'CASH'}</b></p>
+                            <p>STATUS: <b style="color:#10b981">${tx.status || 'ACTIVE'}</b></p>
                         </div>
                     </div>
 
                     <table>
                         <thead>
                             <tr>
-                                <th>Description</th>
+                                <th style="width:50%">Item Description</th>
                                 <th style="text-align:center">Qty</th>
                                 <th style="text-align:right">Rate</th>
-                                <th style="text-align:right">Amount</th>
+                                <th style="text-align:right">Total</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${(profitData.itemBreakdown.length > 0 ? profitData.itemBreakdown : [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount }]).map(i => `
                                 <tr>
                                     <td>
-                                        <div class="product-name">${i.itemName}</div>
-                                        ${i.brand ? `<span class="product-meta">Brand: ${i.brand}</span>` : ''}
-                                        ${i.description ? `<span class="product-meta">Note: ${i.description}</span>` : ''}
+                                        <span class="item-name">${i.itemName}</span>
+                                        ${i.brand ? `<span class="item-desc">Brand: ${i.brand}</span>` : ''}
+                                        ${i.description ? `<span class="item-desc">Note: ${i.description}</span>` : ''}
                                     </td>
                                     <td style="text-align:center">${i.qty}</td>
                                     <td style="text-align:right">${(parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
@@ -204,44 +219,25 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                         </tbody>
                     </table>
 
-                    <div class="summary-container">
-                        <div class="balance-area">
-                            <div class="balance-box">
-                                <p>Remaining Balance</p>
-                                <h2>₹${(parseFloat(balance)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</h2>
-                                <p style="margin-top: 15px; font-size: 9px; color: ${tx.paymentMode === 'Credit' ? '#f59e0b' : '#3b82f6'}">PAYMENT MODE: ${tx.paymentMode || 'STANDARD'}</p>
-                            </div>
-                            <p style="font-size: 10px; color: #94a3b8; margin-top: 20px; line-height: 1.6; font-weight: 700; text-transform: uppercase;">
-                                Thank you for choosing Sun Electricals. We provide high-quality electrical work with safety standards.
-                            </p>
+                    <div class="summary-grid">
+                        <div class="notes-box">
+                            <p style="color:#C6E015; margin-bottom:5px;">TERMS & CONDITIONS</p>
+                            1. Goods once sold will not be taken back.<br>
+                            2. 18% interest will be charged if payment is delayed.<br>
+                            3. Subject to local jurisdiction.
+                            <div style="margin-top:40px; font-weight:900; color:#334155; font-size:12px;">Authorized Signatory</div>
                         </div>
-                        <div class="summary-table">
-                            <div class="summary-row">
-                                <span>Subtotal</span>
-                                <span>₹${(parseFloat(totals.gross)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
-                            </div>
-                            ${totals.discount > 0 ? `
-                            <div class="summary-row" style="color: #FF9D00;">
-                                <span>Discount (${tx.discountType || '₹'})</span>
-                                <span>- ₹${(parseFloat(totals.discount)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
-                            </div>` : ''}
-                            <div class="summary-row">
-                                <span>Net Total</span>
-                                <span>₹${(parseFloat(totals.final)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
-                            </div>
-                            <div class="summary-row" style="color: #C6E015;">
-                                <span>Amount Received</span>
-                                <span>₹${(parseFloat(totals.received)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
-                            </div>
-                            <div class="total-highlight">
-                                <span>Final Payable</span>
-                                <span>₹${(parseFloat(totals.final)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
-                            </div>
+                        <div class="calc-box">
+                            <div class="row"><span>Subtotal</span> <span>₹${(parseFloat(totals.gross)).toLocaleString('en-IN')}</span></div>
+                            ${totals.discount > 0 ? `<div class="row" style="color:#FF9D00"><span>Discount</span> <span>- ₹${(parseFloat(totals.discount)).toLocaleString('en-IN')}</span></div>` : ''}
+                            <div class="row grand"><span>Total</span> <span>₹${(parseFloat(totals.final)).toLocaleString('en-IN')}</span></div>
+                            <div class="row paid"><span>Total Paid</span> <span>₹${(parseFloat(totals.received)).toLocaleString('en-IN')}</span></div>
+                            <div class="row due"><span>Balance Due</span> <span>₹${(parseFloat(balance)).toLocaleString('en-IN')}</span></div>
                         </div>
                     </div>
 
-                    <div class="footer">
-                        Powered by SMEES ERP • Digital Signature Verified
+                    <div class="foot">
+                        Generated by SMEES ERP • www.smeesenterprise.com
                     </div>
                 </div>
                 <script>window.print();</script>
@@ -268,9 +264,14 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                 </div>
                 <div className="flex gap-2">
                     {tx.status !== 'Cancelled' && (
-                        <button onClick={shareInvoice} className="p-2 bg-blue-600 text-white rounded-xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all">
-                            <Share2 size={16}/> 
-                        </button>
+                        <div className="flex gap-1">
+                            <button onClick={shareInvoice} className="p-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 active:scale-95 transition-all flex items-center gap-2">
+                                <Share2 size={16}/> <span className="text-[9px] font-black uppercase">Print Bill</span>
+                            </button>
+                            <button onClick={shareToWhatsApp} className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 active:scale-95 transition-all flex items-center gap-2">
+                                <MessageCircle size={16}/> <span className="text-[9px] font-black uppercase">WhatsApp</span>
+                            </button>
+                        </div>
                     )}
                     {checkPermission(user, 'canEditTasks') && (
                         <div className="flex gap-2">
