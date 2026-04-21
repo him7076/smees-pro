@@ -777,29 +777,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                 {/* Footer Adjustments */}
                 <div className="pt-8 border-t border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-6">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Discount</label>
-                                <div className="flex bg-white rounded-[24px] border border-slate-200 overflow-hidden shadow-sm h-[54px] md:h-auto ring-4 ring-slate-50">
-                                    <input type="number" className="flex-1 p-4 text-sm font-black outline-none bg-transparent" placeholder="0.00" value={tx.discountValue || ''} onChange={e=>setTx({...tx, discountValue: e.target.value})} />
-                                    <div className="flex bg-slate-50 p-1.5 gap-1.5 border-l min-w-[120px]">
-                                        <button 
-                                            type="button"
-                                            onClick={()=>setTx({...tx, discountType: '₹'})} 
-                                            className={`flex-1 rounded-xl text-[11px] font-black transition-all ${tx.discountType === '₹' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400'}`}
-                                        >
-                                            ₹
-                                        </button>
-                                        <button 
-                                            type="button"
-                                            onClick={()=>setTx({...tx, discountType: '%'})} 
-                                            className={`flex-1 rounded-xl text-[11px] font-black transition-all ${tx.discountType === '%' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400'}`}
-                                        >
-                                            %
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
+                        <div className="grid grid-cols-1 gap-4">
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex justify-between">Round Off <Calculator size={10} className="text-blue-500" onClick={applyRoundOff}/></label>
                                 <input type="number" step="0.01" className="w-full p-4 bg-white border border-slate-200 rounded-2xl text-sm font-black outline-none" value={tx.roundOff} onChange={e=>setTx({...tx, roundOff: e.target.value})} />
@@ -824,6 +802,37 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                             </div>
                         </div>
                         <div className="space-y-4">
+                            {['sales', 'purchase', 'expense'].includes(type) && (
+                                <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calculator size={14}/> Voucher Discount</span>
+                                        <div className="flex bg-slate-800 p-1 gap-1 rounded-xl border border-white/5">
+                                            <button 
+                                                type="button"
+                                                onClick={()=>setTx({...tx, discountType: '₹'})} 
+                                                className={`px-4 py-1.5 rounded-lg text-[9px] font-black transition-all ${tx.discountType === '₹' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500'}`}
+                                            >
+                                                ₹
+                                            </button>
+                                            <button 
+                                                type="button"
+                                                onClick={()=>setTx({...tx, discountType: '%'})} 
+                                                className={`px-4 py-1.5 rounded-lg text-[9px] font-black transition-all ${tx.discountType === '%' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500'}`}
+                                            >
+                                                %
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <input 
+                                        type="number" 
+                                        className="w-full bg-transparent text-left font-black text-white text-2xl outline-none" 
+                                        placeholder="0.00" 
+                                        value={tx.discountValue || ''} 
+                                        onChange={e=>setTx({...tx, discountValue: e.target.value})} 
+                                    />
+                                </div>
+                            )}
+
                             {type === 'payment' && (
                                 <div className="space-y-4 animate-in slide-in-from-top-4">
                                      <div className="bg-white/5 p-4 rounded-2xl flex gap-2">
