@@ -296,15 +296,15 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                         {showItems && (
                             <div className="space-y-4">
                                 {(task.itemsUsed || []).map((line, idx) => {
-                                    const master = data.items.find(i=>i.id===line.itemId);
+                                    const master = data.items.find(i=>i.id===line.itemId) || (data.bundles || []).find(i=>i.id===line.itemId);
                                     const buy = parseFloat(line.buyPrice || line.purchasePrice || master?.buyPrice || 0);
                                     const sell = parseFloat(line.price || 0);
                                     const qty = parseFloat(line.qty || 0);
                                     const profit = (sell - buy) * qty;
                                     
                                     const itemName = line.name || master?.name || 'Generic Item';
-                                    const type = master?.type || 'Goods';
-                                    const isService = type === 'Service' || itemName.toLowerCase().includes('service');
+                                    const type = master?.type || (master?.isBundle ? 'Service Kit' : 'Goods');
+                                    const isService = type === 'Service' || type === 'Service Kit' || itemName.toLowerCase().includes('service');
 
                                     return (
                                         <div key={idx} className="bg-white p-5 rounded-[32px] border border-emerald-100 space-y-4">
@@ -346,7 +346,7 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                                         <p className="text-[9px] font-black text-emerald-600 uppercase mb-1">Job Margin</p>
                                         <p className="text-xl font-black text-emerald-800">
                                             {formatCurrency((task.itemsUsed || []).reduce((acc, l) => {
-                                                const m = data.items.find(i=>i.id===l.itemId);
+                                                const m = data.items.find(i=>i.id===l.itemId) || (data.bundles || []).find(i=>i.id===l.itemId);
                                                 const b = parseFloat(l.buyPrice || l.purchasePrice || m?.buyPrice || 0);
                                                 return acc + (parseFloat(l.qty||0)*(parseFloat(l.price||0)-b));
                                             }, 0))}
