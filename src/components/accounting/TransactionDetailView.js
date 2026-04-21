@@ -90,36 +90,6 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
     }, [tx?.items, data.items, data.bundles, totals.discount]);
 
     const shareInvoice = () => {
-        const companyName = data.company?.name || 'Sun Electricals';
-        const msg = `*${companyName} - Invoice*
-----------------------------
-*ID:* #${tx.id}
-*Date:* ${tx.date}
-*Client:* ${party?.name || tx.category || 'N/A'}
-*Total:* ${formatCurrency(totals.final)}
-*Balance:* ${formatCurrency(totals.final - totals.received)}
-
-*Details:* ${window.location.origin}?txId=${tx.id}
-
-Thank you!`;
-        const phone = tx.mobile || party?.mobile || '';
-        if (navigator.share) {
-            navigator.share({
-                title: `Invoice #${tx.id}`,
-                text: msg,
-                url: window.location.origin + `?txId=${tx.id}`
-            }).catch(() => {
-                window.open(`https://wa.me/${phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank');
-            });
-        } else {
-            window.open(`https://wa.me/${phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`, '_blank');
-        }
-        
-        // Also open print console for PDF generation
-        printInvoice();
-    };
-
-    const printInvoice = () => {
         const win = window.open('', '_blank');
         const company = data.company || { name: 'SUN ELECTRICALS', address: 'Electrical Solutions & Services', mobile: '+91' };
         const balance = totals.final - totals.received;
@@ -130,40 +100,40 @@ Thank you!`;
                 <title>Bill #${tx.id}</title>
                 <style>
                     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-                    body { font-family: 'Inter', sans-serif; padding: 10px; color: #1e293b; max-width: 800px; margin: auto; background: #fff; }
-                    .bill-container { border: 1px solid #f1f5f9; padding: 20px; border-radius: 12px; }
+                    body { font-family: 'Inter', sans-serif; padding: 15px; color: #1e293b; max-width: 800px; margin: auto; background: #fff; }
+                    .bill-container { border: 2px solid #334155; padding: 25px; border-radius: 4px; position: relative; }
                     
-                    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #C6E015; padding-bottom: 12px; margin-bottom: 15px; }
+                    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #334155; padding-bottom: 10px; margin-bottom: 15px; background: #f8fafc; margin: -25px -25px 15px -25px; padding: 20px 25px; border-radius: 4px 4px 0 0; }
                     .logo-box { display: flex; align-items: center; gap: 10px; }
-                    .bulb-ico { width: 35px; height: 35px; background: #C6E015; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 18px; }
+                    .bulb-ico { width: 32px; height: 32px; background: #C6E015; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 16px; border-top: 3px solid #FF9D00; }
                     
-                    .title-area h1 { margin: 0; font-size: 20px; font-weight: 900; color: #334155; }
-                    .title-area p { margin: 0; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; }
+                    .title-area h1 { margin: 0; font-size: 22px; font-weight: 900; color: #334155; letter-spacing: 1px; }
+                    .title-area p { margin: 0; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; }
                     
-                    .top-info { display: flex; justify-content: space-between; align-items: flex-start; background: #f8fafc; padding: 15px; border-radius: 10px; margin-bottom: 15px; }
-                    .client-info h3 { font-size: 9px; font-weight: 900; color: #C6E015; text-transform: uppercase; margin: 0 0 4px; }
-                    .client-info p { margin: 0; font-size: 13px; font-weight: 700; }
+                    .top-info { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 15px; }
+                    .client-info h3 { font-size: 9px; font-weight: 900; color: #64748b; text-transform: uppercase; margin: 0 0 5px; }
+                    .client-info p { margin: 0; font-size: 13px; font-weight: 900; color: #1e293b; }
                     .client-info small { color: #64748b; font-size: 11px; display: block; }
 
                     .bill-meta { text-align: right; }
                     .bill-meta p { margin: 0; font-size: 11px; font-weight: 700; color: #64748b; }
                     .bill-meta b { color: #1e293b; margin-left: 5px; }
 
-                    table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
-                    th { text-align: left; padding: 8px 5px; font-size: 9px; font-weight: 900; color: #94a3b8; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; }
-                    td { padding: 8px 5px; border-bottom: 1px solid #f1f5f9; font-size: 12px; font-weight: 600; line-height: 1.2; }
-                    .item-name { font-weight: 800; color: #334155; display: block; }
-                    .item-desc { font-size: 9px; color: #94a3b8; font-weight: 500; }
+                    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                    th { text-align: left; padding: 8px 5px; font-size: 9px; font-weight: 900; color: #334155; text-transform: uppercase; border-bottom: 2px solid #334155; background: #f8fafc; }
+                    td { padding: 8px 5px; border-bottom: 1px solid #f1f5f9; font-size: 11px; font-weight: 700; line-height: 1.2; color: #334155; }
+                    .item-name { font-weight: 900; color: #000; display: block; font-size: 12px; }
+                    .item-desc { font-size: 9px; color: #64748b; font-weight: 500; font-style: italic; }
 
-                    .summary-flex { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
-                    .calc-area { flex: 1; max-width: 280px; background: #f8fafc; padding: 12px; border-radius: 10px; }
-                    .row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 11px; border-bottom: 1px dashed #e2e8f0; }
-                    .row.grand { border-top: 1.5px solid #334155; margin-top: 8px; padding-top: 10px; font-size: 15px; font-weight: 900; color: #334155; border-bottom: none; }
-                    .row.due { color: #ef4444; font-weight: 900; }
+                    .summary-flex { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; margin-top: 10px; }
+                    .calc-area { flex: 1.2; background: #f8fafc; padding: 15px; border: 1px solid #e2e8f0; border-radius: 4px; }
+                    .row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; border-bottom: 1px solid #e2e8f0; }
+                    .row.grand { border-top: 2px solid #334155; margin-top: 5px; padding-top: 10px; font-size: 16px; font-weight: 900; color: #000; border-bottom: none; }
+                    .row.due { color: #ef4444; font-weight: 900; border-top: 1px solid #ef4444; margin-top: 2px; padding-top: 5px; }
 
-                    .terms { flex: 1.5; font-size: 8px; color: #94a3b8; line-height: 1.4; }
-                    .foot { margin-top: 25px; text-align: center; font-size: 8px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; }
-                    @media print { body { padding: 0; } .bill-container { border: none; padding: 0; } }
+                    .terms { flex: 2; font-size: 9px; color: #64748b; line-height: 1.5; border-left: 3px solid #C6E015; padding-left: 15px; }
+                    .foot { margin-top: 30px; text-align: center; font-size: 9px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 2px; border-top: 1px solid #f1f5f9; padding-top: 15px; }
+                    @media print { body { padding: 0; } .bill-container { border: 1px solid #000; padding: 20px; } }
                 </style>
             </head>
             <body>
@@ -172,13 +142,13 @@ Thank you!`;
                         <div class="logo-box">
                             <div class="bulb-ico">S</div>
                             <div>
-                                <h1 style="margin:0; font-size:18px; font-weight:900; color:#334155;">SUN ELECTRICALS</h1>
-                                <p style="margin:0; font-size:8px; color:#FF9D00; font-weight:900; letter-spacing:1px;">SOLUTIONS & SERVICES</p>
+                                <h1 style="margin:0; font-size:20px; font-weight:900; color:#334155;">SUN ELECTRICALS</h1>
+                                <p style="margin:0; font-size:8px; color:#FF9D00; font-weight:900; letter-spacing:1px;">EXPERT SOLUTIONS & SERVICES</p>
                             </div>
                         </div>
                         <div class="title-area">
                             <h1>TAX INVOICE</h1>
-                            <p>Transaction #${tx.id}</p>
+                            <p>BILL NO: #${tx.id}</p>
                         </div>
                     </div>
 
@@ -186,13 +156,13 @@ Thank you!`;
                         <div class="client-info">
                             <h3>Billed To</h3>
                             <p>${party?.name || tx.category || 'Cash Client'}</p>
-                            <small>${tx.mobile || party?.mobile || ''}</small>
+                            <small>${tx.mobile || party?.mobile || 'N/A'}</small>
                             <small>${tx.address || party?.address || ''}</small>
                         </div>
                         <div class="bill-meta">
                             <p>DATE: <b>${tx.date}</b></p>
-                            <p>STATUS: <b style="color:#10b981">${tx.status || 'ACTIVE'}</b></p>
-                            <p>PAYMENT: <b>${tx.paymentMode || 'CASH'}</b></p>
+                            <p>STATUS: <b style="color:#10b981">${tx.status?.toUpperCase() || 'ACTIVE'}</b></p>
+                            <p>MODE: <b>${tx.paymentMode?.toUpperCase() || 'CASH'}</b></p>
                         </div>
                     </div>
 
@@ -209,12 +179,12 @@ Thank you!`;
                             ${(profitData.itemBreakdown.length > 0 ? profitData.itemBreakdown : [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount }]).map(i => `
                                 <tr>
                                     <td>
-                                        <b class="item-name">${i.itemName}</b>
+                                        <span class="item-name">${i.itemName}</span>
                                         ${i.description ? `<span class="item-desc">${i.description}</span>` : ''}
                                     </td>
                                     <td style="text-align:center">${i.qty}</td>
-                                    <td style="text-align:right">${(parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
-                                    <td style="text-align:right">${(parseFloat(i.qty || 1) * parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
+                                    <td style="text-align:right">${(parseFloat(i.price || 0)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                                    <td style="text-align:right">${(parseFloat(i.qty || 1) * parseFloat(i.price || 0)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -222,23 +192,23 @@ Thank you!`;
 
                     <div class="summary-flex">
                         <div class="terms">
-                            <p style="color:#C6E015; margin:0 0 2px; font-weight:900;">TERMS</p>
-                            1. Goods once sold will not be returned.<br>
-                            2. 18% interest on delayed payment.<br>
-                            3. Subject to local jurisdiction.
-                            <div style="margin-top:20px; font-weight:900; color:#334155; font-size:10px;">Auth. Signatory</div>
+                            <p style="color:#C6E015; margin:0 0 5px; font-weight:900; font-size:10px;">TERMS & CONDITIONS</p>
+                            1. Goods once sold will not be taken back.<br>
+                            2. Claims for discrepancy must be made within 24 hours.<br>
+                            3. Subject to jurisdiction of local governing body.
+                            <div style="margin-top:25px; font-weight:900; color:#334155; font-size:11px; border-top:1px solid #334155; display:inline-block; padding-top:5px;">Authorized Signatory</div>
                         </div>
                         <div class="calc-area">
-                            <div class="row"><span>Subtotal</span> <span>₹${(parseFloat(totals.gross)).toLocaleString('en-IN')}</span></div>
-                            ${totals.discount > 0 ? `<div class="row" style="color:#FF9D00"><span>Discount</span> <span>- ₹${(parseFloat(totals.discount)).toLocaleString('en-IN')}</span></div>` : ''}
-                            <div class="row grand"><span>Total</span> <span>₹${(parseFloat(totals.final)).toLocaleString('en-IN')}</span></div>
-                            <div class="row paid" style="color:#10b981"><span>Paid</span> <span>₹${(parseFloat(totals.received)).toLocaleString('en-IN')}</span></div>
-                            <div class="row due"><span>Balance Due</span> <span>₹${(parseFloat(balance)).toLocaleString('en-IN')}</span></div>
+                            <div class="row"><span>Subtotal</span> <span>₹${(parseFloat(totals.gross)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>
+                            ${totals.discount > 0 ? `<div class="row" style="color:#FF9D00"><span>Discount</span> <span>- ₹${(parseFloat(totals.discount)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>` : ''}
+                            <div class="row grand"><span>Total</span> <span>₹${(parseFloat(totals.final)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>
+                            <div class="row paid" style="color:#10b981"><span>Total Paid</span> <span>₹${(parseFloat(totals.received)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>
+                            <div class="row due"><span>Balance Due</span> <span>₹${(parseFloat(balance)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span></div>
                         </div>
                     </div>
 
                     <div class="foot">
-                        Ledger System • www.smeesenterprise.com
+                        Generated via SMEES ERP • Professional Ledger Output
                     </div>
                 </div>
                 <script>window.print();</script>
@@ -267,7 +237,7 @@ Thank you!`;
                     {tx.status !== 'Cancelled' && (
                         <button onClick={shareInvoice} className="p-3 bg-slate-900 text-white rounded-2xl shadow-xl shadow-slate-200 active:scale-95 transition-all flex items-center gap-2">
                             <Share2 size={20}/>
-                            <span className="text-[10px] font-black uppercase tracking-widest px-2">Share & Print</span>
+                            <span className="text-[10px] font-black uppercase tracking-widest px-3">Print Bill</span>
                         </button>
                     )}
                     {checkPermission(user, 'canEditTasks') && (
