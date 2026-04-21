@@ -37,6 +37,10 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
             const sell = parseFloat(item.price || 0);
             const qty = parseFloat(item.qty || 1);
 
+            // Calculate Item-Specific Discount
+            let itemLineDiscount = parseFloat(item.discountValue || 0);
+            if (item.discountType === '%') itemLineDiscount = (sell * qty * itemLineDiscount) / 100;
+
             let itemMaterialProfit = 0;
             let itemServiceProfit = 0;
 
@@ -54,11 +58,19 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                 });
             } else {
                 const buy = parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0);
-                const profitValue = (sell - buy) * qty;
+                const profitValue = (sell * qty) - (buy * qty);
                 const isService = type === 'Service' || itemName.toLowerCase().includes('service');
                 if (isService) itemServiceProfit = profitValue;
                 else itemMaterialProfit = profitValue;
             }
+
+            // Adjust profit by the line-item discount proportionally or simply subtraction
+            // Typically, we subtract it from the total yield of that line
+            const totalItemYield = itemMaterialProfit + itemServiceProfit - itemLineDiscount;
+            
+            // For bifurcation, we can split discount based on profit weight, but usually it's material
+            if (itemServiceProfit > itemMaterialProfit) itemServiceProfit -= itemLineDiscount;
+            else itemMaterialProfit -= itemLineDiscount;
 
             totalMaterialProfit += itemMaterialProfit;
             totalServiceProfit += itemServiceProfit;
@@ -66,6 +78,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
             return {
                 ...item,
                 itemName,
+                itemLineDiscount,
                 materialProfit: itemMaterialProfit,
                 serviceProfit: itemServiceProfit,
                 type: (itemServiceProfit > itemMaterialProfit) ? 'Service' : 'Material'
@@ -136,16 +149,18 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                             <th>Item / Description</th>
                             <th style="text-align:center">Qty</th>
                             <th style="text-align:right">Price</th>
+                            <th style="text-align:right">Disc</th>
                             <th style="text-align:right">Total</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${(profitData.itemBreakdown.length > 0 ? profitData.itemBreakdown : [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount }]).map(i => `
+                        ${(profitData.itemBreakdown.length > 0 ? profitData.itemBreakdown : [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount, discountValue: 0 }]).map(i => `
                             <tr>
                                 <td>${i.itemName} ${i.brand ? `<br><small style="color:#888">${i.brand}</small>` : ''}</td>
                                 <td style="text-align:center">${i.qty}</td>
                                 <td style="text-align:right">${(parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
-                                <td style="text-align:right">${(parseFloat(i.qty || 1) * parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
+                                <td style="text-align:right">${i.discountValue > 0 ? (i.discountType === '%' ? `${i.discountValue}%` : (parseFloat(i.discountValue)).toLocaleString('en-IN')) : '-'}</td>
+                                <td style="text-align:right">${(parseFloat(i.qty || 1) * parseFloat(i.price || 0) - (i.itemLineDiscount || 0)).toLocaleString('en-IN')}</td>
                             </tr>
                         `).join('')}
                     </tbody>

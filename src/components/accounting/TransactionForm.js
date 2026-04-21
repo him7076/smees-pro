@@ -571,7 +571,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                             )}
                                         </div>
 
-                                        <div className={`grid ${type === 'sales' ? 'grid-cols-4' : 'grid-cols-3'} gap-4`}>
+                                        <div className={`grid ${type === 'sales' || type === 'purchase' ? 'grid-cols-4' : 'grid-cols-3'} gap-4`}>
                                             <div className="space-y-1.5">
                                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Qty</label>
                                                 <input type="number" className="w-full p-3 bg-slate-50 border border-slate-50 rounded-xl text-xs font-black outline-none focus:bg-white focus:border-blue-100" value={line.qty} onChange={e => updateLine(idx, 'qty', e.target.value)} />
@@ -580,11 +580,31 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                 <label className="text-[9px] font-black text-emerald-400 uppercase tracking-widest ml-1">{type === 'purchase' ? 'Buy Rate' : type === 'expense' ? 'Rate' : 'Sell Rate'}</label>
                                                 <input type="number" className="w-full p-3 bg-emerald-50/30 border border-emerald-50 rounded-xl text-xs font-black text-emerald-700 outline-none focus:bg-white" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
                                             </div>
-                                            {type === 'sales' && (
-                                            <div className="space-y-1.5">
-                                                <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate</label>
-                                                <input type="number" className="w-full p-3 bg-rose-50/30 border border-rose-50 rounded-xl text-xs font-black text-rose-700 outline-none focus:bg-white" value={line.buyPrice || line.purchasePrice || 0} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />
-                                            </div>
+                                            {type === 'sales' ? (
+                                                <div className="space-y-1.5">
+                                                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate</label>
+                                                    <input type="number" className="w-full p-3 bg-rose-50/30 border border-rose-50 rounded-xl text-xs font-black text-rose-700 outline-none focus:bg-white" value={line.buyPrice || line.purchasePrice || 0} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />
+                                                </div>
+                                            ) : (type === 'purchase' && (
+                                                <div className="space-y-1.5">
+                                                    <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest ml-1">MRP / MRP Unit</label>
+                                                    <input type="number" className="w-full p-3 bg-indigo-50/30 border border-indigo-50 rounded-xl text-xs font-black text-indigo-700 outline-none focus:bg-white" value={line.mrp || 0} onChange={e => updateLine(idx, 'mrp', e.target.value)} />
+                                                </div>
+                                            ))}
+                                            {(type === 'sales' || type === 'purchase') && (
+                                                <div className="space-y-1.5">
+                                                    <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Discount</label>
+                                                    <div className="flex bg-slate-50 border border-slate-50 rounded-xl overflow-hidden p-1">
+                                                        <input type="number" className="flex-1 min-w-0 bg-transparent px-1 text-[10px] font-black outline-none" placeholder="0" value={line.discountValue || ''} onChange={e => updateLine(idx, 'discountValue', e.target.value)} />
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => updateLine(idx, 'discountType', line.discountType === '%' ? '₹' : '%')} 
+                                                            className="px-2 bg-white border border-slate-100 rounded-lg text-[9px] font-black text-blue-600 shadow-sm"
+                                                        >
+                                                            {line.discountType || '₹'}
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             )}
                                         </div>
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-3xl border border-slate-100">
@@ -741,14 +761,14 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                             {(type === 'sales' || type === 'estimate') && (
                                 <>
                                     <button 
-                                        onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, isBundle: false }]})} 
+                                        onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, discountType: '₹', discountValue: 0, isBundle: false }]})} 
                                         className="py-6 border-2 border-dashed border-slate-200 text-slate-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-slate-50 hover:border-slate-300 transition-all flex flex-col items-center justify-center gap-2"
                                     >
                                         <Plus size={20}/>
                                         Add Regular Item
                                     </button>
                                     <button 
-                                        onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, isBundle: true, subItems: [] }]})} 
+                                        onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, discountType: '₹', discountValue: 0, isBundle: true, subItems: [] }]})} 
                                         className="py-6 border-2 border-dashed border-blue-100 bg-blue-50/10 text-blue-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-blue-50 hover:border-blue-200 transition-all flex flex-col items-center justify-center gap-2"
                                     >
                                         <ShoppingBag size={20}/>
@@ -758,7 +778,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                             )}
                             {(type === 'purchase' || type === 'expense') && (
                                 <button 
-                                    onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, isBundle: false }]})} 
+                                    onClick={() => setTx({...tx, items: [...tx.items, { itemId: '', qty: 1, price: 0, buyPrice: 0, discountType: '₹', discountValue: 0, isBundle: false }]})} 
                                     className="col-span-2 py-6 border-2 border-dashed border-slate-200 text-slate-400 rounded-[32px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-slate-50 hover:border-slate-300 transition-all flex flex-col items-center justify-center gap-2"
                                 >
                                     <Plus size={20}/>
