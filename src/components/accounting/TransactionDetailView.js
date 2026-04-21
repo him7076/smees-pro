@@ -104,8 +104,19 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                     .bill-container { border: 2px solid #334155; padding: 25px; border-radius: 4px; position: relative; }
                     
                     .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #334155; padding-bottom: 10px; margin-bottom: 15px; background: #f8fafc; margin: -25px -25px 15px -25px; padding: 20px 25px; border-radius: 4px 4px 0 0; }
-                    .logo-box { display: flex; align-items: center; gap: 10px; }
-                    .bulb-ico { width: 32px; height: 32px; background: #C6E015; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 16px; border-top: 3px solid #FF9D00; }
+                    .logo-box { display: flex; align-items: center; gap: 15px; }
+                    
+                    /* ADVANCED CSS BULB LOGO */
+                    .bulb-wrapper { position: relative; width: 45px; height: 45px; }
+                    .bulb-body { width: 24px; height: 32px; background: #C6E015; border-radius: 50% 50% 40% 40%; position: absolute; left: 10px; top: 8px; box-shadow: 0 0 10px #C6E015; }
+                    .bulb-base { width: 14px; height: 8px; background: #334155; position: absolute; left: 15px; bottom: 2px; border-radius: 0 0 4px 4px; }
+                    .bulb-rays { position: absolute; width: 100%; height: 100%; top: 0; left: 0; }
+                    .ray { position: absolute; width: 2px; height: 6px; background: #FF9D00; border-radius: 2px; left: 21px; transform-origin: center 22px; }
+                    .ray:nth-child(1) { transform: rotate(0deg) translateY(-18px); }
+                    .ray:nth-child(2) { transform: rotate(45deg) translateY(-18px); }
+                    .ray:nth-child(3) { transform: rotate(90deg) translateY(-18px); }
+                    .ray:nth-child(4) { transform: rotate(-45deg) translateY(-18px); }
+                    .ray:nth-child(5) { transform: rotate(-90deg) translateY(-18px); }
                     
                     .title-area h1 { margin: 0; font-size: 22px; font-weight: 900; color: #334155; letter-spacing: 1px; }
                     .title-area p { margin: 0; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; }
@@ -124,6 +135,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                     td { padding: 8px 5px; border-bottom: 1px solid #f1f5f9; font-size: 11px; font-weight: 700; line-height: 1.2; color: #334155; }
                     .item-name { font-weight: 900; color: #000; display: block; font-size: 12px; }
                     .item-desc { font-size: 9px; color: #64748b; font-weight: 500; font-style: italic; }
+                    .item-brand { font-size: 9px; color: #FF9D00; font-weight: 900; text-transform: uppercase; margin-right: 5px; }
 
                     .summary-flex { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; margin-top: 10px; }
                     .calc-area { flex: 1.2; background: #f8fafc; padding: 15px; border: 1px solid #e2e8f0; border-radius: 4px; }
@@ -133,6 +145,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
 
                     .terms { flex: 2; font-size: 9px; color: #64748b; line-height: 1.5; border-left: 3px solid #C6E015; padding-left: 15px; }
                     .foot { margin-top: 30px; text-align: center; font-size: 9px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 2px; border-top: 1px solid #f1f5f9; padding-top: 15px; }
+                    .disclaimer { font-size: 8px; color: #94a3b8; font-weight: 400; text-align: center; margin-top: 10px; font-style: italic; }
                     @media print { body { padding: 0; } .bill-container { border: 1px solid #000; padding: 20px; } }
                 </style>
             </head>
@@ -140,7 +153,13 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                 <div class="bill-container">
                     <div class="header">
                         <div class="logo-box">
-                            <div class="bulb-ico">S</div>
+                            <div class="bulb-wrapper">
+                                <div class="bulb-rays">
+                                    <div class="ray"></div><div class="ray"></div><div class="ray"></div><div class="ray"></div><div class="ray"></div>
+                                </div>
+                                <div class="bulb-body"></div>
+                                <div class="bulb-base"></div>
+                            </div>
                             <div>
                                 <h1 style="margin:0; font-size:20px; font-weight:900; color:#334155;">SUN ELECTRICALS</h1>
                                 <p style="margin:0; font-size:8px; color:#FF9D00; font-weight:900; letter-spacing:1px;">EXPERT SOLUTIONS & SERVICES</p>
@@ -179,7 +198,10 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                             ${(profitData.itemBreakdown.length > 0 ? profitData.itemBreakdown : [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount }]).map(i => `
                                 <tr>
                                     <td>
-                                        <span class="item-name">${i.itemName}</span>
+                                        <span class="item-name">
+                                            ${i.brand ? `<span class="item-brand">[${i.brand}]</span>` : ''}
+                                            ${i.itemName}
+                                        </span>
                                         ${i.description ? `<span class="item-desc">${i.description}</span>` : ''}
                                     </td>
                                     <td style="text-align:center">${i.qty}</td>
@@ -193,9 +215,9 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                     <div class="summary-flex">
                         <div class="terms">
                             <p style="color:#C6E015; margin:0 0 5px; font-weight:900; font-size:10px;">TERMS & CONDITIONS</p>
-                            1. Goods once sold will not be taken back.<br>
+                            1. Goods once sold will be replaced/repaired as per warranty.<br>
                             2. Claims for discrepancy must be made within 24 hours.<br>
-                            3. Subject to jurisdiction of local governing body.
+                            3. Payments should be made in favor of Sun Electricals only.
                             <div style="margin-top:25px; font-weight:900; color:#334155; font-size:11px; border-top:1px solid #334155; display:inline-block; padding-top:5px;">Authorized Signatory</div>
                         </div>
                         <div class="calc-area">
@@ -209,6 +231,9 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
 
                     <div class="foot">
                         Generated via SMEES ERP • Professional Ledger Output
+                    </div>
+                    <div class="disclaimer">
+                        This invoice is issued for service and record purposes only.
                     </div>
                 </div>
                 <script>window.print();</script>
