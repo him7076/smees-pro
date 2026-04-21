@@ -166,8 +166,9 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                             </div>
                         </div>
                         <div class="title-area">
-                            <h1>TAX INVOICE</h1>
-                            <p>BILL NO: #${tx.id}</p>
+                            <h1 style="font-size: 18px; color: #ef4444;">INVOICE / BILL</h1>
+                            <p style="color: #ef4444; font-weight: 800; font-size: 9px;">* THIS IS NOT A TAX INVOICE *</p>
+                            <p style="margin-top: 5px;">BILL NO: #${tx.id}</p>
                         </div>
                     </div>
 
@@ -199,7 +200,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                                 <tr>
                                     <td>
                                         <span class="item-name">
-                                            ${i.brand ? `<span class="item-brand">[${i.brand}]</span>` : ''}
+                                            ${i.brand ? `<span class="item-brand">${i.brand}</span>` : ''}
                                             ${i.itemName}
                                         </span>
                                         ${i.description ? `<span class="item-desc">${i.description}</span>` : ''}
@@ -215,9 +216,9 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                     <div class="summary-flex">
                         <div class="terms">
                             <p style="color:#C6E015; margin:0 0 5px; font-weight:900; font-size:10px;">TERMS & CONDITIONS</p>
-                            1. Goods once sold will be replaced/repaired as per warranty.<br>
+                            1. Items once sold replaced/repaired as per warranty.<br>
                             2. Claims for discrepancy must be made within 24 hours.<br>
-                            3. Payments should be made in favor of Sun Electricals only.
+                            3. Payments favor Sun Electricals only.
                             <div style="margin-top:25px; font-weight:900; color:#334155; font-size:11px; border-top:1px solid #334155; display:inline-block; padding-top:5px;">Authorized Signatory</div>
                         </div>
                         <div class="calc-area">
@@ -232,8 +233,8 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                     <div class="foot">
                         Generated via SMEES ERP • Professional Ledger Output
                     </div>
-                    <div class="disclaimer">
-                        This invoice is issued for service and record purposes only.
+                    <div class="disclaimer" style="border-top:1px dashed #e2e8f0; padding-top:10px; margin-top:10px;">
+                        This invoice is issued for service and record purposes only. Sun Electricals is not registered under GST, hence GST is not applicable.
                     </div>
                 </div>
                 <script>window.print();</script>
