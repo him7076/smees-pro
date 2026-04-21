@@ -625,94 +625,34 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                             </div>
                                         </div>
 
-                                        {line.isBundle && (
-                                            <div className="p-4 bg-slate-900 rounded-3xl border border-slate-800 space-y-3">
-                                                {(line.subItems || []).map((sub, sIdx) => {
-                                                    const subMaster = data.items.find(i => i.id === sub.itemId);
-                                                    return (
-                                                        <div key={sIdx} className="bg-slate-800/80 p-4 rounded-[28px] border border-white/10 animate-in slide-in-from-top-2 space-y-3 mb-2">
-                                                            <div className="flex justify-between items-start">
-                                                                <p className="text-[11px] font-black text-white uppercase tracking-widest truncate max-w-[200px] border-b border-white/5 pb-1">{subMaster?.name || 'Part'}</p>
-                                                                <button onClick={() => removeSubItem(idx, sIdx)} className="text-rose-400 p-1.5 bg-white/5 rounded-full hover:bg-rose-500/20 transition-all"><Trash2 size={12}/></button>
-                                                            </div>
-                                                            
-                                                            <div className="grid grid-cols-3 gap-3">
-                                                                <div className="bg-white/5 p-2 rounded-2xl border border-white/5 shadow-inner">
-                                                                    <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Quantity</p>
-                                                                    <input type="number" className="w-full bg-transparent text-xs text-white font-black outline-none" value={sub.qty} onChange={e => {
-                                                                        const ni = [...tx.items];
-                                                                        ni[idx].subItems[sIdx].qty = e.target.value;
-                                                                        ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-                                                                        setTx({...tx, items: ni});
-                                                                    }} />
-                                                                </div>
-                                                                <div className="bg-white/5 p-2 rounded-2xl border border-white/5 shadow-inner">
-                                                                    <p className="text-[8px] font-black text-blue-400 uppercase mb-1">Buy Price</p>
-                                                                    <div className="flex items-center gap-1">
-                                                                        <span className="text-[8px] text-blue-400/50 font-bold">₹</span>
-                                                                        <input type="number" className="w-full bg-transparent text-xs text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => {
-                                                                            const ni = [...tx.items];
-                                                                            ni[idx].subItems[sIdx].buyPrice = e.target.value;
-                                                                            ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-                                                                            setTx({...tx, items: ni});
-                                                                        }} />
-                                                                    </div>
-                                                                </div>
-                                                                <div className="bg-white/5 p-2 rounded-2xl border border-white/5 shadow-inner">
-                                                                    <p className="text-[8px] font-black text-emerald-400 uppercase mb-1">Sell Price</p>
-                                                                    <div className="flex items-center gap-1">
-                                                                        <span className="text-[8px] text-emerald-400/50 font-bold">₹</span>
-                                                                        <input type="number" className="w-full bg-transparent text-xs text-emerald-400 font-black outline-none" value={sub.price || 0} onChange={e => {
-                                                                            const ni = [...tx.items];
-                                                                            ni[idx].subItems[sIdx].price = e.target.value;
-                                                                            setTx({...tx, items: ni});
-                                                                        }} />
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                                                                <div className="bg-white/5 p-2.5 rounded-2xl border border-white/5">
-                                                                    <div className="flex justify-between items-center mb-1">
-                                                                        <p className="text-[8px] font-black text-slate-500 uppercase">Brand / Variant</p>
-                                                                        <span className={`text-[8px] font-black ${(sub.price - sub.buyPrice) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                                            P&L: {formatCurrency((sub.price - sub.buyPrice) * sub.qty)}
-                                                                        </span>
-                                                                    </div>
-                                                                    <select className="w-full bg-transparent text-[10px] text-white font-black outline-none" value={sub.brand || ''} onChange={e => {
-                                                                        const ni = [...tx.items];
-                                                                        ni[idx].subItems[sIdx].brand = e.target.value;
-                                                                        const bData = subMaster?.brands?.find(b => b.name === e.target.value);
-                                                                        if (bData) {
-                                            <div className="mt-4 p-6 bg-slate-900 border border-white/10 rounded-[32px] space-y-6 relative overflow-hidden">
-                                                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                                        {isBundle && (
+                                            <div className="mt-6 p-6 bg-slate-900 border border-white/10 rounded-[40px] space-y-6 relative overflow-hidden shadow-2xl">
+                                                <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
                                                 <div className="space-y-4 relative z-10">
                                                     {(line.subItems || []).map((sub, sIdx) => {
                                                         const subMaster = data.items.find(i => i.id === sub.itemId);
                                                         return (
-                                                            <div key={sIdx} className="bg-white/5 p-4 rounded-3xl border border-white/5 space-y-4">
+                                                            <div key={sIdx} className="bg-white/5 p-4 rounded-3xl border border-white/10 space-y-4">
                                                                 <div className="flex justify-between items-start gap-4">
-                                                                    <div className="w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center text-blue-400 border border-white/5 shrink-0">
+                                                                    <div className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center text-blue-400 border border-white/10 shrink-0 shadow-lg">
                                                                         {(subMaster?.category || '').toLowerCase().includes('service') ? <Wrench size={18}/> : <Package size={18}/>}
                                                                     </div>
                                                                     <div className="flex-1">
-                                                                        <p className="text-[10px] font-black text-white uppercase truncate">{subMaster?.name || 'Item Name'}</p>
+                                                                        <p className="text-[10px] font-black text-white uppercase truncate tracking-wide">{subMaster?.name || 'Bundle Part'}</p>
                                                                         <div className="flex items-center gap-2 mt-1">
-                                                                            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{sub.qty} {subMaster?.unit || 'pcs'} × {formatCurrency(sub.price)}</span>
+                                                                            <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{sub.qty} {subMaster?.unit || 'pcs'} × {formatCurrency(sub.price)}</span>
                                                                         </div>
                                                                     </div>
-                                                                    <button onClick={() => removeSubItem(idx, sIdx)} className="p-2 text-slate-500 hover:text-rose-500 transition-colors bg-white/5 rounded-xl"><Trash2 size={14}/></button>
+                                                                    <button onClick={() => removeSubItem(idx, sIdx)} className="p-2 text-slate-500 hover:text-rose-500 transition-colors bg-white/5 rounded-xl"><X size={14}/></button>
                                                                 </div>
 
-                                                                <div className="grid grid-cols-2 gap-3 pt-1">
-                                                                    <div className="bg-white/5 p-2.5 rounded-2xl border border-white/5">
+                                                                <div className="grid grid-cols-2 gap-3">
+                                                                    <div className="bg-white/5 p-3 rounded-2xl border border-white/10">
                                                                         <div className="flex justify-between items-center mb-1">
-                                                                            <p className="text-[8px] font-black text-slate-500 uppercase">Brand / Variant</p>
-                                                                            <span className={`text-[8px] font-black ${(sub.price - sub.buyPrice) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                                                P&L: {formatCurrency((sub.price - sub.buyPrice) * sub.qty)}
-                                                                            </span>
+                                                                            <p className="text-[8px] font-black text-slate-500 uppercase">Variant / Brand</p>
+                                                                            <span className={`text-[8px] font-black ${(sub.price - sub.buyPrice) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>Yield: {formatCurrency((sub.price - sub.buyPrice) * sub.qty)}</span>
                                                                         </div>
-                                                                        <select className="w-full bg-transparent text-[10px] text-white font-black outline-none" value={sub.brand || ''} onChange={e => {
+                                                                        <select className="w-full bg-transparent text-[10px] text-white font-black outline-none cursor-pointer" value={sub.brand || ''} onChange={e => {
                                                                             const ni = [...tx.items];
                                                                             ni[idx].subItems[sIdx].brand = e.target.value;
                                                                             const bData = subMaster?.brands?.find(b => b.name === e.target.value);
@@ -727,8 +667,8 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                                             {subMaster?.brands?.map((b, bi) => <option key={bi} value={b.name} className="text-slate-900">{b.name}</option>)}
                                                                         </select>
                                                                     </div>
-                                                                    <div className="bg-white/5 p-2.5 rounded-2xl border border-white/5">
-                                                                        <p className="text-[8px] font-black text-slate-500 uppercase mb-1.5 ml-1">Net Row Total</p>
+                                                                    <div className="bg-white/5 p-3 rounded-2xl border border-white/10">
+                                                                        <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Comp. Total</p>
                                                                         <p className="text-[10px] text-blue-400 font-black px-1">{formatCurrency(sub.qty * sub.price)}</p>
                                                                     </div>
                                                                 </div>
@@ -737,7 +677,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                     })}
                                                 </div>
 
-                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-4 border-t border-white/10 relative z-10">
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-6 border-t border-white/10 relative z-10">
                                                     <div className="bg-white/5 p-3 rounded-2xl border border-white/5 flex flex-col items-center">
                                                         <p className="text-[7px] font-black text-slate-500 uppercase">Items / Cost</p>
                                                         <p className="text-[10px] font-black text-white">{line.subItems?.length || 0} / {formatCurrency(subItemsCost)}</p>
@@ -755,30 +695,39 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                         <p className={`text-[10px] font-black ${materialPL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(materialPL)}</p>
                                                     </div>
                                                 </div>
-                                                <div className="mt-2 bg-blue-600/10 p-3 rounded-2xl border border-blue-500/20 flex justify-between items-center shadow-lg relative z-10">
-                                                    <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest leading-none">Net Bundle Profit Breakdown</p>
-                                                    <p className={`text-base font-black tracking-tight ${lineProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(lineProfit)}</p>
+                                                
+                                                <div className="bg-blue-600/10 p-4 rounded-[28px] border border-blue-500/20 flex justify-between items-center shadow-lg relative z-10 overflow-hidden group">
+                                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+                                                    <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] leading-none">Net Bundle P&L Breakdown</p>
+                                                    <p className={`text-lg font-black tracking-tighter ${lineProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(lineProfit)}</p>
                                                 </div>
 
-                                                <div className="grid grid-cols-[1.5fr,1fr] gap-2 pt-2 relative z-10">
+                                                <div className="grid grid-cols-[2.5fr,1fr] gap-3 pt-2 relative z-10">
                                                     <SearchableSelect 
-                                                        options={data.items.map(i => ({ id: i.id, name: i.name, subText: `Avg Buy: ₹${i.buyPrice}` }))}
-                                                        placeholder="+ Add Used Material / Service..."
+                                                        options={data.items.map(i => ({ id: i.id, name: i.name, subText: `Cost: ₹${i.buyPrice}` }))}
+                                                        placeholder="+ Attach Kit Component..."
                                                         onChange={v => {
                                                             const item = data.items.find(i => i.id === v);
                                                             if (item) addSubItem(idx, { itemId: item.id, buyPrice: item.buyPrice });
                                                         }}
                                                         className="transaction-sub-select"
                                                     />
-                                                    <div className="flex gap-2">
-                                                        <button onClick={() => addLinkedItem(idx, 0)} className="flex-1 bg-white/5 hover:bg-white/10 text-white rounded-2xl py-3 text-[9px] font-black uppercase tracking-widest border border-white/10 transition-all">+ Auto Add</button>
-                                                    </div>
+                                                    <button onClick={() => addLinkedItem(idx, 0)} className="bg-blue-600 hover:bg-blue-500 text-white rounded-[24px] px-4 text-[9px] font-black uppercase tracking-widest transition-all shadow-xl shadow-blue-500/20 active:scale-95 flex items-center justify-center gap-2">
+                                                        <Plus size={12}/> Auto Add Part
+                                                    </button>
                                                 </div>
                                             </div>
                                         )}
 
-
-                                        <input className="w-full text-xs p-3 bg-slate-50 border border-slate-50 rounded-xl font-bold" placeholder="Line notes / description..." value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
+                                        <div className="mt-6 flex gap-4">
+                                            <input className="flex-1 text-xs p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none ring-offset-2 focus:ring-2 focus:ring-blue-100 transition-all" placeholder="Line notes / description..." value={line.description || ''} onChange={e => updateLine(idx, 'description', e.target.value)} />
+                                            {!isBundle && (
+                                                <div className={`px-5 py-3 rounded-2xl border flex items-center justify-center gap-2 ${lineProfit >= 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-rose-50 border-rose-100 text-rose-600'}`}>
+                                                    <span className="text-[9px] font-black uppercase tracking-tighter">Line P&L</span>
+                                                    <span className="text-xs font-black">{formatCurrency(lineProfit)}</span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 );
                             })}
