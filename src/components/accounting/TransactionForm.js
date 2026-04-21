@@ -694,48 +694,47 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                                         {subMaster?.brands?.map((b, bi) => <option key={bi} value={b.name} className="text-slate-900">{b.name}</option>)}
                                                                     </select>
                                                                 </div>
-                                                                    <div className="bg-white/5 p-2.5 rounded-2xl border border-white/5">
-                                                                        <p className="text-[8px] font-black text-slate-500 uppercase mb-1.5 ml-1">Sub-Item Net Total</p>
-                                                                        <p className="text-[10px] text-blue-400 font-black px-1">{formatCurrency(sub.qty * sub.price)}</p>
-                                                                    </div>
+                                                                <div className="bg-white/5 p-2.5 rounded-2xl border border-white/5">
+                                                                    <p className="text-[8px] font-black text-slate-500 uppercase mb-1.5 ml-1">Sub-Item Net Total</p>
+                                                                    <p className="text-[10px] text-blue-400 font-black px-1">{formatCurrency(sub.qty * sub.price)}</p>
                                                                 </div>
-                                                                <div className="bg-white/5 p-2.5 rounded-2xl border border-white/5 mt-2">
-                                                                    <p className="text-[8px] font-black text-slate-500 uppercase mb-1.5 ml-1">Service Memo / Specs</p>
-                                                                    <input className="w-full bg-transparent text-[10px] text-white font-black outline-none px-1" placeholder="Add specific notes..." value={sub.description || ''} onChange={e => {
-                                                                        const ni = [...tx.items];
-                                                                        ni[idx].subItems[sIdx].description = e.target.value;
-                                                                        setTx({...tx, items: ni});
-                                                                    }} />
-                                                                </div>
+                                                            </div>
+                                                            <div className="bg-white/5 p-2.5 rounded-2xl border border-white/5 mt-2">
+                                                                <p className="text-[8px] font-black text-slate-500 uppercase mb-1.5 ml-1">Service Memo / Specs</p>
+                                                                <input className="w-full bg-transparent text-[10px] text-white font-black outline-none px-1" placeholder="Add specific notes..." value={sub.description || ''} onChange={e => {
+                                                                    const ni = [...tx.items];
+                                                                    ni[idx].subItems[sIdx].description = e.target.value;
+                                                                    setTx({...tx, items: ni});
+                                                                }} />
                                                             </div>
                                                         </div>
                                                     );
                                                 })}
- 
-                                                {/* Bundle Financial Analysis Console (Enhanced) */}
-                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-4 border-t border-white/10">
-                                                    <div className="bg-white/5 p-3 rounded-2xl border border-white/5 flex flex-col items-center">
-                                                        <p className="text-[7px] font-black text-slate-500 uppercase">Items / Cost</p>
-                                                        <p className="text-[10px] font-black text-white">{line.subItems?.length || 0} / {formatCurrency(subItemsCost)}</p>
-                                                    </div>
-                                                    <div className="bg-white/5 p-3 rounded-2xl border border-white/5 flex flex-col items-center">
-                                                        <p className="text-[7px] font-black text-slate-500 uppercase">Sales Value</p>
-                                                        <p className="text-[10px] font-black text-blue-400">{formatCurrency(line.price * line.qty)}</p>
-                                                    </div>
-                                                    <div className="bg-white/5 p-3 rounded-2xl border border-white/5 flex flex-col items-center">
-                                                        <p className="text-[7px] font-black text-slate-500 uppercase">Srv. Yield</p>
-                                                        <p className={`text-[10px] font-black ${servicePL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(servicePL)}</p>
-                                                    </div>
-                                                    <div className="bg-white/5 p-3 rounded-2xl border border-white/5 flex flex-col items-center">
-                                                        <p className="text-[7px] font-black text-slate-500 uppercase">Mat. Yield</p>
-                                                        <p className={`text-[10px] font-black ${materialPL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(materialPL)}</p>
-                                                    </div>
+                                            </div>
+
+                                            {/* Bundle Financial Analysis Console (Enhanced) */}
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-4 mt-2 border-t border-white/10">
+                                                <div className="bg-white/5 p-3 rounded-2xl border border-white/5 flex flex-col items-center">
+                                                    <p className="text-[7px] font-black text-slate-500 uppercase">Items / Cost</p>
+                                                    <p className="text-[10px] font-black text-white">{line.subItems?.length || 0} / {formatCurrency(subItemsCost)}</p>
                                                 </div>
-                                                <div className="mt-2 bg-slate-800/50 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
-                                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Net Bundle Profit</p>
-                                                    <p className={`text-sm font-black tracking-tight ${lineProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(lineProfit)}</p>
+                                                <div className="bg-white/5 p-3 rounded-2xl border border-white/5 flex flex-col items-center">
+                                                    <p className="text-[7px] font-black text-slate-500 uppercase">Sales Value</p>
+                                                    <p className="text-[10px] font-black text-blue-400">{formatCurrency(line.price * line.qty)}</p>
                                                 </div>
-   </div>
+                                                <div className="bg-white/5 p-3 rounded-2xl border border-white/5 flex flex-col items-center">
+                                                    <p className="text-[7px] font-black text-slate-500 uppercase">Srv. Yield</p>
+                                                    <p className={`text-[10px] font-black ${servicePL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(servicePL)}</p>
+                                                </div>
+                                                <div className="bg-white/5 p-3 rounded-2xl border border-white/5 flex flex-col items-center">
+                                                    <p className="text-[7px] font-black text-slate-500 uppercase">Mat. Yield</p>
+                                                    <p className={`text-[10px] font-black ${materialPL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(materialPL)}</p>
+                                                </div>
+                                            </div>
+                                            <div className="mt-2 bg-slate-800/50 p-2.5 rounded-xl border border-white/5 flex justify-between items-center shadow-lg">
+                                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Net Bundle Profit Breakdown</p>
+                                                <p className={`text-sm font-black tracking-tight ${lineProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(lineProfit)}</p>
+                                            </div>
 
                                                 <div className="grid grid-cols-[1.5fr,1fr] gap-2 pt-2">
                                                     <SearchableSelect 
