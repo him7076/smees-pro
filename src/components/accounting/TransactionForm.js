@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     X, Plus, Trash2, Save, Calculator, Link as LinkIcon, ShoppingBag, 
     Package, Banknote, Calendar, ChevronRight, CheckCircle2, AlertCircle, 
-    TrendingUp, TrendingDown, Phone, MapPin, ShieldCheck, Info, Search, Wrench
+    TrendingUp, TrendingDown, Phone, MapPin, ShieldCheck, Info, Search, Wrench, Layout
 } from 'lucide-react';
 import SearchableSelect from '../ui/SearchableSelect';
 import { useDatabase } from '../../hooks/useDatabase';
@@ -43,6 +43,11 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
     const [addBrandModal, setAddBrandModal] = useState(null);
     const [addItemModal, setAddItemModal] = useState(null);
     const [showLinking, setShowLinking] = useState(false);
+    const [expandedBundles, setExpandedBundles] = useState({});
+
+    const toggleBundle = (idx) => {
+        setExpandedBundles(prev => ({ ...prev, [idx]: !prev[idx] }));
+    };
 
     const nextId = useMemo(() => {
         if (record) return record.id;
@@ -612,54 +617,77 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                         {isBundle && (
                                             <div className="mt-6 p-6 bg-slate-900 border border-white/10 rounded-[40px] space-y-6 relative overflow-hidden shadow-2xl">
                                                 <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-                                                <div className="space-y-4 relative z-10">
-                                                    {(line.subItems || []).map((sub, sIdx) => {
-                                                        const subMaster = data.items.find(i => i.id === sub.itemId);
-                                                        return (
-                                                            <div key={sIdx} className="bg-white/5 p-4 rounded-3xl border border-white/10 space-y-4">
-                                                                <div className="flex justify-between items-start gap-4">
-                                                                    <div className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center text-blue-400 border border-white/10 shrink-0 shadow-lg">
-                                                                        {(subMaster?.category || '').toLowerCase().includes('service') ? <Wrench size={18}/> : <Package size={18}/>}
-                                                                    </div>
-                                                                    <div className="flex-1">
-                                                                        <p className="text-[10px] font-black text-white uppercase truncate tracking-wide">{subMaster?.name || 'Bundle Part'}</p>
-                                                                        <div className="flex items-center gap-2 mt-1">
-                                                                            <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{sub.qty} {subMaster?.unit || 'pcs'} × {formatCurrency(sub.price)}</span>
-                                                                        </div>
-                                                                    </div>
-                                                                    <button onClick={() => removeSubItem(idx, sIdx)} className="p-2 text-slate-500 hover:text-rose-500 transition-colors bg-white/5 rounded-xl"><X size={14}/></button>
-                                                                </div>
-
-                                                                <div className="grid grid-cols-2 gap-3">
-                                                                    <div className="bg-white/5 p-3 rounded-2xl border border-white/10">
-                                                                        <div className="flex justify-between items-center mb-1">
-                                                                            <p className="text-[8px] font-black text-slate-500 uppercase">Variant / Brand</p>
-                                                                            <span className={`text-[8px] font-black ${(sub.price - sub.buyPrice) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>Yield: {formatCurrency((sub.price - sub.buyPrice) * sub.qty)}</span>
-                                                                        </div>
-                                                                        <select className="w-full bg-transparent text-[10px] text-white font-black outline-none cursor-pointer" value={sub.brand || ''} onChange={e => {
-                                                                            const ni = [...tx.items];
-                                                                            ni[idx].subItems[sIdx].brand = e.target.value;
-                                                                            const bData = subMaster?.brands?.find(b => b.name === e.target.value);
-                                                                            if (bData) {
-                                                                                ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
-                                                                                ni[idx].subItems[sIdx].price = bData.sellPrice;
-                                                                                ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-                                                                            }
-                                                                            setTx({...tx, items: ni});
-                                                                        }}>
-                                                                            <option value="" className="text-slate-900">Standard / Default</option>
-                                                                            {subMaster?.brands?.map((b, bi) => <option key={bi} value={b.name} className="text-slate-900">{b.name}</option>)}
-                                                                        </select>
-                                                                    </div>
-                                                                    <div className="bg-white/5 p-3 rounded-2xl border border-white/10">
-                                                                        <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Comp. Total</p>
-                                                                        <p className="text-[10px] text-blue-400 font-black px-1">{formatCurrency(sub.qty * sub.price)}</p>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
+                                                <div className="flex justify-between items-center relative z-10">
+                                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><ShoppingBag size={14}/> Kit Components</p>
+                                                    <button 
+                                                        onClick={() => toggleBundle(idx)}
+                                                        className="px-4 py-2 bg-blue-600/20 text-blue-400 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-600/30 transition-all flex items-center gap-2"
+                                                    >
+                                                        {expandedBundles[idx] ? 'Hide Assets' : 'Inspect Assets'}
+                                                        <Layout size={12} className={`transition-transform duration-300 ${expandedBundles[idx] ? 'rotate-180' : ''}`}/>
+                                                    </button>
                                                 </div>
+
+                                                {expandedBundles[idx] && (
+                                                    <div className="space-y-4 relative z-10 animate-in slide-in-from-top-4 duration-500">
+                                                        {(line.subItems || []).map((sub, sIdx) => {
+                                                            const subMaster = data.items.find(i => i.id === sub.itemId);
+                                                            return (
+                                                                <div key={sIdx} className="bg-white/5 p-4 rounded-3xl border border-white/10 space-y-4">
+                                                                    <div className="flex justify-between items-start gap-4">
+                                                                        <div className="w-10 h-10 bg-white/10 rounded-2xl flex items-center justify-center text-blue-400 border border-white/10 shrink-0 shadow-lg">
+                                                                            {(subMaster?.category || '').toLowerCase().includes('service') ? <Wrench size={18}/> : <Package size={18}/>}
+                                                                        </div>
+                                                                        <div className="flex-1">
+                                                                            <p className="text-[10px] font-black text-white uppercase truncate tracking-wide">{subMaster?.name || 'Bundle Part'}</p>
+                                                                            <div className="flex items-center gap-2 mt-1">
+                                                                                <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{sub.qty} {subMaster?.unit || 'pcs'} × {formatCurrency(sub.price)}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <button onClick={() => removeSubItem(idx, sIdx)} className="p-2 text-slate-500 hover:text-rose-500 transition-colors bg-white/5 rounded-xl"><X size={14}/></button>
+                                                                    </div>
+
+                                                                    <div className="grid grid-cols-2 gap-3">
+                                                                        <div className="bg-white/5 p-3 rounded-2xl border border-white/10">
+                                                                            <div className="flex justify-between items-center mb-1">
+                                                                                <p className="text-[8px] font-black text-slate-500 uppercase">Variant / Brand</p>
+                                                                                <span className={`text-[8px] font-black ${(sub.price - sub.buyPrice) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>Yield: {formatCurrency((sub.price - sub.buyPrice) * sub.qty)}</span>
+                                                                            </div>
+                                                                            <select className="w-full bg-transparent text-[10px] text-white font-black outline-none cursor-pointer" value={sub.brand || ''} onChange={e => {
+                                                                                const ni = [...tx.items];
+                                                                                ni[idx].subItems[sIdx].brand = e.target.value;
+                                                                                const bData = subMaster?.brands?.find(b => b.name === e.target.value);
+                                                                                if (bData) {
+                                                                                    ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
+                                                                                    ni[idx].subItems[sIdx].price = bData.sellPrice;
+                                                                                    ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                                }
+                                                                                setTx({...tx, items: ni});
+                                                                            }}>
+                                                                                <option value="" className="text-slate-900">Standard / Default</option>
+                                                                                {subMaster?.brands?.map((b, bi) => <option key={bi} value={b.name} className="text-slate-900">{b.name}</option>)}
+                                                                            </select>
+                                                                        </div>
+                                                                        <div className="bg-white/5 p-3 rounded-2xl border border-white/10">
+                                                                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Comp. Total</p>
+                                                                            <p className="text-[10px] text-blue-400 font-black px-1">{formatCurrency(sub.qty * sub.price)}</p>
+                                                                        </div>
+                                                                    </div>
+                                                                    <input 
+                                                                        className="w-full bg-white/5 p-3 rounded-xl text-[9px] font-bold text-slate-400 border border-white/5 outline-none placeholder:text-slate-600 focus:border-blue-500/30 transition-all" 
+                                                                        placeholder="Component notes / serial number / IMEI..." 
+                                                                        value={sub.description || ''} 
+                                                                        onChange={e => {
+                                                                            const ni = [...tx.items];
+                                                                            ni[idx].subItems[sIdx].description = e.target.value;
+                                                                            setTx({...tx, items: ni});
+                                                                        }} 
+                                                                    />
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
 
                                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-6 border-t border-white/10 relative z-10">
                                                     <div className="bg-white/5 p-3 rounded-2xl border border-white/5 flex flex-col items-center">

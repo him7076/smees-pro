@@ -44,6 +44,11 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
     const [showLocPicker, setShowLocPicker] = useState(false);
     const [addBrandModal, setAddBrandModal] = useState(null);
     const [addItemModal, setAddItemModal] = useState(null);
+    const [expandedBundles, setExpandedBundles] = useState({});
+
+    const toggleBundle = (idx) => {
+        setExpandedBundles(prev => ({ ...prev, [idx]: !prev[idx] }));
+    };
 
     const nextId = useMemo(() => {
         if (record) return record.id;
@@ -393,65 +398,107 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
 
                                             {line.isBundle && (
                                                 <div className="p-4 bg-slate-900 rounded-[28px] border border-slate-800 space-y-3">
-                                                    <div className="flex justify-between items-center mb-1">
-                                                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><ShoppingBag size={10}/> Kit Components</p>
+                                                     <div className="flex justify-between items-center mb-1">
+                                                        <div className="flex items-center gap-3">
+                                                            <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><ShoppingBag size={10}/> Kit Components</p>
+                                                            <button 
+                                                                onClick={() => toggleBundle(idx)}
+                                                                className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-[8px] font-black uppercase hover:bg-blue-500/30 transition-all flex items-center gap-1"
+                                                            >
+                                                                {expandedBundles[idx] ? 'Close Assets' : 'Inspect Assets'}
+                                                                <Layout size={8} className={`transition-transform ${expandedBundles[idx] ? 'rotate-180' : ''}`}/>
+                                                            </button>
+                                                        </div>
                                                         <span className="text-[8px] bg-white/10 px-2 py-0.5 rounded text-blue-400 font-bold">{line.subItems?.length || 0} Items</span>
                                                     </div>
                                                     
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                                        {(line.subItems || []).map((sub, sIdx) => {
-                                                            const subMaster = data.items.find(i => i.id === sub.itemId);
-                                                            return (
-                                                                <div key={sIdx} className="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-3">
-                                                                    <div className="flex justify-between items-start">
-                                                                        <p className="text-[10px] font-black text-white truncate max-w-[150px]">{subMaster?.name || 'Part'}</p>
-                                                                        <button onClick={() => removeSubItem(idx, sIdx)} className="text-rose-400 p-1 bg-white/5 rounded-full hover:bg-rose-500/20 transition-all"><Trash2 size={10}/></button>
-                                                                    </div>
-                                                                    
-                                                                    <div className="grid grid-cols-3 gap-2">
-                                                                        <div className="bg-white/10 p-1.5 rounded-xl border border-white/5">
-                                                                            <p className="text-[7px] font-black text-slate-500 mb-0.5 uppercase">Quantity</p>
-                                                                            <input type="number" className="w-full bg-transparent text-[9px] text-white font-black outline-none" value={sub.qty} onChange={e => {
-                                                                                const ni = [...form.itemsUsed];
-                                                                                ni[idx].subItems[sIdx].qty = e.target.value;
-                                                                                ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-                                                                                setForm({...form, itemsUsed: ni});
-                                                                            }} />
+                                                    {expandedBundles[idx] && (
+                                                        <div className="space-y-4 animate-in slide-in-from-top-2">
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                                {(line.subItems || []).map((sub, sIdx) => {
+                                                                    const subMaster = data.items.find(i => i.id === sub.itemId);
+                                                                    return (
+                                                                        <div key={sIdx} className="bg-white/5 p-4 rounded-3xl border border-white/10 space-y-4">
+                                                                            <div className="flex justify-between items-start gap-4">
+                                                                                <div className="w-8 h-8 bg-white/10 rounded-xl flex items-center justify-center text-blue-400 shrink-0">
+                                                                                    <Package size={14}/>
+                                                                                </div>
+                                                                                <div className="flex-1 min-w-0">
+                                                                                    <p className="text-[10px] font-black text-white truncate">{subMaster?.name || 'Part'}</p>
+                                                                                    <p className="text-[8px] font-bold text-slate-500 mt-0.5">{subMaster?.id}</p>
+                                                                                </div>
+                                                                                <button onClick={() => removeSubItem(idx, sIdx)} className="text-rose-400 p-1.5 bg-white/5 rounded-xl hover:bg-rose-500/20 transition-all"><Trash2 size={12}/></button>
+                                                                            </div>
+                                                                            
+                                                                            <div className="grid grid-cols-2 gap-2">
+                                                                                <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
+                                                                                    <p className="text-[7px] font-black text-slate-500 mb-1 uppercase">Variant / Brand</p>
+                                                                                    <select 
+                                                                                        className="w-full bg-transparent text-[10px] text-white font-black outline-none cursor-pointer" 
+                                                                                        value={sub.brand || ''} 
+                                                                                        onChange={e => {
+                                                                                            const ni = [...form.itemsUsed];
+                                                                                            ni[idx].subItems[sIdx].brand = e.target.value;
+                                                                                            const bData = subMaster?.brands?.find(b => b.name === e.target.value);
+                                                                                            if (bData) {
+                                                                                                ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
+                                                                                                ni[idx].subItems[sIdx].price = bData.sellPrice;
+                                                                                                ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                                            }
+                                                                                            setForm({...form, itemsUsed: ni});
+                                                                                        }}
+                                                                                    >
+                                                                                        <option value="" className="text-slate-900">Standard</option>
+                                                                                        {subMaster?.brands?.map((b, bi) => <option key={bi} value={b.name} className="text-slate-900">{b.name}</option>)}
+                                                                                    </select>
+                                                                                </div>
+                                                                                <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
+                                                                                    <p className="text-[7px] font-black text-slate-500 mb-1 uppercase">Quantity</p>
+                                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-white font-black outline-none" value={sub.qty} onChange={e => {
+                                                                                        const ni = [...form.itemsUsed];
+                                                                                        ni[idx].subItems[sIdx].qty = e.target.value;
+                                                                                        ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                                        setForm({...form, itemsUsed: ni});
+                                                                                    }} />
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="grid grid-cols-2 gap-2">
+                                                                                <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 text-blue-400">
+                                                                                    <p className="text-[7px] font-black text-slate-500 mb-1 uppercase">Buy Rate</p>
+                                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => {
+                                                                                        const ni = [...form.itemsUsed];
+                                                                                        ni[idx].subItems[sIdx].buyPrice = e.target.value;
+                                                                                        ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                                                        setForm({...form, itemsUsed: ni});
+                                                                                    }} />
+                                                                                </div>
+                                                                                <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 text-emerald-400">
+                                                                                    <p className="text-[7px] font-black text-slate-500 mb-1 uppercase">Sell Rate</p>
+                                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-emerald-400 font-black outline-none" value={sub.price || 0} onChange={e => {
+                                                                                        const ni = [...form.itemsUsed];
+                                                                                        ni[idx].subItems[sIdx].price = e.target.value;
+                                                                                        setForm({...form, itemsUsed: ni});
+                                                                                    }} />
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <input 
+                                                                                className="w-full bg-white/5 p-3 rounded-xl text-[9px] font-bold text-slate-400 border border-white/5 outline-none placeholder:text-slate-600" 
+                                                                                placeholder="Sub-item description / serial..." 
+                                                                                value={sub.description || ''} 
+                                                                                onChange={e => {
+                                                                                    const ni = [...form.itemsUsed];
+                                                                                    ni[idx].subItems[sIdx].description = e.target.value;
+                                                                                    setForm({...form, itemsUsed: ni});
+                                                                                }} 
+                                                                            />
                                                                         </div>
-                                                                        <div className="bg-white/10 p-1.5 rounded-xl border border-white/5 text-blue-400">
-                                                                            <p className="text-[7px] font-black text-slate-500 mb-0.5 uppercase">Buy Rate</p>
-                                                                            <input type="number" className="w-full bg-transparent text-[9px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => {
-                                                                                const ni = [...form.itemsUsed];
-                                                                                ni[idx].subItems[sIdx].buyPrice = e.target.value;
-                                                                                ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-                                                                                setForm({...form, itemsUsed: ni});
-                                                                            }} />
-                                                                        </div>
-                                                                        <div className="bg-white/10 p-1.5 rounded-xl border border-white/5 text-emerald-400">
-                                                                            <p className="text-[7px] font-black text-slate-500 mb-0.5 uppercase">Sell Rate</p>
-                                                                            <input type="number" className="w-full bg-transparent text-[9px] text-emerald-400 font-black outline-none" value={sub.price || 0} onChange={e => {
-                                                                                const ni = [...form.itemsUsed];
-                                                                                ni[idx].subItems[sIdx].price = e.target.value;
-                                                                                setForm({...form, itemsUsed: ni});
-                                                                            }} />
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="flex justify-between items-center py-2 px-1 bg-white/5 rounded-xl border border-white/5">
-                                                                        <div>
-                                                                            <p className="text-[7px] font-black text-slate-500 uppercase leading-none mb-1">Row Net Total</p>
-                                                                            <p className="text-[10px] font-black text-blue-400">{formatCurrency(parseFloat(sub.qty || 0) * parseFloat(sub.price || 0))}</p>
-                                                                        </div>
-                                                                        <div className="text-right">
-                                                                            <p className="text-[7px] font-black text-slate-500 uppercase leading-none mb-1">Row Yield (P&L)</p>
-                                                                            <p className={`text-[10px] font-black ${((parseFloat(sub.price || 0) - parseFloat(sub.buyPrice || 0)) * parseFloat(sub.qty || 0)) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                                                                {formatCurrency((parseFloat(sub.price || 0) - parseFloat(sub.buyPrice || 0)) * parseFloat(sub.qty || 0))}
-                                                                            </p>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    )}
  
                                                     {/* P&L Analysis in Task (Institutional Console) */}
                                                     {(() => {
