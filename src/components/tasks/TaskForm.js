@@ -436,54 +436,63 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                                             }} />
                                                                         </div>
                                                                     </div>
-
-                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1 border-t border-white/10">
-                                                                        <div className="bg-white/5 p-2 rounded-xl">
-                                                                            <p className="text-[7px] font-black text-slate-500 uppercase mb-1 ml-1">Variant / Brand</p>
-                                                                            <select className="w-full bg-slate-900/50 text-[9px] text-white font-black outline-none p-1 rounded border border-white/10" value={sub.brand || ''} onChange={e => {
-                                                                                const ni = [...form.itemsUsed];
-                                                                                ni[idx].subItems[sIdx].brand = e.target.value;
-                                                                                const bData = subMaster?.brands?.find(b => b.name === e.target.value);
-                                                                                if (bData) {
-                                                                                    ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
-                                                                                    ni[idx].subItems[sIdx].price = bData.sellPrice;
-                                                                                    ni[idx].buyPrice = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-                                                                                }
-                                                                                setForm({...form, itemsUsed: ni});
-                                                                            }}>
-                                                                                <option value="" className="text-slate-900">Standard</option>
-                                                                                {subMaster?.brands?.map((b, bi) => <option key={bi} value={b.name} className="text-slate-900">{b.name}</option>)}
-                                                                            </select>
+                                                                    <div className="flex justify-between items-center py-2 px-1 bg-white/5 rounded-xl border border-white/5">
+                                                                        <div>
+                                                                            <p className="text-[7px] font-black text-slate-500 uppercase leading-none mb-1">Row Net Total</p>
+                                                                            <p className="text-[10px] font-black text-blue-400">{formatCurrency(parseFloat(sub.qty || 0) * parseFloat(sub.price || 0))}</p>
                                                                         </div>
-                                                                        <div className="bg-white/5 p-2 rounded-xl">
-                                                                            <p className="text-[7px] font-black text-slate-500 uppercase mb-1 ml-1">Notes / Specifications</p>
-                                                                            <input className="w-full bg-transparent text-[9px] text-white font-black outline-none px-1" placeholder="Specifications..." value={sub.description || ''} onChange={e => {
-                                                                                const ni = [...form.itemsUsed];
-                                                                                ni[idx].subItems[sIdx].description = e.target.value;
-                                                                                setForm({...form, itemsUsed: ni});
-                                                                            }} />
+                                                                        <div className="text-right">
+                                                                            <p className="text-[7px] font-black text-slate-500 uppercase leading-none mb-1">Row Yield (P&L)</p>
+                                                                            <p className={`text-[10px] font-black ${((parseFloat(sub.price || 0) - parseFloat(sub.buyPrice || 0)) * parseFloat(sub.qty || 0)) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                                                {formatCurrency((parseFloat(sub.price || 0) - parseFloat(sub.buyPrice || 0)) * parseFloat(sub.qty || 0))}
+                                                                            </p>
                                                                         </div>
                                                                     </div>
                                                                 </div>
                                                             );
                                                         })}
                                                     </div>
+ 
+                                                    {/* P&L Analysis in Task (Institutional Console) */}
+                                                    {(() => {
+                                                        const subItems = (line.subItems || []);
+                                                        const buyTotal = subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                                        const sellTotal = subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+                                                        const srvYield = subItems.filter(s => (data.items.find(mi => mi.id === s.itemId)?.category || '').toLowerCase().includes('service')).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * (parseFloat(s.price || 0) - parseFloat(s.buyPrice || 0))), 0);
+                                                        const matYield = subItems.filter(s => !(data.items.find(mi => mi.id === s.itemId)?.category || '').toLowerCase().includes('service')).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * (parseFloat(s.price || 0) - parseFloat(s.buyPrice || 0))), 0);
+                                                        const netProfit = sellTotal - buyTotal;
 
-                                                    {/* P&L Analysis in Task */}
-                                                    <div className="grid grid-cols-2 gap-2 pt-2">
-                                                        <div className="bg-white/5 p-2 rounded-xl border border-white/5 flex flex-col items-center">
-                                                            <p className="text-[7px] font-black text-slate-500 uppercase">Service Yield</p>
-                                                            <p className="text-[10px] font-black text-emerald-400">
-                                                                {formatCurrency((line.subItems || []).filter(s => (data.items.find(mi => mi.id === s.itemId)?.category || '').toLowerCase().includes('service')).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * (parseFloat(s.price || 0) - parseFloat(s.buyPrice || 0))), 0))}
-                                                            </p>
-                                                        </div>
-                                                        <div className="bg-white/5 p-2 rounded-xl border border-white/5 flex flex-col items-center">
-                                                            <p className="text-[7px] font-black text-slate-500 uppercase">Material Yield</p>
-                                                            <p className="text-[10px] font-black text-emerald-400">
-                                                                {formatCurrency((line.subItems || []).filter(s => !(data.items.find(mi => mi.id === s.itemId)?.category || '').toLowerCase().includes('service')).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * (parseFloat(s.price || 0) - parseFloat(s.buyPrice || 0))), 0))}
-                                                            </p>
-                                                        </div>
-                                                    </div>
+                                                        return (
+                                                            <>
+                                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-3 mt-3 border-t border-white/10">
+                                                                    <div className="bg-white/5 p-2 rounded-xl border border-white/5 flex flex-col items-center">
+                                                                        <p className="text-[7px] font-black text-slate-500 uppercase">Items / Cost</p>
+                                                                        <p className="text-[10px] font-black text-white">{subItems.length} / {formatCurrency(buyTotal)}</p>
+                                                                    </div>
+                                                                    <div className="bg-white/5 p-2 rounded-xl border border-white/5 flex flex-col items-center">
+                                                                        <p className="text-[7px] font-black text-slate-500 uppercase">Sales Job</p>
+                                                                        <p className="text-[10px] font-black text-blue-400">{formatCurrency(sellTotal)}</p>
+                                                                    </div>
+                                                                    <div className="bg-white/5 p-2 rounded-xl border border-white/5 flex flex-col items-center">
+                                                                        <p className="text-[7px] font-black text-slate-500 uppercase">Srv. Yield</p>
+                                                                        <p className={`text-[10px] font-black ${srvYield >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(srvYield)}</p>
+                                                                    </div>
+                                                                    <div className="bg-white/5 p-2 rounded-xl border border-white/5 flex flex-col items-center">
+                                                                        <p className="text-[7px] font-black text-slate-500 uppercase">Mat. Yield</p>
+                                                                        <p className={`text-[10px] font-black ${matYield >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(matYield)}</p>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="mt-2 bg-slate-800 p-3 rounded-2xl border border-white/5 flex justify-between items-center shadow-lg">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+                                                                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Net Job Profit Breakdown</p>
+                                                                    </div>
+                                                                    <p className={`text-base font-black tracking-tight ${netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(netProfit)}</p>
+                                                                </div>
+                                                            </>
+                                                        );
+                                                    })()}
+
 
                                                     <div className="pt-2">
                                                         <SearchableSelect 
