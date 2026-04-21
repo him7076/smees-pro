@@ -155,7 +155,11 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                     <tbody>
                         ${(profitData.itemBreakdown.length > 0 ? profitData.itemBreakdown : [{ itemName: tx.category || 'Direct Service', qty: 1, price: tx.amount }]).map(i => `
                             <tr>
-                                <td>${i.itemName} ${i.brand ? `<br><small style="color:#888">${i.brand}</small>` : ''}</td>
+                                <td>
+                                    <div style="font-weight: bold;">${i.itemName}</div>
+                                    ${i.brand ? `<small style="color:#666; display:block; margin-top:2px;">Brand: ${i.brand}</small>` : ''}
+                                    ${i.description ? `<small style="color:#888; display:block; margin-top:1px; font-style: italic;">Note: ${i.description}</small>` : ''}
+                                </td>
                                 <td style="text-align:center">${i.qty}</td>
                                 <td style="text-align:right">${(parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
                                 <td style="text-align:right">${(parseFloat(i.qty || 1) * parseFloat(i.price || 0)).toLocaleString('en-IN')}</td>
