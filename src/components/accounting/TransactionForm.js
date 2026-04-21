@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     X, Plus, Trash2, Save, Calculator, Link as LinkIcon, ShoppingBag, 
     Package, Banknote, Calendar, ChevronRight, CheckCircle2, AlertCircle, 
-    TrendingUp, TrendingDown, Phone, MapPin, ShieldCheck, Info, Search
+    TrendingUp, TrendingDown, Phone, MapPin, ShieldCheck, Info, Search, Wrench
 } from 'lucide-react';
 import SearchableSelect from '../ui/SearchableSelect';
 import { useDatabase } from '../../hooks/useDatabase';
@@ -248,10 +248,6 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         let finalAmtToLink = amt;
         if (amt > available) {
             finalAmtToLink = available;
-            if (amt > 0) {
-                // Only alert if the user explicitly typed a too-large number
-                // if they just clicked the pill, we silent-cap it.
-            }
         }
 
         if (existingIdx >= 0) {
@@ -508,6 +504,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                         )}
                     </div>
                 </div>                
+
                 {/* Items Section */}
                 {type !== 'payment' && (
                     <div className="space-y-6">
@@ -517,47 +514,33 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                         
                         <div className="space-y-4">
                             {tx.items.map((line, idx) => {
-                                const master = line.isBundle ? (data.bundles || []).find(i => i.id === line.itemId) : data.items.find(i => i.id === line.itemId);
-                                const subItemsCost = (line.subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+                                const isBundle = line.isBundle;
+                                const master = isBundle ? (data.bundles || []).find(i => i.id === line.itemId) : data.items.find(i => i.id === line.itemId);
+                                
+                                // Financial Math for Bundle
+                                const subItemsCost = isBundle ? (line.subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0) : 0;
+                                const servicePL = isBundle ? (line.subItems || []).filter(s => (data.items.find(mi => mi.id === s.itemId)?.category || '').toLowerCase().includes('service')).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * (parseFloat(s.price || 0) - parseFloat(s.buyPrice || 0))), 0) : 0;
+                                const materialPL = isBundle ? (line.subItems || []).filter(s => !(data.items.find(mi => mi.id === s.itemId)?.category || '').toLowerCase().includes('service')).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * (parseFloat(s.price || 0) - parseFloat(s.buyPrice || 0))), 0) : 0;
+                                const lineProfit = isBundle ? (parseFloat(line.price || 0) * parseFloat(line.qty || 1)) - subItemsCost : (parseFloat(line.price || 0) - parseFloat(line.buyPrice || 0)) * parseFloat(line.qty || 1);
                                 const lineSubTotal = (parseFloat(line.qty || 0) * parseFloat(line.price || 0));
-                                
-                                // P&L Breakdown
-                                const materialPL = (line.subItems || [])
-                                    .filter(s => {
-                                        const original = data.items.find(mi => mi.id === s.itemId);
-                                        return (original?.category || '').toLowerCase().includes('good') || !(original?.category || '').toLowerCase().includes('service');
-                                    })
-                                    .reduce((acc, s) => acc + (parseFloat(s.qty || 0) * (parseFloat(s.price || 0) - parseFloat(s.buyPrice || 0))), 0);
-                                
-                                const servicePL = (line.subItems || [])
-                                    .filter(s => {
-                                        const original = data.items.find(mi => mi.id === s.itemId);
-                                        return (original?.category || '').toLowerCase().includes('service');
-                                    })
-                                    .reduce((acc, s) => acc + (parseFloat(s.qty || 0) * (parseFloat(s.price || 0) - parseFloat(s.buyPrice || 0))), 0);
-
-                                const lineProfit = (parseFloat(line.price || 0) - parseFloat(line.buyPrice || subItemsCost || 0)) * parseFloat(line.qty || 0);
-
-                                // Filter options for bundles
-                                const bundleOptions = (data.bundles || []).map(i => ({ id: i.id, name: i.name, subText: 'Service Kit' }));
 
                                 return (
-                                    <div key={idx} className={`p-5 bg-white border border-slate-100 rounded-[32px] shadow-sm relative space-y-4 animate-in slide-in-from-bottom-2 ${line.isBundle ? 'ring-2 ring-slate-900/5' : ''}`}>
+                                    <div key={idx} className={`p-5 bg-white border border-slate-100 rounded-[32px] shadow-sm relative space-y-4 animate-in slide-in-from-bottom-2 ${isBundle ? 'ring-2 ring-slate-900/5' : ''}`}>
                                         <button onClick={() => setTx({...tx, items: tx.items.filter((_, i) => i !== idx)})} className="absolute -top-3 -right-3 bg-white p-2 rounded-full shadow-xl border border-slate-50 text-rose-500 hover:scale-110 transition-all"><Trash2 size={16}/></button>
                                         
                                         <div className="grid grid-cols-1 md:grid-cols-[2fr,1fr] gap-4">
                                             <div className="space-y-1">
-                                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{line.isBundle ? 'Bundle / Service Name' : 'Product / Item Name'}</label>
+                                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{isBundle ? 'Bundle / Service Name' : 'Product / Item Name'}</label>
                                                 <SearchableSelect 
-                                                    options={line.isBundle ? bundleOptions : data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))}
+                                                    options={isBundle ? (data.bundles || []).map(i => ({ id: i.id, name: i.name, subText: 'Service Kit' })) : data.items.map(i => ({ id: i.id, name: i.name, subText: `Stk: ${itemStock[i.id] || 0}` }))}
                                                     value={line.itemId}
                                                     onChange={v => updateLine(idx, 'itemId', v)}
                                                     onAddNew={() => setAddItemModal({ idx })}
-                                                    placeholder={line.isBundle ? "Select Bundle Service..." : "Search Product..."}
+                                                    placeholder={isBundle ? "Select Bundle Service..." : "Search Product..."}
                                                 />
                                             </div>
 
-                                            {master && !line.isBundle && (
+                                            {master && !isBundle && (
                                                 <div className="space-y-1">
                                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Brand/Var</label>
                                                     <SearchableSelect 
@@ -578,12 +561,12 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                             </div>
                                             <div className="space-y-1.5">
                                                 <label className="text-[9px] font-black text-emerald-400 uppercase tracking-widest ml-1">{type === 'purchase' ? 'Buy Rate' : type === 'expense' ? 'Rate' : 'Sell Rate'}</label>
-                                                <input type="number" className="w-full p-3 bg-emerald-50/30 border border-emerald-50 rounded-xl text-xs font-black text-emerald-700 outline-none focus:bg-white" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
+                                                <input type="number" className="w-full p-3 bg-emerald-50/30 border border-emerald-50 rounded-xl text-xs font-black text-emerald-700 outline-none focus:bg-white" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} disabled={isBundle} />
                                             </div>
                                             {type === 'sales' ? (
                                                 <div className="space-y-1.5">
                                                     <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate</label>
-                                                    <input type="number" className="w-full p-3 bg-rose-50/30 border border-rose-50 rounded-xl text-xs font-black text-rose-700 outline-none focus:bg-white" value={line.buyPrice || line.purchasePrice || 0} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} />
+                                                    <input type="number" className="w-full p-3 bg-rose-50/30 border border-rose-50 rounded-xl text-xs font-black text-rose-700 outline-none focus:bg-white" value={line.buyPrice || 0} onChange={e => updateLine(idx, 'buyPrice', e.target.value)} disabled={isBundle}/>
                                                 </div>
                                             ) : (type === 'purchase' && (
                                                 <div className="space-y-1.5">
@@ -592,9 +575,10 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                 </div>
                                             ))}
                                         </div>
+
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-3xl border border-slate-100">
                                             <div className="space-y-1">
-                                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Bundle Subtotal</p>
+                                                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Line Net Total</p>
                                                 <p className="text-sm font-black text-slate-900 ml-1">{formatCurrency(lineSubTotal)}</p>
                                             </div>
                                             {type === 'sales' && (
@@ -881,7 +865,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
             {/* Link Bills Modal Overlay */}
             {showLinking && (
                 <div className="fixed inset-0 z-[200] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95">
+                    <div className="bg-white w-full max-md rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95">
                         <div className="p-8 border-b border-slate-50 flex justify-between items-center">
                             <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Clear Outstanding</h3>
                             <button onClick={() => setShowLinking(false)} className="p-2 bg-slate-100 rounded-full"><X size={18}/></button>
