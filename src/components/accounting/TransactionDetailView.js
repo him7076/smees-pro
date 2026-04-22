@@ -45,17 +45,34 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
             let itemServiceProfit = 0;
 
             if (item.isBundle && item.subItems?.length > 0) {
+                // 1. Total profit from the bundle as a whole
+                const buy = parseFloat(item.buyPrice || master?.buyPrice || 0);
+                const totalBundleProfit = (sell * qty) - (buy * qty);
+                
+                let sumOfSubItemProfits = 0;
+                
+                // 2. Calculate individual margins of components inside the bundle
                 item.subItems.forEach(sub => {
                     const subMaster = (data.items || []).find(mi => mi.id === sub.itemId);
                     const subBuy = parseFloat(sub.buyPrice || 0);
                     const subSell = parseFloat(sub.price || 0);
                     const subQty = parseFloat(sub.qty || 1) * qty;
                     const subProfit = (subSell - subBuy) * subQty;
+                    
+                    sumOfSubItemProfits += subProfit;
 
                     const isSubService = (subMaster?.category || subMaster?.type || '').toLowerCase().includes('service');
                     if (isSubService) itemServiceProfit += subProfit;
                     else itemMaterialProfit += subProfit;
                 });
+
+                // 3. Residual Profit (The markup applied at the bundle level itself)
+                // We treat this as Service/Management profit
+                const bundleMarkup = totalBundleProfit - sumOfSubItemProfits;
+                itemServiceProfit += bundleMarkup;
+                
+                // Keep track of markup for UI display
+                item.bundleMarkup = bundleMarkup;
             } else {
                 const buy = parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0);
                 const profitValue = (sell * qty) - (buy * qty);
@@ -419,16 +436,34 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                                     
                                     {/* Profit Indicator */}
                                     {user.role === 'admin' && tx.type === 'sales' && (
-                                        <div className="flex gap-2 mt-3 pt-3 border-t border-slate-200/50">
-                                            {item.materialProfit !== 0 && (
-                                                <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                                    Material Gain: {formatCurrency(item.materialProfit)}
-                                                </div>
-                                            )}
-                                            {item.serviceProfit !== 0 && (
-                                                <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-blue-50 text-blue-700 border border-blue-100">
-                                                    Service Yield: {formatCurrency(item.serviceProfit)}
-                                                </div>
+                                        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-200/50">
+                                            {item.isBundle ? (
+                                                <>
+                                                    <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                                        Item Margins (G): {formatCurrency(item.materialProfit)}
+                                                    </div>
+                                                    <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-blue-50 text-blue-700 border border-blue-100">
+                                                        Item Margins (S): {formatCurrency(item.serviceProfit - (item.bundleMarkup || 0))}
+                                                    </div>
+                                                    {item.bundleMarkup !== 0 && (
+                                                        <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-indigo-50 text-indigo-700 border border-indigo-100 shadow-sm">
+                                                            Bundle Surcharge: {formatCurrency(item.bundleMarkup)}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    {item.materialProfit !== 0 && (
+                                                        <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                                            Material Gain: {formatCurrency(item.materialProfit)}
+                                                        </div>
+                                                    )}
+                                                    {item.serviceProfit !== 0 && (
+                                                        <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-blue-50 text-blue-700 border border-blue-100">
+                                                            Service Yield: {formatCurrency(item.serviceProfit)}
+                                                        </div>
+                                                    )}
+                                                </>
                                             )}
                                         </div>
                                     )}
