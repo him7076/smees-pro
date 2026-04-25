@@ -439,7 +439,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                                         <div className="mt-4 pt-4 border-t border-slate-200/50 space-y-2">
                                             <div className="flex justify-between text-[7px] font-black text-slate-400 uppercase tracking-widest px-2 mb-2">
                                                 <span className="flex-[2]">Component Details</span>
-                                                <span className="flex-1 text-center">Qty | Sell | Buy</span>
+                                                <span className="flex-1 text-center">Total Qty | Sell | Buy</span>
                                                 <span className="flex-1 text-center">Gross Total</span>
                                                 <span className="flex-1 text-right">P&L</span>
                                             </div>
@@ -450,7 +450,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                                                         {sub.brand && <span className="text-[7px] text-slate-400 ml-1">[{sub.brand}]</span>}
                                                     </div>
                                                     <div className="flex-1 text-center text-[8px] text-slate-500 font-black">
-                                                        {sub.qty} | {sub.sellPrice} | {sub.buyPrice}
+                                                        {sub.totalQty} | {sub.sellPrice} | {sub.buyPrice}
                                                     </div>
                                                     <div className="flex-1 text-center font-black text-slate-900">
                                                         {formatCurrency(sub.totalQty * sub.sellPrice)}
