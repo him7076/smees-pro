@@ -50,9 +50,9 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                     const subMaster = data.items.find(mi => mi.id === sub.itemId);
                     const sSell = parseFloat(sub.price || 0);
                     const sBuy = parseFloat(sub.buyPrice || 0);
-                    const sQty = parseFloat(sub.qty || 1); // Per bundle qty
-                    const sTotalQty = sQty * qty;
-                    const sPnL = (sSell - sBuy) * sTotalQty;
+                    const sQty = parseFloat(sub.qty || 1);
+                    // FIXED: Per User Request, sub-item calculation is independent of Bundle Qty (Per Bundle Audit)
+                    const sPnL = (sSell - sBuy) * sQty;
                     
                     const isSrv = (subMaster?.category || subMaster?.type || '').toLowerCase().includes('service');
                     if (isSrv) bundleServicePnL += sPnL;
@@ -62,10 +62,9 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                         name: subMaster?.name || 'Item',
                         brand: sub.brand,
                         qty: sQty,
-                        totalQty: sTotalQty,
                         sell: sSell,
                         buy: sBuy,
-                        gross: sSell * sTotalQty,
+                        gross: sSell * sQty,
                         pnl: sPnL,
                         isService: isSrv
                     });
@@ -379,12 +378,12 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
 
                                     {/* Bundle Sub-item Audit Grid */}
                                     {item.isBundle && item.subItems?.length > 0 && (
-                                        <div className="mt-4 pt-4 border-t border-blue-200/50 space-y-3">
+                                        <div className="mt-4 pt-4 border-t border-blue-200/50">
                                             <div className="flex justify-between text-[7px] font-black text-blue-400 uppercase tracking-widest px-2 mb-1">
-                                                <span className="flex-[1.5]">Component Trace</span>
-                                                <span className="flex-1 text-center">Qty/B | S | B</span>
-                                                <span className="flex-1 text-right">Total Gross</span>
-                                                <span className="flex-1 text-right">Line P&L</span>
+                                                <span className="flex-[1.5]">Single Bundle Breakdown</span>
+                                                <span className="flex-1 text-center">Qty | S | B</span>
+                                                <span className="flex-1 text-right">Gross (Unit)</span>
+                                                <span className="flex-1 text-right">PnL (Unit)</span>
                                             </div>
                                             <div className="space-y-1.5">
                                                 {item.subItems.map((sub, sidx) => (
@@ -403,9 +402,6 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                                                             <div className="flex-1 text-right font-black text-emerald-600">
                                                                 +{formatCurrency(sub.pnl)}
                                                             </div>
-                                                        </div>
-                                                        <div className="text-[6px] text-slate-400 font-bold mt-1 uppercase tracking-widest text-right">
-                                                            Trace: ({sub.qty} * {item.qty}) = {sub.totalQty} Units
                                                         </div>
                                                     </div>
                                                 ))}
