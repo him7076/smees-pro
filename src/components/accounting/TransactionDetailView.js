@@ -25,9 +25,10 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
 
     // Enhanced Profit Calculation Logic for Breakdown (Recursive for Bundles)
     const profitData = React.useMemo(() => {
-        if (!tx) return { itemBreakdown: [], totalMaterialProfit:0, totalServiceProfit:0, grossProfit:0 };
-        let totalMaterialProfit = 0;
-        let totalServiceProfit = 0;
+        if (!tx) return { itemBreakdown: [], totalMaterialProfit:0, totalServiceProfit:0, totalBundleProfit:0, grossProfit:0 };
+        let totalMaterialProfit = 0; // Normal items only
+        let totalServiceProfit = 0;  // Normal items only
+        let totalBundleProfit = 0;   // Bundle actual profits
         
         const itemBreakdown = (tx.items || []).map(item => {
             const master = (data.items || []).find(mi => mi.id === item.itemId) || (data.bundles || []).find(bi => bi.id === item.itemId);
@@ -43,16 +44,17 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
 
             let itemMaterialProfit = 0;
             let itemServiceProfit = 0;
+            let itemBundleActualProfit = 0;
             let subItemDetails = [];
 
             if (item.isBundle && item.subItems?.length > 0) {
-                // 1. Total profit from the bundle as a whole (Official Final Profit)
                 const buy = parseFloat(item.buyPrice || master?.buyPrice || 0);
-                const totalBundleProfit = (sell * qty) - (buy * qty);
+                itemBundleActualProfit = (sell * qty) - (buy * qty);
                 
                 let sumOfSubItemProfits = 0;
+                let bundleMaterialMargin = 0;
+                let bundleServiceMargin = 0;
                 
-                // 2. Calculate individual margins of components inside the bundle
                 item.subItems.forEach(sub => {
                     const subMaster = (data.items || []).find(mi => mi.id === sub.itemId);
                     const subBuy = parseFloat(sub.buyPrice || 0);
@@ -63,36 +65,39 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                     sumOfSubItemProfits += subProfit;
 
                     const subType = (subMaster?.category || subMaster?.type || '').toLowerCase().includes('service') ? 'Service' : 'Material';
-                    if (subType === 'Service') itemServiceProfit += subProfit;
-                    else itemMaterialProfit += subProfit;
+                    if (subType === 'Service') bundleServiceMargin += subProfit;
+                    else bundleMaterialMargin += subProfit;
 
                     subItemDetails.push({
                         name: subMaster?.name || 'Item',
                         brand: sub.brand,
+                        qty: parseFloat(sub.qty || 1), // Per bundle qty
+                        totalQty: subQty,
+                        sellPrice: subSell,
+                        buyPrice: subBuy,
                         type: subType,
                         profit: subProfit
                     });
                 });
 
-                // 3. Residual Profit (The markup applied at the bundle level itself)
-                const bundleMarkup = totalBundleProfit - sumOfSubItemProfits;
-                itemServiceProfit += bundleMarkup;
-                item.bundleMarkup = bundleMarkup;
-                item.totalBundleProfit = totalBundleProfit;
+                item.bundleMaterialMargin = bundleMaterialMargin;
+                item.bundleServiceMargin = bundleServiceMargin;
+                item.bundleMarkup = itemBundleActualProfit - sumOfSubItemProfits;
+                
+                totalBundleProfit += (itemBundleActualProfit - itemLineDiscount);
             } else {
                 const buy = parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0);
-                const profitValue = (sell * qty) - (buy * qty);
+                const profitValue = (sell * qty) - (buy * qty) - itemLineDiscount;
                 const isService = type === 'Service' || itemName.toLowerCase().includes('service');
-                if (isService) itemServiceProfit = profitValue;
-                else itemMaterialProfit = profitValue;
+                
+                if (isService) {
+                    itemServiceProfit = profitValue;
+                    totalServiceProfit += profitValue;
+                } else {
+                    itemMaterialProfit = profitValue;
+                    totalMaterialProfit += profitValue;
+                }
             }
-
-            const totalItemYield = itemMaterialProfit + itemServiceProfit - itemLineDiscount;
-            if (itemServiceProfit > itemMaterialProfit) itemServiceProfit -= itemLineDiscount;
-            else itemMaterialProfit -= itemLineDiscount;
-
-            totalMaterialProfit += itemMaterialProfit;
-            totalServiceProfit += itemServiceProfit;
 
             return {
                 ...item,
@@ -100,13 +105,14 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                 itemLineDiscount,
                 materialProfit: itemMaterialProfit,
                 serviceProfit: itemServiceProfit,
+                bundleProfit: itemBundleActualProfit,
                 subItemDetails,
-                type: (itemServiceProfit > itemMaterialProfit) ? 'Service' : 'Material'
+                type: item.isBundle ? 'Bundle' : (itemServiceProfit > itemMaterialProfit ? 'Service' : 'Material')
             };
         });
 
-        const grossProfit = totalMaterialProfit + totalServiceProfit - totals.discount;
-        return { itemBreakdown, totalMaterialProfit, totalServiceProfit, grossProfit };
+        const grossProfit = totalMaterialProfit + totalServiceProfit + totalBundleProfit - totals.discount;
+        return { itemBreakdown, totalMaterialProfit, totalServiceProfit, totalBundleProfit, grossProfit };
     }, [tx?.items, data.items, data.bundles, totals.discount]);
 
     const shareInvoice = () => {
@@ -418,64 +424,43 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                                                 {item.brand && <span className="text-blue-500 ml-2 border-l border-slate-200 pl-2">VARIANT: {item.brand}</span>}
                                             </p>
                                         </div>
-                                        <p className="text-xs font-black text-slate-900">{formatCurrency(item.qty * item.price)}</p>
+                                        <div className="text-right">
+                                            <p className="text-xs font-black text-slate-900">{formatCurrency(item.qty * item.price)}</p>
+                                            {user.role === 'admin' && tx.type === 'sales' && (
+                                                <p className="text-[9px] font-black text-emerald-600 mt-1 bg-emerald-50 px-2 py-0.5 rounded-lg inline-block">
+                                                    P&L: {formatCurrency(item.isBundle ? item.bundleProfit : (item.materialProfit + item.serviceProfit))}
+                                                </p>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {/* Recursive Bundle Component List with Individual Profits */}
                                     {item.isBundle && item.subItemDetails?.length > 0 && (
                                         <div className="mt-4 pt-4 border-t border-slate-200/50 space-y-2">
-                                            <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Embedded Profit Ledger</p>
+                                            <div className="flex justify-between text-[7px] font-black text-slate-400 uppercase tracking-widest px-2 mb-2">
+                                                <span className="flex-[2]">Component Details</span>
+                                                <span className="flex-1 text-center">Qty | Sell | Buy</span>
+                                                <span className="flex-1 text-right">P&L</span>
+                                            </div>
                                             {item.subItemDetails.map((sub, sidx) => (
-                                                <div key={sidx} className="flex justify-between items-center text-[9px] font-bold text-slate-600 bg-white/50 p-2 rounded-xl">
-                                                    <div className="flex-1 truncate pr-2">
+                                                <div key={sidx} className="flex justify-between items-center text-[9px] font-bold text-slate-600 bg-white/50 p-3 rounded-2xl border border-slate-100/50">
+                                                    <div className="flex-[2] truncate pr-2">
                                                         <span className={sub.type === 'Service' ? 'text-blue-600' : 'text-slate-700'}>{sub.name}</span>
                                                         {sub.brand && <span className="text-[7px] text-slate-400 ml-1">[{sub.brand}]</span>}
                                                     </div>
-                                                    <span className="text-emerald-600 whitespace-nowrap bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100/50">+{formatCurrency(sub.profit)}</span>
+                                                    <div className="flex-1 text-center text-[8px] text-slate-500 font-black">
+                                                        {sub.qty} | {sub.sellPrice} | {sub.buyPrice}
+                                                    </div>
+                                                    <div className="flex-1 text-right">
+                                                        <span className="text-emerald-600 font-black">+{formatCurrency(sub.profit)}</span>
+                                                    </div>
                                                 </div>
                                             ))}
-                                        </div>
-                                    )}
-                                    
-                                    {/* Advanced Profit Breakdown (Admin Only) */}
-                                    {user.role === 'admin' && tx.type === 'sales' && (
-                                        <div className="mt-4 pt-4 border-t border-slate-200/50 space-y-3">
-                                            <div className="flex flex-wrap gap-2">
-                                                {item.isBundle ? (
-                                                    <div className="w-full bg-slate-900/5 p-3 rounded-2xl border border-slate-200/50 space-y-2">
-                                                        <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-slate-500">
-                                                            <span>Material Margin (G)</span>
-                                                            <span className="text-emerald-600">{formatCurrency(item.materialProfit)}</span>
-                                                        </div>
-                                                        <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-slate-500">
-                                                            <span>Service Margin (S)</span>
-                                                            <span className="text-blue-600">{formatCurrency(item.serviceProfit - (item.bundleMarkup || 0))}</span>
-                                                        </div>
-                                                        {item.bundleMarkup !== 0 && (
-                                                            <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-slate-500 pt-1 border-t border-slate-200/30">
-                                                                <span>Bundle Markup (Residual)</span>
-                                                                <span className="text-indigo-600">{formatCurrency(item.bundleMarkup)}</span>
-                                                            </div>
-                                                        )}
-                                                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-900 pt-2 border-t border-slate-900/10">
-                                                            <span>Actual Bundle Profit</span>
-                                                            <span className="text-emerald-600">{formatCurrency(item.totalBundleProfit)}</span>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex gap-2">
-                                                        {item.materialProfit !== 0 && (
-                                                            <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                                                Material Gain: {formatCurrency(item.materialProfit)}
-                                                            </div>
-                                                        )}
-                                                        {item.serviceProfit !== 0 && (
-                                                            <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-blue-50 text-blue-700 border border-blue-100">
-                                                                Service Yield: {formatCurrency(item.serviceProfit)}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
+                                            
+                                            {/* Info Only Category Totals */}
+                                            <div className="flex gap-2 pt-2">
+                                                <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase bg-slate-100 text-slate-500">Info: Mat Prof {formatCurrency(item.bundleMaterialMargin)}</div>
+                                                <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase bg-slate-100 text-slate-500">Info: Srv Prof {formatCurrency(item.bundleServiceMargin)}</div>
                                             </div>
                                         </div>
                                     )}
@@ -483,23 +468,27 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                             ))}
                         </div>
 
-                        {/* Breakdown Summary Footer (Admin Only) */}
+                        {/* Breakdown Summary Footer (Admin Only) - 3 WAY SPLIT */}
                         {user.role === 'admin' && tx.type === 'sales' && (
                             <div className="mt-6 pt-6 border-t border-slate-100 space-y-3">
-                                <div className="grid grid-cols-2 gap-3 pb-4">
-                                    <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-100/50">
-                                        <p className="text-[8px] font-black text-emerald-600/60 uppercase tracking-widest mb-1 text-center">Material Profit</p>
-                                        <p className="text-xs font-black text-emerald-700 text-center">{formatCurrency(profitData.totalMaterialProfit)}</p>
+                                <div className="grid grid-cols-3 gap-2 pb-4">
+                                    <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-100/50 text-center">
+                                        <p className="text-[7px] font-black text-emerald-600/60 uppercase tracking-widest mb-1">Material Prof</p>
+                                        <p className="text-[10px] font-black text-emerald-700">{formatCurrency(profitData.totalMaterialProfit)}</p>
                                     </div>
-                                    <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-100/50">
-                                        <p className="text-[8px] font-black text-blue-600/60 uppercase tracking-widest mb-1 text-center">Service Profit</p>
-                                        <p className="text-xs font-black text-blue-700 text-center">{formatCurrency(profitData.totalServiceProfit)}</p>
+                                    <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-100/50 text-center">
+                                        <p className="text-[7px] font-black text-blue-600/60 uppercase tracking-widest mb-1">Service Prof</p>
+                                        <p className="text-[10px] font-black text-blue-700">{formatCurrency(profitData.totalServiceProfit)}</p>
+                                    </div>
+                                    <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-100/50 text-center">
+                                        <p className="text-[7px] font-black text-indigo-600/60 uppercase tracking-widest mb-1">Bundle Prof</p>
+                                        <p className="text-[10px] font-black text-indigo-700">{formatCurrency(profitData.totalBundleProfit)}</p>
                                     </div>
                                 </div>
                                 <div className="flex justify-between items-center bg-slate-900 p-4 rounded-2xl shadow-xl shadow-slate-200">
                                     <div className="flex flex-col">
-                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Gross Yield</span>
-                                        {totals.discount > 0 && <span className="text-[7px] font-black text-rose-400 uppercase tracking-widest">Incl. {formatCurrency(totals.discount)} Disc.</span>}
+                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Transaction Profit</span>
+                                        {totals.discount > 0 && <span className="text-[7px] font-black text-rose-400 uppercase tracking-widest">Excl. {formatCurrency(totals.discount)} Discount</span>}
                                     </div>
                                     <span className="text-xl font-black text-emerald-400 tracking-tighter">{formatCurrency(profitData.grossProfit)}</span>
                                 </div>
