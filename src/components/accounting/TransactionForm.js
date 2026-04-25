@@ -569,7 +569,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                 />
                                             </div>
 
-                                            {master && !isBundle && (
+                                            {master && (
                                                 <div className="space-y-1">
                                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Brand/Var</label>
                                                     <SearchableSelect 
@@ -590,16 +590,15 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                             </div>
                                             <div className="space-y-1.5">
                                                 <label className="text-[9px] font-black text-emerald-400 uppercase tracking-widest ml-1">{type === 'purchase' ? 'Buy Rate' : type === 'expense' ? 'Rate' : 'Sell Rate'}</label>
-                                                <input type="number" className="w-full p-3 bg-emerald-50/30 border border-emerald-50 rounded-xl text-xs font-black text-emerald-700 outline-none focus:bg-white" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} disabled={isBundle} />
+                                                <input type="number" className="w-full p-3 bg-emerald-50/30 border border-emerald-50 rounded-xl text-xs font-black text-emerald-700 outline-none focus:bg-white" value={line.price} onChange={e => updateLine(idx, 'price', e.target.value)} />
                                             </div>
                                             {type === 'sales' ? (
                                                 <div className="space-y-1.5">
-                                                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate {line.isBundle ? '(Auto)' : '(Edit)'}</label>
+                                                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate {line.isBundle ? '(Auto-Edit)' : '(Edit)'}</label>
                                                     <input 
                                                         type="number" 
-                                                        className={`w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-rose-600 shadow-inner ${line.isBundle ? 'opacity-70' : ''}`} 
+                                                        className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-rose-600 shadow-inner" 
                                                         value={line.buyPrice || 0} 
-                                                        readOnly={line.isBundle}
                                                         onChange={e => updateLine(idx, 'buyPrice', e.target.value)}
                                                     />
                                                 </div>

@@ -12,32 +12,75 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
     const [showItems, setShowItems] = useState(false);
     const [showAllStaff, setShowAllStaff] = useState(false);
 
-    if (!task) return null;
+    // Task-specific Profit Engine (Tiered)
+    const profitData = React.useMemo(() => {
+        if (!task || !task.itemsUsed) return { items: [], normalMaterialPnL:0, normalServicePnL:0, bundleActualPnL:0, netPnL:0 };
+        
+        let normalMaterialPnL = 0;
+        let normalServicePnL = 0;
+        let bundleActualPnL = 0;
+        
+        const items = (task.itemsUsed || []).map(item => {
+            const master = (data.items || []).find(mi => mi.id === item.itemId) || (data.bundles || []).find(bi => bi.id === item.itemId);
+            const sell = parseFloat(item.price || 0);
+            const qty = parseFloat(item.qty || 1);
+            const buy = parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0);
+            const grossTotal = sell * qty;
+            const linePnL = (sell - buy) * qty;
 
-    const party = data.parties.find(p => p.id === task.partyId);
-    const subTasks = data.tasks.filter(t => t.parentId === task.id);
-    const isMyTimerRunning = (task.timeLogs || []).some(l => l.staffId === user?.id && !l.end);
+            let subItems = [];
+            let bundleGoodsPnL = 0;
+            let bundleServicePnL = 0;
 
-    const shareTask = () => {
-        const link = `${window.location.origin}?taskId=${task.id}`;
-        const text = `*Task Details*\nID: ${task.id}\nTask: ${task.name}\nClient: ${party?.name || 'N/A'}\nStatus: ${task.status}\n\nLink: ${link}`;
-        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-    };
+            if (item.isBundle && item.subItems?.length > 0) {
+                bundleActualPnL += linePnL;
+                item.subItems.forEach(sub => {
+                    const subMaster = data.items.find(mi => mi.id === sub.itemId);
+                    const sSell = parseFloat(sub.price || 0);
+                    const sBuy = parseFloat(sub.buyPrice || 0);
+                    const sQty = parseFloat(sub.qty || 1);
+                    const sTotalQty = sQty * qty;
+                    const sPnL = (sSell - sBuy) * sTotalQty;
+                    
+                    const isSrv = (subMaster?.category || subMaster?.type || '').toLowerCase().includes('service');
+                    if (isSrv) bundleServicePnL += sPnL;
+                    else bundleGoodsPnL += sPnL;
 
-    const formatMins = (m) => {
-        if(!m || m <= 0) return '0m';
-        const h = Math.floor(m / 60);
-        const mins = Math.round(m % 60);
-        return h > 0 ? `${h}h ${mins}m` : `${mins}m`;
-    };
+                    subItems.push({
+                        name: subMaster?.name || 'Item',
+                        brand: sub.brand,
+                        qty: sQty,
+                        totalQty: sTotalQty,
+                        sell: sSell,
+                        buy: sBuy,
+                        gross: sSell * sTotalQty,
+                        pnl: sPnL,
+                        isService: isSrv
+                    });
+                });
+            } else {
+                const isSrv = master?.type === 'Service' || (master?.category || '').toLowerCase().includes('service');
+                if (isSrv) normalServicePnL += linePnL;
+                else normalMaterialPnL += linePnL;
+            }
 
-    const staffSummary = (task.timeLogs || []).reduce((acc, log) => {
-        const name = log.staffName || 'Staff';
-        acc[name] = (acc[name] || 0) + parseFloat(log.duration || 0);
-        return acc;
-    }, {});
+            return {
+                ...item,
+                itemName: item.name || master?.name || 'Generic Item',
+                sell,
+                buy,
+                qty,
+                grossTotal,
+                linePnL,
+                subItems,
+                bundleGoodsPnL,
+                bundleServicePnL
+            };
+        });
 
-    const visibleStaff = data.staff.filter(s => user.role === 'admin' || s.id === user.id);
+        const netPnL = normalMaterialPnL + normalServicePnL + bundleActualPnL;
+        return { items, normalMaterialPnL, normalServicePnL, bundleActualPnL, netPnL };
+    }, [task.itemsUsed, data.items, data.bundles]);
 
     return (
         <div className="fixed inset-0 z-[100] bg-slate-50 overflow-y-auto animate-in slide-in-from-right duration-300">
@@ -83,6 +126,33 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
             </div>
 
             <div className="p-6 max-w-2xl mx-auto space-y-6 pb-24">
+                {/* Header Card (HIGH-FIDELITY P&L DASHBOARD) */}
+                {user.role === 'admin' && (
+                    <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm text-center relative overflow-hidden">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 pt-2">
+                            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                                <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Normal (Goods)</p>
+                                <p className="text-xs font-black text-emerald-600">{formatCurrency(profitData.normalMaterialPnL)}</p>
+                            </div>
+                            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                                <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Normal (Srv)</p>
+                                <p className="text-xs font-black text-blue-600">{formatCurrency(profitData.normalServicePnL)}</p>
+                            </div>
+                            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                                <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Bundle Actual</p>
+                                <p className="text-xs font-black text-indigo-600">{formatCurrency(profitData.bundleActualPnL)}</p>
+                            </div>
+                            <div className="p-3 bg-slate-900 rounded-2xl shadow-lg">
+                                <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1 text-white/50">Job Net P&L</p>
+                                <p className="text-xs font-black text-emerald-400">{formatCurrency(profitData.netPnL)}</p>
+                            </div>
+                        </div>
+                        
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-0.5">Total Job Value</p>
+                        <h1 className="text-3xl font-black text-slate-900 tracking-tighter">{formatCurrency(task.itemsUsed?.reduce((acc,l)=>acc+(parseFloat(l.qty||0)*parseFloat(l.price||0)),0))}</h1>
+                    </div>
+                )}
+
                 {/* PRIMARY INFO CARD */}
                 <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-4">
@@ -218,141 +288,76 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                     </div>
                 </div>
 
-                {/* SUB TASKS SECTION */}
-                {!task.parentId && (
-                    <div className="bg-white border border-slate-100 rounded-[40px] shadow-sm overflow-hidden">
-                        <div className="p-8 pb-4 flex justify-between items-center">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Component Tasks</p>
-                            <button onClick={() => setModal({ type: 'task', data: { parentId: task.id, partyId: task.partyId } })} className="p-3 bg-blue-50 text-blue-600 rounded-2xl text-[10px] font-black uppercase active:scale-90 transition-all"><Plus size={18}/></button>
+                {/* OPERATIONAL LEDGER (Detailed Costing) */}
+                {user.role === 'admin' && profitData.items.length > 0 && (
+                    <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden p-6 space-y-6">
+                        <div className="flex justify-between items-center px-1">
+                            <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 leading-none"><Package size={14}/> Operational Ledger</h4>
+                            <button onClick={() => setShowItems(!showItems)} className="text-[9px] font-black text-blue-600 bg-blue-50 px-4 py-2 rounded-xl active:scale-95 transition-all">{showItems ? 'Minimize' : 'Show Grid'}</button>
                         </div>
-                        <div className="px-4 pb-6 space-y-3">
-                            {subTasks.map(st => (
-                                <div key={st.id} onClick={() => setViewDetail({ type: 'task', id: st.id })} className="p-5 bg-slate-50 rounded-[28px] border border-slate-100 flex items-center justify-between group cursor-pointer hover:bg-white transition-all hover:shadow-xl hover:border-blue-100 active:scale-[0.98]">
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${st.status === 'Done' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
-                                            {st.status === 'Done' ? <CheckCircle2 size={18}/> : <RefreshCw size={18}/>}
-                                        </div>
-                                        <div>
-                                            <p className={`text-sm font-black text-slate-800 tracking-tight ${st.status === 'Done' ? 'line-through opacity-40' : ''}`}>{st.name}</p>
-                                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{st.status}</p>
-                                        </div>
-                                    </div>
-                                    <ChevronRight size={20} className="text-slate-300 group-hover:text-blue-600 transition-colors"/>
-                                </div>
-                            ))}
-                            {subTasks.length === 0 && <p className="text-center py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest italic opacity-50">Operational - No Sub-tasks</p>}
-                        </div>
-                    </div>
-                )}
-
-                {/* TIME LOGS RE-IMAGINED */}
-                <div className="bg-white border border-slate-100 rounded-[40px] shadow-sm p-8 space-y-6">
-                    <div className="flex justify-between items-center">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Efficiency Ledger</p>
-                        <button onClick={() => setShowLogs(!showLogs)} className="text-[9px] font-black text-blue-600 bg-blue-50 px-4 py-2 rounded-xl active:scale-95 transition-all">{showLogs ? 'Minimize' : 'Expose Logs'}</button>
-                    </div>
-
-                    <div className="flex flex-wrap gap-3">
-                        {Object.entries(staffSummary).map(([name, mins]) => (
-                            <div key={name} className="px-4 py-2 bg-slate-50 border border-slate-100 rounded-2xl flex items-center gap-3">
-                                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                                <span className="text-[10px] font-black text-slate-500 uppercase">{name}: </span>
-                                <span className="text-[11px] font-black text-slate-900">{formatMins(mins)}</span>
-                            </div>
-                        ))}
-                    </div>
-
-                    {showLogs && (
-                        <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 scrollbar-hide animate-in slide-in-from-top-2">
-                            {(task.timeLogs || []).sort((a,b) => new Date(b.start) - new Date(a.start)).map((log, idx) => (
-                                <div key={idx} className="p-5 bg-slate-50/50 border border-slate-50 rounded-[28px] flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 border border-slate-100"><Clock size={20}/></div>
-                                        <div>
-                                            <p className="text-sm font-black text-slate-800 tracking-tight">{log.staffName}</p>
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase">{formatTime(log.start)} - {log.end ? formatTime(log.end) : 'Running'}</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-xs font-black text-slate-900 bg-white border border-slate-100 px-3 py-1.5 rounded-xl">{formatMins(log.duration)}</span>
-                                        {log.location && (
-                                            <a href={`https://www.google.com/maps?q=${log.location.lat},${log.location.lng}`} target="_blank" rel="noreferrer" className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><MapPin size={16}/></a>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                {/* ITEMS USED & P&L - ADMIN ONLY */}
-                {user.role === 'admin' && (
-                    <div className="bg-emerald-50 border border-emerald-100 rounded-[40px] p-8 space-y-6">
-                        <div className="flex justify-between items-center">
-                            <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-2"><Package size={14}/> Job Costing & Parts</p>
-                            <button onClick={() => setShowItems(!showItems)} className="text-[9px] font-black text-emerald-700 bg-white border border-emerald-200 px-4 py-2 rounded-xl active:scale-95 transition-all">{showItems ? 'Hide Analysis' : 'Show Analysis'}</button>
-                        </div>
-
+                        
                         {showItems && (
                             <div className="space-y-4">
-                                {(task.itemsUsed || []).map((line, idx) => {
-                                    const master = data.items.find(i=>i.id===line.itemId) || (data.bundles || []).find(i=>i.id===line.itemId);
-                                    const buy = parseFloat(line.buyPrice || line.purchasePrice || master?.buyPrice || 0);
-                                    const sell = parseFloat(line.price || 0);
-                                    const qty = parseFloat(line.qty || 0);
-                                    const profit = (sell - buy) * qty;
-                                    
-                                    const itemName = line.name || master?.name || 'Generic Item';
-                                    const type = master?.type || (master?.isBundle ? 'Service Kit' : 'Goods');
-                                    const isService = type === 'Service' || type === 'Service Kit' || itemName.toLowerCase().includes('service');
-
-                                    return (
-                                        <div key={idx} className="bg-white p-5 rounded-[32px] border border-emerald-100 space-y-4">
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <p className="text-[9px] font-black text-slate-400 uppercase mb-1">{isService ? 'Service Category' : 'Product'}</p>
-                                                    <p className="text-sm font-black text-slate-900 uppercase tracking-tight">{itemName}</p>
+                                {profitData.items.map((item, i) => (
+                                    <div key={i} className={`p-5 rounded-[32px] border transition-all ${item.isBundle ? 'bg-blue-50/20 border-blue-100' : 'bg-slate-50/50 border-slate-100 hover:bg-white hover:shadow-md'}`}>
+                                        <div className="flex justify-between items-start">
+                                            <div className="flex-1 pr-4">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <p className="text-xs font-black text-slate-900 tracking-tight leading-tight uppercase">{item.itemName}</p>
+                                                    {item.isBundle && <span className="bg-blue-600 text-white text-[6px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-widest">Bundle</span>}
                                                 </div>
-                                                <div className="text-right">
-                                                    <p className="text-[9px] font-black text-slate-400 uppercase mb-1">{isService ? 'Service Margin' : 'Material Gain'}</p>
-                                                    <p className={`text-xs font-black ${profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(profit)}</p>
+                                                <div className="flex items-center gap-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                                                    <span>{item.qty} Qty</span>
+                                                    <span className="text-slate-300">|</span>
+                                                    <span>{item.sell} S</span>
+                                                    <span className="text-slate-300">|</span>
+                                                    <span>{item.buy} B</span>
                                                 </div>
                                             </div>
-                                            <div className="grid grid-cols-3 gap-2 pt-4 border-t border-slate-50">
-                                                <div className="space-y-1">
-                                                    <p className="text-[8px] font-black text-slate-400 uppercase">Qty</p>
-                                                    <p className="text-xs font-black text-slate-900">{line.qty}</p>
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <p className="text-[8px] font-black text-slate-400 uppercase">Rate</p>
-                                                    <p className="text-xs font-black text-slate-900">{formatCurrency(line.price)}</p>
-                                                </div>
-                                                <div className="space-y-1 text-right">
-                                                    <p className="text-[8px] font-black text-slate-400 uppercase">Invoiced</p>
-                                                    <p className="text-xs font-black text-slate-900">{formatCurrency(line.qty * line.price)}</p>
-                                                </div>
+                                            <div className="text-right">
+                                                <p className="text-sm font-black text-slate-900 tracking-tight">{formatCurrency(item.grossTotal)}</p>
+                                                <p className={`text-[9px] font-black mt-1 px-2 py-0.5 rounded-lg inline-block ${item.linePnL >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                                                    P&L: {formatCurrency(item.linePnL)}
+                                                </p>
                                             </div>
                                         </div>
-                                    );
-                                })}
-                                <div className="pt-6 border-t border-emerald-200 flex justify-between items-end">
-                                    <div>
-                                        <p className="text-[9px] font-black text-emerald-600 uppercase mb-1">Total Valuation</p>
-                                        <h3 className="text-4xl font-black text-emerald-900 tracking-tighter">
-                                            {formatCurrency((task.itemsUsed || []).reduce((acc, l) => acc + (parseFloat(l.qty||0)*parseFloat(l.price||0)), 0))}
-                                        </h3>
+
+                                        {item.isBundle && item.subItems?.length > 0 && (
+                                            <div className="mt-4 pt-4 border-t border-blue-200/50 space-y-3">
+                                                <div className="flex justify-between text-[7px] font-black text-blue-400 uppercase tracking-widest px-2 mb-1">
+                                                    <span className="flex-[2]">Component Trace</span>
+                                                    <span className="flex-1 text-center">Qty | Sell | Buy</span>
+                                                    <span className="flex-1 text-right">P&L (Total)</span>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    {item.subItems.map((sub, sidx) => (
+                                                        <div key={sidx} className="flex justify-between items-center text-[9px] font-bold text-slate-600 bg-white p-3 rounded-[20px] border border-blue-50">
+                                                            <div className="flex-[2] truncate pr-2">
+                                                                <span className={sub.isService ? 'text-blue-600' : 'text-slate-800'}>{sub.name}</span>
+                                                                {sub.brand && <span className="text-[7px] text-slate-400 ml-1">[{sub.brand}]</span>}
+                                                            </div>
+                                                            <div className="flex-1 text-center text-[8px] text-slate-500 font-black">
+                                                                {sub.qty} | {sub.sell} | {sub.buy}
+                                                            </div>
+                                                            <div className="flex-1 text-right text-emerald-600 font-black">
+                                                                +{formatCurrency(sub.pnl)}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div className="flex justify-between items-center pt-3 mt-1 border-t border-blue-200/30">
+                                                    <div className="flex gap-2">
+                                                        <div className="text-[7px] font-black px-2 py-1 rounded-full uppercase bg-emerald-50/50 text-emerald-600">G: {formatCurrency(item.bundleGoodsPnL)}</div>
+                                                        <div className="text-[7px] font-black px-2 py-1 rounded-full uppercase bg-blue-50/50 text-blue-600">S: {formatCurrency(item.bundleServicePnL)}</div>
+                                                    </div>
+                                                    <div className="text-[8px] font-black text-blue-900 uppercase tracking-widest">
+                                                        Bundle Profit: <span className="text-[10px] ml-1">{formatCurrency(item.linePnL)}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="text-right">
-                                        <p className="text-[9px] font-black text-emerald-600 uppercase mb-1">Job Margin</p>
-                                        <p className="text-xl font-black text-emerald-800">
-                                            {formatCurrency((task.itemsUsed || []).reduce((acc, l) => {
-                                                const m = data.items.find(i=>i.id===l.itemId) || (data.bundles || []).find(i=>i.id===l.itemId);
-                                                const b = parseFloat(l.buyPrice || l.purchasePrice || m?.buyPrice || 0);
-                                                return acc + (parseFloat(l.qty||0)*(parseFloat(l.price||0)-b));
-                                            }, 0))}
-                                        </p>
-                                    </div>
-                                </div>
+                                ))}
                             </div>
                         )}
                     </div>

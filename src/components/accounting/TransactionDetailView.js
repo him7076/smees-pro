@@ -25,94 +25,73 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
 
     // Enhanced Profit Calculation Logic for Breakdown (Recursive for Bundles)
     const profitData = React.useMemo(() => {
-        if (!tx) return { itemBreakdown: [], totalMaterialProfit:0, totalServiceProfit:0, totalBundleProfit:0, grossProfit:0 };
-        let totalMaterialProfit = 0; // Normal items only
-        let totalServiceProfit = 0;  // Normal items only
-        let totalBundleProfit = 0;   // Bundle actual profits
+        if (!tx) return { itemBreakdown: [], normalMaterialP&L:0, normalServiceP&L:0, bundleActualP&L:0, netPnL:0 };
+        
+        let normalMaterialPnL = 0;
+        let normalServicePnL = 0;
+        let bundleActualPnL = 0;
         
         const itemBreakdown = (tx.items || []).map(item => {
             const master = (data.items || []).find(mi => mi.id === item.itemId) || (data.bundles || []).find(bi => bi.id === item.itemId);
             let itemName = item.itemName || item.name || master?.name || 'Unknown Item';
-            if (itemName === 'Product' && master?.name) itemName = master.name;
-            const type = master?.type || 'Goods';
             const sell = parseFloat(item.price || 0);
             const qty = parseFloat(item.qty || 1);
+            const buy = parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0);
+            const grossTotal = sell * qty;
+            const linePnL = (sell - buy) * qty;
 
-            // Calculate Item-Specific Discount
-            let itemLineDiscount = parseFloat(item.discountValue || 0);
-            if (item.discountType === '%') itemLineDiscount = (sell * qty * itemLineDiscount) / 100;
-
-            let itemMaterialProfit = 0;
-            let itemServiceProfit = 0;
-            let itemBundleActualProfit = 0;
-            let subItemDetails = [];
+            let subItems = [];
+            let bundleGoodsPnL = 0;
+            let bundleServicePnL = 0;
 
             if (item.isBundle && item.subItems?.length > 0) {
-                const buy = parseFloat(item.buyPrice || master?.buyPrice || 0);
-                itemBundleActualProfit = (sell * qty) - (buy * qty);
-                
-                let sumOfSubItemProfits = 0;
-                let bundleMaterialMargin = 0;
-                let bundleServiceMargin = 0;
-                
+                bundleActualPnL += linePnL;
                 item.subItems.forEach(sub => {
-                    const subMaster = (data.items || []).find(mi => mi.id === sub.itemId);
-                    const subBuy = parseFloat(sub.buyPrice || 0);
-                    const subSell = parseFloat(sub.price || 0);
-                    const subQty = parseFloat(sub.qty || 1) * qty;
-                    const subProfit = (subSell - subBuy) * subQty;
+                    const subMaster = data.items.find(mi => mi.id === sub.itemId);
+                    const sSell = parseFloat(sub.price || 0);
+                    const sBuy = parseFloat(sub.buyPrice || 0);
+                    const sQty = parseFloat(sub.qty || 1); // Per bundle qty
+                    const sTotalQty = sQty * qty;
+                    const sPnL = (sSell - sBuy) * sTotalQty;
                     
-                    sumOfSubItemProfits += subProfit;
+                    const isSrv = (subMaster?.category || subMaster?.type || '').toLowerCase().includes('service');
+                    if (isSrv) bundleServicePnL += sPnL;
+                    else bundleGoodsPnL += sPnL;
 
-                    const subType = (subMaster?.category || subMaster?.type || '').toLowerCase().includes('service') ? 'Service' : 'Material';
-                    if (subType === 'Service') bundleServiceMargin += subProfit;
-                    else bundleMaterialMargin += subProfit;
-
-                    subItemDetails.push({
+                    subItems.push({
                         name: subMaster?.name || 'Item',
                         brand: sub.brand,
-                        qty: parseFloat(sub.qty || 1), // Per bundle qty
-                        totalQty: subQty,
-                        sellPrice: subSell,
-                        buyPrice: subBuy,
-                        type: subType,
-                        profit: subProfit
+                        qty: sQty,
+                        totalQty: sTotalQty,
+                        sell: sSell,
+                        buy: sBuy,
+                        gross: sSell * sTotalQty,
+                        pnl: sPnL,
+                        isService: isSrv
                     });
                 });
-
-                item.bundleMaterialMargin = bundleMaterialMargin;
-                item.bundleServiceMargin = bundleServiceMargin;
-                item.bundleMarkup = itemBundleActualProfit - sumOfSubItemProfits;
-                
-                totalBundleProfit += (itemBundleActualProfit - itemLineDiscount);
             } else {
-                const buy = parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0);
-                const profitValue = (sell * qty) - (buy * qty) - itemLineDiscount;
-                const isService = type === 'Service' || itemName.toLowerCase().includes('service');
-                
-                if (isService) {
-                    itemServiceProfit = profitValue;
-                    totalServiceProfit += profitValue;
-                } else {
-                    itemMaterialProfit = profitValue;
-                    totalMaterialProfit += profitValue;
-                }
+                const isSrv = master?.type === 'Service' || (master?.category || '').toLowerCase().includes('service');
+                if (isSrv) normalServicePnL += linePnL;
+                else normalMaterialPnL += linePnL;
             }
 
             return {
                 ...item,
                 itemName,
-                itemLineDiscount,
-                materialProfit: itemMaterialProfit,
-                serviceProfit: itemServiceProfit,
-                bundleProfit: itemBundleActualProfit,
-                subItemDetails,
-                type: item.isBundle ? 'Bundle' : (itemServiceProfit > itemMaterialProfit ? 'Service' : 'Material')
+                sell,
+                buy,
+                qty,
+                grossTotal,
+                linePnL,
+                subItems,
+                bundleGoodsPnL,
+                bundleServicePnL
             };
         });
 
-        const grossProfit = totalMaterialProfit + totalServiceProfit + totalBundleProfit - totals.discount;
-        return { itemBreakdown, totalMaterialProfit, totalServiceProfit, totalBundleProfit, grossProfit };
+        const netPnL = normalMaterialPnL + normalServicePnL + bundleActualPnL - totals.discount;
+        return { itemBreakdown, normalMaterialPnL, normalServicePnL, bundleActualPnL, netPnL };
     }, [tx?.items, data.items, data.bundles, totals.discount]);
 
     const shareInvoice = () => {
@@ -308,18 +287,40 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
             </div>
 
             <div className={`p-4 max-w-2xl mx-auto space-y-6 pb-32 ${tx.status === 'Cancelled' ? 'opacity-60 grayscale' : ''}`}>
-                {/* Header Card (COMPACT VERSION) */}
-                <div className="bg-white p-4 rounded-[32px] border border-slate-100 shadow-sm text-center relative overflow-hidden">
+                {/* Header Card (HIGH-FIDELITY P&L DASHBOARD) */}
+                <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm text-center relative overflow-hidden">
                     <div className={`absolute top-0 left-0 w-full h-1.5 ${['sales','payment'].includes(tx.type) ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
-                    <div className="flex justify-center mb-2">
-                        <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border transition-all ${
+                    
+                    <div className="flex justify-center mb-4">
+                        <span className={`px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${
                             tx.status === 'Cancelled' ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'
                         }`}>
                             {tx.status || 'Active'}
                         </span>
                     </div>
-                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-0.5">Total Amount</p>
-                    <h1 className="text-2xl font-black text-slate-900 tracking-tighter mb-2">{formatCurrency(totals.final)}</h1>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                            <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Normal (Goods)</p>
+                            <p className="text-xs font-black text-emerald-600">{formatCurrency(profitData.normalMaterialPnL)}</p>
+                        </div>
+                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                            <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Normal (Srv)</p>
+                            <p className="text-xs font-black text-blue-600">{formatCurrency(profitData.normalServicePnL)}</p>
+                        </div>
+                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                            <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Bundle Actual</p>
+                            <p className="text-xs font-black text-indigo-600">{formatCurrency(profitData.bundleActualPnL)}</p>
+                        </div>
+                        <div className="p-3 bg-slate-900 rounded-2xl shadow-lg">
+                            <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1 text-white/50">Net P&L</p>
+                            <p className="text-xs font-black text-emerald-400">{formatCurrency(profitData.netPnL)}</p>
+                        </div>
+                    </div>
+
+                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-0.5">Total Bill Amount</p>
+                    <h1 className="text-3xl font-black text-slate-900 tracking-tighter mb-2">{formatCurrency(totals.final)}</h1>
+                    
                     <div className="flex justify-center gap-2 text-[8px] font-black text-slate-500 uppercase tracking-widest">
                         <span className="bg-slate-50 px-3 py-1 rounded-xl border border-slate-100">{formatDate(tx.date)}</span>
                         <span className="bg-slate-50 px-3 py-1 rounded-xl border border-slate-100">{tx.paymentMode || 'Standard'}</span>
@@ -333,171 +334,91 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                         <p className="text-sm font-black text-emerald-900">{formatCurrency(totals.received)}</p>
                     </div>
                     <div className="bg-slate-900 p-4 rounded-[24px] space-y-0.5 text-center shadow-lg">
-                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Balance</p>
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Balance Due</p>
                         <p className={`text-sm font-black ${totals.final - totals.received > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                             {formatCurrency(Math.max(0, totals.final - totals.received))}
                         </p>
                     </div>
                 </div>
 
-                {tx.convertedFromTask && (
-                    <div onClick={() => setViewDetail({ type: 'task', id: tx.convertedFromTask })} className="p-6 bg-slate-900 text-white rounded-[32px] cursor-pointer active:scale-95 shadow-xl shadow-slate-100 flex justify-between items-center group transition-all">
-                        <div>
-                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Source Operation</p>
-                            <p className="font-black text-lg tracking-tight group-hover:text-blue-400 transition-colors">Task Trace: #{tx.convertedFromTask}</p>
-                        </div>
-                        <Layout className="text-slate-400 group-hover:rotate-12 transition-transform"/>
-                    </div>
-                )}
-
-                {/* Linked Assets Section */}
-                {tx.linkedAssets && tx.linkedAssets.length > 0 && (
-                    <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm space-y-4">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Embedded Assets & Inventory</label>
-                        <div className="grid grid-cols-1 gap-3">
-                            {tx.linkedAssets.map((asset, idx) => {
-                                const assetData = typeof asset === 'string' ? data.assets?.find(a => a.name === asset) : data.assets?.find(a => a.id === asset.id || a.name === asset.name);
-                                return (
-                                    <div 
-                                        key={idx} 
-                                        onClick={() => {
-                                            const aObj = party?.assets?.find(pa => pa.name === (assetData?.name || asset.name || asset));
-                                            if (aObj) setViewDetail({ type: 'asset', id: aObj.name, data: { asset: aObj, party } });
-                                        }}
-                                        className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl flex justify-between items-center group hover:bg-white transition-all cursor-pointer active:scale-[0.98] shadow-sm hover:shadow-md"
-                                    >
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-600 shadow-sm group-hover:scale-110 transition-transform"><Package size={18}/></div>
-                                            <div>
-                                                <p className="text-[11px] font-black text-slate-800 uppercase tracking-tight">{assetData?.name || asset.name || asset}</p>
-                                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{assetData?.category || 'General Asset'}</p>
-                                            </div>
-                                        </div>
-                                        {(asset.nextServiceDate || assetData?.nextService) && (
-                                            <div className="text-right">
-                                                <p className="text-[7px] font-black text-blue-500 uppercase tracking-widest opacity-50 mb-0.5">Next Service</p>
-                                                <p className="text-[10px] font-black text-slate-900">{formatDate(asset.nextServiceDate || assetData.nextService)}</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
-                {/* Party Details (Compact) */}
-                <div onClick={() => { if(user.role === 'admin' && tx.partyId) setViewDetail({ type: 'party', id: tx.partyId }); }} className={`p-6 bg-white rounded-[32px] border border-slate-100 shadow-sm transition-all relative overflow-hidden ${user.role === 'admin' ? 'cursor-pointer hover:shadow-lg active:scale-[0.98]' : ''}`}>
-                    <div className="flex justify-between items-start mb-4">
-                        <div>
-                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">{isPayment ? 'Linked Account' : 'Party Name'}</p>
-                            <h3 className="text-lg font-black text-slate-900 tracking-tight">{party?.name || tx.category || 'Direct Cash Client'}</h3>
-                        </div>
-                        {user.role === 'admin' && <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shadow-sm"><ChevronRight size={18}/></div>}
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="flex items-center gap-2 bg-slate-50 p-3 rounded-xl">
-                            <Banknote className="text-slate-400" size={14}/>
-                            <p className="text-xs font-bold text-slate-700">{tx.mobile || party?.mobile || 'No Contact'}</p>
-                        </div>
-                        {tx.address && (
-                            <div className="flex items-start gap-2 bg-slate-50 p-3 rounded-xl">
-                                <MapPin className="text-slate-400 mt-0.5" size={14}/>
-                                <p className="text-[9px] font-bold text-slate-500 leading-tight line-clamp-2">{tx.address}</p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Breakdown Items (Detailed Operational Breakdown) */}
+                {/* Breakdown Items (High-Density Operational Grid) */}
                 {profitData.itemBreakdown.length > 0 && (
-                    <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden p-6 space-y-4">
-                        <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 leading-none"><Package size={14}/> Operational Breakdown</h4>
-                        <div className="space-y-3">
+                    <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden p-6 space-y-6">
+                        <div className="flex justify-between items-center px-1">
+                            <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 leading-none"><Package size={14}/> Operational Ledger</h4>
+                            <span className="text-[7px] font-black text-slate-300 uppercase tracking-widest">Qty | Sell | Buy | Total | P&L</span>
+                        </div>
+                        
+                        <div className="space-y-4">
                             {profitData.itemBreakdown.map((item, i) => (
-                                <div key={i} className={`p-4 bg-slate-50 rounded-[28px] border border-slate-100 hover:bg-white transition-all ${item.isBundle ? 'ring-1 ring-blue-500/10 bg-blue-50/5' : ''}`}>
-                                    <div className="flex justify-between items-start mb-2">
+                                <div key={i} className={`p-5 rounded-[32px] border transition-all ${item.isBundle ? 'bg-blue-50/20 border-blue-100' : 'bg-slate-50/50 border-slate-100 hover:bg-white hover:shadow-md'}`}>
+                                    {/* Main Row */}
+                                    <div className="flex justify-between items-start">
                                         <div className="flex-1 pr-4">
-                                            <p className="text-xs font-black text-slate-800 tracking-tight leading-tight uppercase">{item.itemName}</p>
-                                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">
-                                                {item.qty} Qty × {formatCurrency(item.price)}
-                                                {item.brand && <span className="text-blue-500 ml-2 border-l border-slate-200 pl-2">VARIANT: {item.brand}</span>}
-                                            </p>
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <p className="text-xs font-black text-slate-900 tracking-tight leading-tight uppercase">{item.itemName}</p>
+                                                {item.isBundle && <span className="bg-blue-600 text-white text-[6px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-widest">Bundle</span>}
+                                            </div>
+                                            <div className="flex items-center gap-2 text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                                                <span>{item.qty} Qty</span>
+                                                <span className="text-slate-300">|</span>
+                                                <span>{item.sell} S</span>
+                                                <span className="text-slate-300">|</span>
+                                                <span>{item.buy} B</span>
+                                            </div>
                                         </div>
                                         <div className="text-right">
-                                            <p className="text-xs font-black text-slate-900">{formatCurrency(item.qty * item.price)}</p>
+                                            <p className="text-sm font-black text-slate-900 tracking-tight">{formatCurrency(item.grossTotal)}</p>
                                             {user.role === 'admin' && tx.type === 'sales' && (
-                                                <p className="text-[9px] font-black text-emerald-600 mt-1 bg-emerald-50 px-2 py-0.5 rounded-lg inline-block">
-                                                    P&L: {formatCurrency(item.isBundle ? item.bundleProfit : (item.materialProfit + item.serviceProfit))}
+                                                <p className={`text-[9px] font-black mt-1 px-2 py-0.5 rounded-lg inline-block ${item.linePnL >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                                                    P&L: {formatCurrency(item.linePnL)}
                                                 </p>
                                             )}
                                         </div>
                                     </div>
 
-                                    {/* Recursive Bundle Component List with Individual Profits */}
-                                    {item.isBundle && item.subItemDetails?.length > 0 && (
-                                        <div className="mt-4 pt-4 border-t border-slate-200/50 space-y-2">
-                                            <div className="flex justify-between text-[7px] font-black text-slate-400 uppercase tracking-widest px-2 mb-2">
+                                    {/* Bundle Sub-item Audit Grid */}
+                                    {item.isBundle && item.subItems?.length > 0 && (
+                                        <div className="mt-4 pt-4 border-t border-blue-200/50 space-y-3">
+                                            <div className="flex justify-between text-[7px] font-black text-blue-400 uppercase tracking-widest px-2 mb-1">
                                                 <span className="flex-[2]">Component Details</span>
-                                                <span className="flex-1 text-center">Total Qty | Sell | Buy</span>
-                                                <span className="flex-1 text-center">Gross Total</span>
-                                                <span className="flex-1 text-right">P&L</span>
+                                                <span className="flex-1 text-center">Qty | Sell | Buy</span>
+                                                <span className="flex-1 text-right">P&L (Total)</span>
                                             </div>
-                                            {item.subItemDetails.map((sub, sidx) => (
-                                                <div key={sidx} className="flex justify-between items-center text-[9px] font-bold text-slate-600 bg-white/50 p-3 rounded-2xl border border-slate-100/50">
-                                                    <div className="flex-[2] truncate pr-2">
-                                                        <span className={sub.type === 'Service' ? 'text-blue-600' : 'text-slate-700'}>{sub.name}</span>
-                                                        {sub.brand && <span className="text-[7px] text-slate-400 ml-1">[{sub.brand}]</span>}
+                                            <div className="space-y-2">
+                                                {item.subItems.map((sub, sidx) => (
+                                                    <div key={sidx} className="flex justify-between items-center text-[9px] font-bold text-slate-600 bg-white p-3 rounded-[20px] border border-blue-50">
+                                                        <div className="flex-[2] truncate pr-2">
+                                                            <span className={sub.isService ? 'text-blue-600' : 'text-slate-800'}>{sub.name}</span>
+                                                            {sub.brand && <span className="text-[7px] text-slate-400 ml-1">[{sub.brand}]</span>}
+                                                        </div>
+                                                        <div className="flex-1 text-center text-[8px] text-slate-500 font-black">
+                                                            {sub.qty} | {sub.sell} | {sub.buy}
+                                                        </div>
+                                                        <div className="flex-1 text-right">
+                                                            <span className="text-emerald-600 font-black">+{formatCurrency(sub.pnl)}</span>
+                                                        </div>
                                                     </div>
-                                                    <div className="flex-1 text-center text-[8px] text-slate-500 font-black">
-                                                        {sub.totalQty} | {sub.sellPrice} | {sub.buyPrice}
-                                                    </div>
-                                                    <div className="flex-1 text-center font-black text-slate-900">
-                                                        {formatCurrency(sub.totalQty * sub.sellPrice)}
-                                                    </div>
-                                                    <div className="flex-1 text-right">
-                                                        <span className="text-emerald-600 font-black">+{formatCurrency(sub.profit)}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
+                                                ))}
+                                            </div>
                                             
-                                            {/* Info Only Category Totals */}
-                                            <div className="flex gap-2 pt-2">
-                                                <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase bg-slate-100 text-slate-500">Info: Mat Prof {formatCurrency(item.bundleMaterialMargin)}</div>
-                                                <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase bg-slate-100 text-slate-500">Info: Srv Prof {formatCurrency(item.bundleServiceMargin)}</div>
+                                            {/* Bundle Summary Footer */}
+                                            <div className="flex justify-between items-center pt-3 mt-1 border-t border-blue-200/30">
+                                                <div className="flex gap-2">
+                                                    <div className="text-[7px] font-black px-2 py-1 rounded-full uppercase bg-emerald-50/50 text-emerald-600 border border-emerald-100/50">G: {formatCurrency(item.bundleGoodsPnL)}</div>
+                                                    <div className="text-[7px] font-black px-2 py-1 rounded-full uppercase bg-blue-50/50 text-blue-600 border border-blue-100/50">S: {formatCurrency(item.bundleServicePnL)}</div>
+                                                </div>
+                                                <div className="text-[8px] font-black text-blue-900 uppercase tracking-widest">
+                                                    Actual Bundle Profit: <span className="text-[10px] ml-1">{formatCurrency(item.linePnL)}</span>
+                                                </div>
                                             </div>
                                         </div>
                                     )}
                                 </div>
                             ))}
                         </div>
-
-                        {/* Breakdown Summary Footer (Admin Only) - 3 WAY SPLIT */}
-                        {user.role === 'admin' && tx.type === 'sales' && (
-                            <div className="mt-6 pt-6 border-t border-slate-100 space-y-3">
-                                <div className="grid grid-cols-3 gap-2 pb-4">
-                                    <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-100/50 text-center">
-                                        <p className="text-[7px] font-black text-emerald-600/60 uppercase tracking-widest mb-1">Material Prof</p>
-                                        <p className="text-[10px] font-black text-emerald-700">{formatCurrency(profitData.totalMaterialProfit)}</p>
-                                    </div>
-                                    <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-100/50 text-center">
-                                        <p className="text-[7px] font-black text-blue-600/60 uppercase tracking-widest mb-1">Service Prof</p>
-                                        <p className="text-[10px] font-black text-blue-700">{formatCurrency(profitData.totalServiceProfit)}</p>
-                                    </div>
-                                    <div className="bg-indigo-50/50 p-3 rounded-2xl border border-indigo-100/50 text-center">
-                                        <p className="text-[7px] font-black text-indigo-600/60 uppercase tracking-widest mb-1">Bundle Prof</p>
-                                        <p className="text-[10px] font-black text-indigo-700">{formatCurrency(profitData.totalBundleProfit)}</p>
-                                    </div>
-                                </div>
-                                <div className="flex justify-between items-center bg-slate-900 p-4 rounded-2xl shadow-xl shadow-slate-200">
-                                    <div className="flex flex-col">
-                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Transaction Profit</span>
-                                        {totals.discount > 0 && <span className="text-[7px] font-black text-rose-400 uppercase tracking-widest">Excl. {formatCurrency(totals.discount)} Discount</span>}
-                                    </div>
-                                    <span className="text-xl font-black text-emerald-400 tracking-tighter">{formatCurrency(profitData.grossProfit)}</span>
-                                </div>
-                            </div>
-                        )}
+                    </div>
+                )}
                     </div>
                 )}
 

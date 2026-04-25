@@ -433,12 +433,11 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                     <input type="number" className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-emerald-600 shadow-inner" value={line.price} onChange={e => updateItem(idx, 'price', e.target.value)} />
                                                 </div>
                                                 <div className="space-y-1.5">
-                                                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate {line.isBundle ? '(Auto)' : '(Edit)'}</label>
+                                                    <label className="text-[9px] font-black text-rose-400 uppercase tracking-widest ml-1">Buy Rate {line.isBundle ? '(Auto-Edit)' : '(Edit)'}</label>
                                                     <input 
                                                         type="number" 
-                                                        className={`w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-rose-600 shadow-inner ${line.isBundle ? 'opacity-70' : ''}`} 
+                                                        className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-rose-600 shadow-inner" 
                                                         value={line.buyPrice || 0} 
-                                                        readOnly={line.isBundle}
                                                         onChange={e => updateItem(idx, 'buyPrice', e.target.value)}
                                                     />
                                                 </div>
