@@ -350,22 +350,31 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                                         {item.isBundle && item.subItems?.length > 0 && (
                                             <div className="mt-4 pt-4 border-t border-blue-200/50 space-y-3">
                                                 <div className="flex justify-between text-[7px] font-black text-blue-400 uppercase tracking-widest px-2 mb-1">
-                                                    <span className="flex-[2]">Component Trace</span>
-                                                    <span className="flex-1 text-center">Qty | Sell | Buy</span>
-                                                    <span className="flex-1 text-right">P&L (Total)</span>
+                                                    <span className="flex-[1.5]">Component Trace</span>
+                                                    <span className="flex-1 text-center">Qty/B | S | B</span>
+                                                    <span className="flex-1 text-right">Total Gross</span>
+                                                    <span className="flex-1 text-right">Line P&L</span>
                                                 </div>
-                                                <div className="space-y-2">
+                                                <div className="space-y-1.5">
                                                     {item.subItems.map((sub, sidx) => (
-                                                        <div key={sidx} className="flex justify-between items-center text-[9px] font-bold text-slate-600 bg-white p-3 rounded-[20px] border border-blue-50">
-                                                            <div className="flex-[2] truncate pr-2">
-                                                                <span className={sub.isService ? 'text-blue-600' : 'text-slate-800'}>{sub.name}</span>
-                                                                {sub.brand && <span className="text-[7px] text-slate-400 ml-1">[{sub.brand}]</span>}
+                                                        <div key={sidx} className="bg-white p-3 rounded-[20px] border border-blue-50 shadow-sm">
+                                                            <div className="flex justify-between items-center text-[9px]">
+                                                                <div className="flex-[1.5] truncate pr-2 font-black text-slate-800">
+                                                                    {sub.name}
+                                                                    {sub.brand && <span className="text-[7px] text-blue-500 ml-1">[{sub.brand}]</span>}
+                                                                </div>
+                                                                <div className="flex-1 text-center text-[8px] text-slate-500 font-black">
+                                                                    {sub.qty} | {sub.sell} | {sub.buy}
+                                                                </div>
+                                                                <div className="flex-1 text-right font-black text-slate-900">
+                                                                    {formatCurrency(sub.gross)}
+                                                                </div>
+                                                                <div className="flex-1 text-right font-black text-emerald-600">
+                                                                    +{formatCurrency(sub.pnl)}
+                                                                </div>
                                                             </div>
-                                                            <div className="flex-1 text-center text-[8px] text-slate-500 font-black">
-                                                                {sub.qty} | {sub.sell} | {sub.buy}
-                                                            </div>
-                                                            <div className="flex-1 text-right text-emerald-600 font-black">
-                                                                +{formatCurrency(sub.pnl)}
+                                                            <div className="text-[6px] text-slate-400 font-bold mt-1 uppercase tracking-widest text-right">
+                                                                Trace: ({sub.qty} * {item.qty}) = {sub.totalQty} Units
                                                             </div>
                                                         </div>
                                                     ))}
