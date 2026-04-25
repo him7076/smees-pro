@@ -440,6 +440,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                                             <div className="flex justify-between text-[7px] font-black text-slate-400 uppercase tracking-widest px-2 mb-2">
                                                 <span className="flex-[2]">Component Details</span>
                                                 <span className="flex-1 text-center">Qty | Sell | Buy</span>
+                                                <span className="flex-1 text-center">Gross Total</span>
                                                 <span className="flex-1 text-right">P&L</span>
                                             </div>
                                             {item.subItemDetails.map((sub, sidx) => (
@@ -450,6 +451,9 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                                                     </div>
                                                     <div className="flex-1 text-center text-[8px] text-slate-500 font-black">
                                                         {sub.qty} | {sub.sellPrice} | {sub.buyPrice}
+                                                    </div>
+                                                    <div className="flex-1 text-center font-black text-slate-900">
+                                                        {formatCurrency(sub.totalQty * sub.sellPrice)}
                                                     </div>
                                                     <div className="flex-1 text-right">
                                                         <span className="text-emerald-600 font-black">+{formatCurrency(sub.profit)}</span>
