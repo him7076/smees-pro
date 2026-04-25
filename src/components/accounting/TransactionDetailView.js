@@ -43,9 +43,10 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
 
             let itemMaterialProfit = 0;
             let itemServiceProfit = 0;
+            let subItemDetails = [];
 
             if (item.isBundle && item.subItems?.length > 0) {
-                // 1. Total profit from the bundle as a whole
+                // 1. Total profit from the bundle as a whole (Official Final Profit)
                 const buy = parseFloat(item.buyPrice || master?.buyPrice || 0);
                 const totalBundleProfit = (sell * qty) - (buy * qty);
                 
@@ -61,18 +62,23 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                     
                     sumOfSubItemProfits += subProfit;
 
-                    const isSubService = (subMaster?.category || subMaster?.type || '').toLowerCase().includes('service');
-                    if (isSubService) itemServiceProfit += subProfit;
+                    const subType = (subMaster?.category || subMaster?.type || '').toLowerCase().includes('service') ? 'Service' : 'Material';
+                    if (subType === 'Service') itemServiceProfit += subProfit;
                     else itemMaterialProfit += subProfit;
+
+                    subItemDetails.push({
+                        name: subMaster?.name || 'Item',
+                        brand: sub.brand,
+                        type: subType,
+                        profit: subProfit
+                    });
                 });
 
                 // 3. Residual Profit (The markup applied at the bundle level itself)
-                // We treat this as Service/Management profit
                 const bundleMarkup = totalBundleProfit - sumOfSubItemProfits;
                 itemServiceProfit += bundleMarkup;
-                
-                // Keep track of markup for UI display
                 item.bundleMarkup = bundleMarkup;
+                item.totalBundleProfit = totalBundleProfit;
             } else {
                 const buy = parseFloat(item.buyPrice || item.purchasePrice || master?.buyPrice || 0);
                 const profitValue = (sell * qty) - (buy * qty);
@@ -81,11 +87,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                 else itemMaterialProfit = profitValue;
             }
 
-            // Adjust profit by the line-item discount proportionally or simply subtraction
-            // Typically, we subtract it from the total yield of that line
             const totalItemYield = itemMaterialProfit + itemServiceProfit - itemLineDiscount;
-            
-            // For bifurcation, we can split discount based on profit weight, but usually it's material
             if (itemServiceProfit > itemMaterialProfit) itemServiceProfit -= itemLineDiscount;
             else itemMaterialProfit -= itemLineDiscount;
 
@@ -98,6 +100,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                 itemLineDiscount,
                 materialProfit: itemMaterialProfit,
                 serviceProfit: itemServiceProfit,
+                subItemDetails,
                 type: (itemServiceProfit > itemMaterialProfit) ? 'Service' : 'Material'
             };
         });
@@ -418,53 +421,62 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                                         <p className="text-xs font-black text-slate-900">{formatCurrency(item.qty * item.price)}</p>
                                     </div>
 
-                                    {/* Recursive Bundle Component List */}
-                                    {item.isBundle && item.subItems?.length > 0 && (
-                                        <div className="mt-3 pt-3 border-t border-slate-200/50 space-y-2">
-                                            <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Embedded Material & Service Trace</p>
-                                            {item.subItems.map((sub, sidx) => {
-                                                const sMaster = data.items.find(m => m.id === sub.itemId);
-                                                return (
-                                                    <div key={sidx} className="flex justify-between items-center text-[9px] font-bold text-slate-600 bg-white/50 p-2 rounded-xl">
-                                                        <span className="flex-1 truncate pr-2">{sMaster?.name || 'Part'} {sub.brand ? `[${sub.brand}]` : ''}</span>
-                                                        <span className="text-slate-400 whitespace-nowrap">{sub.qty} Unit(s)</span>
+                                    {/* Recursive Bundle Component List with Individual Profits */}
+                                    {item.isBundle && item.subItemDetails?.length > 0 && (
+                                        <div className="mt-4 pt-4 border-t border-slate-200/50 space-y-2">
+                                            <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Embedded Profit Ledger</p>
+                                            {item.subItemDetails.map((sub, sidx) => (
+                                                <div key={sidx} className="flex justify-between items-center text-[9px] font-bold text-slate-600 bg-white/50 p-2 rounded-xl">
+                                                    <div className="flex-1 truncate pr-2">
+                                                        <span className={sub.type === 'Service' ? 'text-blue-600' : 'text-slate-700'}>{sub.name}</span>
+                                                        {sub.brand && <span className="text-[7px] text-slate-400 ml-1">[{sub.brand}]</span>}
                                                     </div>
-                                                );
-                                            })}
+                                                    <span className="text-emerald-600 whitespace-nowrap bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100/50">+{formatCurrency(sub.profit)}</span>
+                                                </div>
+                                            ))}
                                         </div>
                                     )}
                                     
-                                    {/* Profit Indicator */}
+                                    {/* Advanced Profit Breakdown (Admin Only) */}
                                     {user.role === 'admin' && tx.type === 'sales' && (
-                                        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-200/50">
-                                            {item.isBundle ? (
-                                                <>
-                                                    <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                                        Item Margins (G): {formatCurrency(item.materialProfit)}
+                                        <div className="mt-4 pt-4 border-t border-slate-200/50 space-y-3">
+                                            <div className="flex flex-wrap gap-2">
+                                                {item.isBundle ? (
+                                                    <div className="w-full bg-slate-900/5 p-3 rounded-2xl border border-slate-200/50 space-y-2">
+                                                        <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-slate-500">
+                                                            <span>Material Margin (G)</span>
+                                                            <span className="text-emerald-600">{formatCurrency(item.materialProfit)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-slate-500">
+                                                            <span>Service Margin (S)</span>
+                                                            <span className="text-blue-600">{formatCurrency(item.serviceProfit - (item.bundleMarkup || 0))}</span>
+                                                        </div>
+                                                        {item.bundleMarkup !== 0 && (
+                                                            <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-slate-500 pt-1 border-t border-slate-200/30">
+                                                                <span>Bundle Markup (Residual)</span>
+                                                                <span className="text-indigo-600">{formatCurrency(item.bundleMarkup)}</span>
+                                                            </div>
+                                                        )}
+                                                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-900 pt-2 border-t border-slate-900/10">
+                                                            <span>Actual Bundle Profit</span>
+                                                            <span className="text-emerald-600">{formatCurrency(item.totalBundleProfit)}</span>
+                                                        </div>
                                                     </div>
-                                                    <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-blue-50 text-blue-700 border border-blue-100">
-                                                        Item Margins (S): {formatCurrency(item.serviceProfit - (item.bundleMarkup || 0))}
+                                                ) : (
+                                                    <div className="flex gap-2">
+                                                        {item.materialProfit !== 0 && (
+                                                            <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                                                Material Gain: {formatCurrency(item.materialProfit)}
+                                                            </div>
+                                                        )}
+                                                        {item.serviceProfit !== 0 && (
+                                                            <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-blue-50 text-blue-700 border border-blue-100">
+                                                                Service Yield: {formatCurrency(item.serviceProfit)}
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                    {item.bundleMarkup !== 0 && (
-                                                        <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-indigo-50 text-indigo-700 border border-indigo-100 shadow-sm">
-                                                            Bundle Surcharge: {formatCurrency(item.bundleMarkup)}
-                                                        </div>
-                                                    )}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    {item.materialProfit !== 0 && (
-                                                        <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                                            Material Gain: {formatCurrency(item.materialProfit)}
-                                                        </div>
-                                                    )}
-                                                    {item.serviceProfit !== 0 && (
-                                                        <div className="text-[7px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter bg-blue-50 text-blue-700 border border-blue-100">
-                                                            Service Yield: {formatCurrency(item.serviceProfit)}
-                                                        </div>
-                                                    )}
-                                                </>
-                                            )}
+                                                )}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
