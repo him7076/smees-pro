@@ -12,6 +12,31 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
     const [showItems, setShowItems] = useState(false);
     const [showAllStaff, setShowAllStaff] = useState(false);
 
+    const party = data.parties.find(p => p.id === task.partyId);
+    const subTasks = data.tasks.filter(t => t.parentId === task.id);
+    const isMyTimerRunning = (task.timeLogs || []).some(l => l.staffId === user?.id && !l.end);
+
+    const shareTask = () => {
+        const link = `${window.location.origin}?taskId=${task.id}`;
+        const text = `*Task Details*\nID: ${task.id}\nTask: ${task.name}\nClient: ${party?.name || 'N/A'}\nStatus: ${task.status}\n\nLink: ${link}`;
+        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    };
+
+    const formatMins = (m) => {
+        if(!m || m <= 0) return '0m';
+        const h = Math.floor(m / 60);
+        const mins = Math.round(m % 60);
+        return h > 0 ? `${h}h ${mins}m` : `${mins}m`;
+    };
+
+    const staffSummary = (task.timeLogs || []).reduce((acc, log) => {
+        const name = log.staffName || 'Staff';
+        acc[name] = (acc[name] || 0) + parseFloat(log.duration || 0);
+        return acc;
+    }, {});
+
+    const visibleStaff = data.staff.filter(s => user.role === 'admin' || s.id === user.id);
+
     // Task-specific Profit Engine (Tiered)
     const profitData = React.useMemo(() => {
         if (!task || !task.itemsUsed) return { items: [], normalMaterialPnL:0, normalServicePnL:0, bundleActualPnL:0, netPnL:0 };

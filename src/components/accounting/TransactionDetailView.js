@@ -25,7 +25,7 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
 
     // Enhanced Profit Calculation Logic for Breakdown (Recursive for Bundles)
     const profitData = React.useMemo(() => {
-        if (!tx) return { itemBreakdown: [], normalMaterialP&L:0, normalServiceP&L:0, bundleActualP&L:0, netPnL:0 };
+        if (!tx) return { itemBreakdown: [], normalMaterialPnL:0, normalServicePnL:0, bundleActualPnL:0, netPnL:0 };
         
         let normalMaterialPnL = 0;
         let normalServicePnL = 0;
