@@ -419,8 +419,6 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                         </div>
                     </div>
                 )}
-                    </div>
-                )}
 
                 {/* Linked Records Section */}
                 {(() => {
