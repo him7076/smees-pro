@@ -156,6 +156,20 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
         setForm({ ...form, itemsUsed: n });
     };
 
+    const removeSubItem = (lineIdx, subIdx) => {
+        const n = [...form.itemsUsed];
+        n[lineIdx].subItems.splice(subIdx, 1);
+        
+        const totalBuy = n[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+        const totalSell = n[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+        
+        const pQty = parseFloat(n[lineIdx].qty || 1);
+        n[lineIdx].buyPrice = totalBuy / pQty;
+        n[lineIdx].price = totalSell / pQty;
+
+        setForm({ ...form, itemsUsed: n });
+    };
+
     const addLinkedItem = (parentIdx, linkIdx) => {
         const parentLine = form.itemsUsed[parentIdx];
         const linkInfo = parentLine.linkedItems[linkIdx];

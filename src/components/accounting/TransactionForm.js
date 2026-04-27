@@ -41,6 +41,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         ...(record || {})
     });
 
+    const [attachingPhoto, setAttachingPhoto] = useState(false);
     const [showLocPicker, setShowLocPicker] = useState(false);
     const [addBrandModal, setAddBrandModal] = useState(null);
     const [addItemModal, setAddItemModal] = useState(null);
