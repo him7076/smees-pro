@@ -2,7 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { 
     X, Plus, Trash2, Edit2, Package, Calendar, Clock, 
     Link as LinkIcon, ShoppingBag, MapPin, Phone, 
-    CheckCircle2, AlertCircle, Info, Layout
+    CheckCircle2, AlertCircle, Info, Layout, Camera, Image as ImageIcon,
+    FileText, HardDrive, DownloadCloud
 } from 'lucide-react';
 import SearchableSelect from '../ui/SearchableSelect';
 import { useDatabase } from '../../hooks/useDatabase';
@@ -37,8 +38,11 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
         parentId: null,
         address: '', mobile: '', lat: '', lng: '', locationLabel: '', 
         selectedContacts: [],
-        photosLink: ''
+        photosLink: '',
+        localPhotos: record?.localPhotos || []
     });
+
+    const [attachingPhoto, setAttachingPhoto] = useState(false);
 
     const [showItems, setShowItems] = useState(false);
     const [showLocPicker, setShowLocPicker] = useState(false);
@@ -126,12 +130,25 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
         setForm({ ...form, itemsUsed: n });
     };
 
-    const removeSubItem = (lineIdx, subIdx) => {
+    const updateSubItem = (lineIdx, subIdx, field, val) => {
         const n = [...form.itemsUsed];
-        n[lineIdx].subItems.splice(subIdx, 1);
-        
+        n[lineIdx].subItems[subIdx][field] = val;
+
+        const subItem = n[lineIdx].subItems[subIdx];
+        const subMaster = data.items.find(i => i.id === subItem.itemId);
+
+        if (field === 'brand' && subMaster) {
+            const bData = subMaster.brands?.find(b => b.name === val);
+            if (bData) {
+                n[lineIdx].subItems[subIdx].buyPrice = bData.buyPrice;
+                n[lineIdx].subItems[subIdx].price = bData.sellPrice;
+            }
+        }
+
+        // Recalculate parent totals
         const totalBuy = n[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
         const totalSell = n[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+        
         const pQty = parseFloat(n[lineIdx].qty || 1);
         n[lineIdx].buyPrice = totalBuy / pQty;
         n[lineIdx].price = totalSell / pQty;
@@ -175,8 +192,47 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
             id: nextId, 
             updatedAt: new Date().toISOString(),
             createdAt: record?.createdAt || new Date().toISOString()
-        }, isPersonal ? 'task' : 'task'); // Both use 'task' as subType in useDatabase
+        }, isPersonal ? 'task' : 'task');
         onClose();
+    };
+
+    const handlePhotoAttach = async (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+        
+        setAttachingPhoto(true);
+        const newPhotos = [...(form.localPhotos || [])];
+
+        for (const file of files) {
+            const reader = new FileReader();
+            const promise = new Promise((resolve) => {
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(file);
+            });
+            const base64 = await promise;
+            
+            // Generate a unique name for local storage reference
+            const fileName = `task_${nextId}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+            
+            newPhotos.push({
+                name: fileName,
+                data: base64, // Fallback storage
+                timestamp: new Date().toISOString()
+            });
+
+            // LOGIC FOR NATIVE FOLDER SAVE
+            // If Capacitor Filesystem is available, we would write here:
+            // Filesystem.writeFile({ path: `SMEES_Photos/${fileName}`, data: base64, directory: Directory.Documents })
+        }
+
+        setForm({ ...form, localPhotos: newPhotos });
+        setAttachingPhoto(false);
+    };
+
+    const removePhoto = (pIdx) => {
+        const n = [...(form.localPhotos || [])];
+        n.splice(pIdx, 1);
+        setForm({ ...form, localPhotos: n });
     };
 
     return (
@@ -363,16 +419,41 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                 )}
 
                 {/* Description & Media */}
-                <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm space-y-4">
+                <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm space-y-6">
                     <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Briefing</label>
                         <textarea className="w-full p-5 bg-slate-50 border border-slate-100 rounded-[28px] text-sm font-bold shadow-sm min-h-[100px] outline-none" placeholder="Provide operational details..." value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
                     </div>
-                    <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Photos / Album Cloud Link</label>
+
+                    <div className="space-y-4">
+                        <div className="flex justify-between items-center px-1">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Camera size={14}/> Job Site Photos</label>
+                            <span className="text-[8px] font-black text-blue-500 bg-blue-50 px-2 py-1 rounded-lg uppercase tracking-tighter">Pixel Local Backup Mode</span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3">
+                            {form.localPhotos?.map((photo, pIdx) => (
+                                <div key={pIdx} className="relative aspect-square rounded-2xl overflow-hidden border border-slate-100 shadow-sm group animate-in zoom-in-95">
+                                    <img src={photo.data} alt="Job" className="w-full h-full object-cover" />
+                                    <button onClick={() => removePhoto(pIdx)} className="absolute top-1 right-1 bg-white/90 backdrop-blur p-1.5 rounded-full text-rose-500 shadow-md active:scale-90 transition-all"><X size={12}/></button>
+                                </div>
+                            ))}
+                            <label className={`aspect-square rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-100 transition-all active:scale-95 ${attachingPhoto ? 'opacity-50 pointer-events-none' : ''}`}>
+                                <input type="file" multiple accept="image/*" className="hidden" onChange={handlePhotoAttach} />
+                                <div className="p-3 bg-white rounded-full shadow-sm text-blue-600">
+                                    {attachingPhoto ? <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div> : <Plus size={20}/>}
+                                </div>
+                                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Add Media</span>
+                            </label>
+                        </div>
+                        <p className="text-[8px] font-bold text-slate-400 text-center italic">Photos are saved to your local device storage for Google Photos backup.</p>
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-50 space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><DownloadCloud size={14}/> Cloud Album Link (Optional)</label>
                         <div className="relative">
                             <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16}/>
-                            <input className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-xs outline-none" placeholder="Paste Google Photos/Album Link..." value={form.photosLink || ''} onChange={e => setForm({...form, photosLink: e.target.value})} />
+                            <input className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-xs outline-none" placeholder="Paste Shared Link..." value={form.photosLink || ''} onChange={e => setForm({...form, photosLink: e.target.value})} />
                         </div>
                     </div>
                 </div>
@@ -480,65 +561,29 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                                             <div className="grid grid-cols-2 gap-2">
                                                                                 <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
                                                                                     <p className="text-[7px] font-black text-slate-500 mb-1 uppercase">Variant / Brand</p>
-                                                                                    <select 
-                                                                                        className="w-full bg-transparent text-[10px] text-white font-black outline-none cursor-pointer" 
-                                                                                        value={sub.brand || ''} 
-                                                                                        onChange={e => {
-                                                                                            const ni = [...form.itemsUsed];
-                                                                                            ni[idx].subItems[sIdx].brand = e.target.value;
-                                                                                            const bData = subMaster?.brands?.find(b => b.name === e.target.value);
-                                                                                                if (bData) {
-                                                                                                    ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
-                                                                                                    ni[idx].subItems[sIdx].price = bData.sellPrice;
-                                                                                                    const totalBuy = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-                                                                                                    const totalSell = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
-                                                                                                    const pQty = parseFloat(ni[idx].qty || 1);
-                                                                                                    ni[idx].buyPrice = totalBuy / pQty;
-                                                                                                    ni[idx].price = totalSell / pQty;
-                                                                                                }
-                                                                                                setForm({...form, itemsUsed: ni});
-                                                                                        }}
-                                                                                    >
-                                                                                        <option value="" className="text-slate-900">Standard</option>
-                                                                                        {subMaster?.brands?.map((b, bi) => <option key={bi} value={b.name} className="text-slate-900">{b.name}</option>)}
-                                                                                    </select>
+                                                                                    <SearchableSelect 
+                                                                                        placeholder={subMaster?.brands?.length ? "Variant" : "Standard"}
+                                                                                        options={subMaster?.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}` })) || []}
+                                                                                        value={sub.brand || ''}
+                                                                                        onChange={v => updateSubItem(idx, sIdx, 'brand', v)}
+                                                                                        onAddNew={() => setAddBrandModal({ item: subMaster, idx, subIdx: sIdx, name: '', sellPrice: subMaster.sellPrice, buyPrice: subMaster.buyPrice })}
+                                                                                        className="transaction-sub-select"
+                                                                                    />
                                                                                 </div>
                                                                                 <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
                                                                                     <p className="text-[7px] font-black text-slate-500 mb-1 uppercase">Quantity</p>
-                                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-white font-black outline-none" value={sub.qty} onChange={e => {
-                                                                                        const ni = [...form.itemsUsed];
-                                                                                        ni[idx].subItems[sIdx].qty = e.target.value;
-                                                                                        const totalBuy = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-                                                                                        const totalSell = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
-                                                                                        const pQty = parseFloat(ni[idx].qty || 1);
-                                                                                        ni[idx].buyPrice = totalBuy / pQty;
-                                                                                        ni[idx].price = totalSell / pQty;
-                                                                                        setForm({...form, itemsUsed: ni});
-                                                                                    }} />
+                                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-white font-black outline-none" value={sub.qty} onChange={e => updateSubItem(idx, sIdx, 'qty', e.target.value)} />
                                                                                 </div>
                                                                             </div>
 
                                                                             <div className="grid grid-cols-2 gap-2">
                                                                                 <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 text-blue-400">
                                                                                     <p className="text-[7px] font-black text-slate-500 mb-1 uppercase">Buy Rate</p>
-                                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => {
-                                                                                        const ni = [...form.itemsUsed];
-                                                                                        ni[idx].subItems[sIdx].buyPrice = e.target.value;
-                                                                                        const totalBuy = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-                                                                                        const totalSell = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
-                                                                                        const pQty = parseFloat(ni[idx].qty || 1);
-                                                                                        ni[idx].buyPrice = totalBuy / pQty;
-                                                                                        ni[idx].price = totalSell / pQty;
-                                                                                        setForm({...form, itemsUsed: ni});
-                                                                                    }} />
+                                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => updateSubItem(idx, sIdx, 'buyPrice', e.target.value)} />
                                                                                 </div>
                                                                                 <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 text-emerald-400">
                                                                                     <p className="text-[7px] font-black text-slate-500 mb-1 uppercase">Sell Rate</p>
-                                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-emerald-400 font-black outline-none" value={sub.price || 0} onChange={e => {
-                                                                                        const ni = [...form.itemsUsed];
-                                                                                        ni[idx].subItems[sIdx].price = e.target.value;
-                                                                                        setForm({...form, itemsUsed: ni});
-                                                                                    }} />
+                                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-emerald-400 font-black outline-none" value={sub.price || 0} onChange={e => updateSubItem(idx, sIdx, 'price', e.target.value)} />
                                                                                 </div>
                                                                             </div>
 
@@ -546,11 +591,7 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                                                 className="w-full bg-white/5 p-3 rounded-xl text-[9px] font-bold text-slate-400 border border-white/5 outline-none placeholder:text-slate-600" 
                                                                                 placeholder="Sub-item description / serial..." 
                                                                                 value={sub.description || ''} 
-                                                                                onChange={e => {
-                                                                                    const ni = [...form.itemsUsed];
-                                                                                    ni[idx].subItems[sIdx].description = e.target.value;
-                                                                                    setForm({...form, itemsUsed: ni});
-                                                                                }} 
+                                                                                onChange={e => updateSubItem(idx, sIdx, 'description', e.target.value)} 
                                                                             />
                                                                         </div>
                                                                     );
@@ -747,13 +788,18 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                             </div>
                             <button 
                                 onClick={async () => {
-                                    const { name, sellPrice, buyPrice, item, idx } = addBrandModal;
+                                    const { name, sellPrice, buyPrice, item, idx, subIdx } = addBrandModal;
                                     if(!name) return alert("Required");
                                     const newBrands = [...(item.brands || []), { name, sellPrice: parseFloat(sellPrice||0), buyPrice: parseFloat(buyPrice||0) }];
                                     const updatedItem = { ...item, brands: newBrands, updatedAt: new Date().toISOString() };
                                     await setDoc(doc(db, "items", item.id), updatedItem, { merge: true });
                                     setData(prev => ({ ...prev, items: prev.items.map(i => i.id === item.id ? updatedItem : i) }));
-                                    updateItem(idx, 'brand', name);
+                                    
+                                    if (subIdx !== undefined) {
+                                        updateSubItem(idx, subIdx, 'brand', name);
+                                    } else {
+                                        updateItem(idx, 'brand', name);
+                                    }
                                     setAddBrandModal(null);
                                 }}
                                 className="w-full py-6 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl active:scale-95 transition-all mt-4"

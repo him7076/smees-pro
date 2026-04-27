@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     X, Plus, Trash2, Save, Calculator, Link as LinkIcon, ShoppingBag, 
     Package, Banknote, Calendar, ChevronRight, CheckCircle2, AlertCircle, 
-    TrendingUp, TrendingDown, Phone, MapPin, ShieldCheck, Info, Search, Wrench, Layout
+    TrendingUp, TrendingDown, Phone, MapPin, ShieldCheck, Info, Search, Wrench, Layout,
+    Camera, Image as ImageIcon, FileText, HardDrive, DownloadCloud
 } from 'lucide-react';
 import SearchableSelect from '../ui/SearchableSelect';
 import { useDatabase } from '../../hooks/useDatabase';
@@ -27,6 +28,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         discountValue: record?.discountValue || 0,
         roundOff: record?.roundOff || 0,
         notes: '',
+        localPhotos: record?.localPhotos || [],
         paymentMode: 'Cash',
         subType: (initialType === 'sales' || initialType === 'estimate') ? 'in' : 'out',
         linkedBills: [],
@@ -89,8 +91,10 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
 
         if (field === 'qty' && newItems[idx].isBundle) {
             const totalBuy = (newItems[idx].subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-            const parentQty = parseFloat(val || 1);
-            newItems[idx].buyPrice = totalBuy / parentQty;
+            const totalSell = (newItems[idx].subItems || []).reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+            const pQty = parseFloat(val || 1);
+            newItems[idx].buyPrice = totalBuy / pQty;
+            newItems[idx].price = totalSell / pQty;
         }
 
         if (field === 'itemId') {
@@ -99,7 +103,6 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
             if (item) {
                 newItems[idx].price = item.sellPrice || 0;
                 
-                // Get Last Purchase Price for normal items
                 let lpp = item.buyPrice || 0;
                 if (!newItems[idx].isBundle) {
                     const lastPurchase = (data.transactions || [])
@@ -111,11 +114,10 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                     }
                 }
                 newItems[idx].buyPrice = lpp;
-
                 newItems[idx].description = item.description || '';
                 newItems[idx].brand = '';
                 newItems[idx].linkedItems = item.linkedItems || [];
-                newItems[idx].subItems = item.templateItems || []; // Allow template items to load
+                newItems[idx].subItems = item.templateItems || []; 
             }
         }
 
@@ -130,6 +132,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                 }
             }
         }
+
         setTx({ ...tx, items: newItems });
     };
 
@@ -169,6 +172,66 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         newItems[lineIdx].price = totalSell / parentQty;
         
         setTx({ ...tx, items: newItems });
+    };
+
+    const updateSubItem = (lineIdx, subIdx, field, val) => {
+        const newItems = [...tx.items];
+        newItems[lineIdx].subItems[subIdx][field] = val;
+
+        const subItem = newItems[lineIdx].subItems[subIdx];
+        const subMaster = data.items.find(i => i.id === subItem.itemId);
+
+        if (field === 'brand' && subMaster) {
+            const bData = subMaster.brands?.find(b => b.name === val);
+            if (bData) {
+                newItems[lineIdx].subItems[subIdx].buyPrice = bData.buyPrice;
+                newItems[lineIdx].subItems[subIdx].price = bData.sellPrice;
+            }
+        }
+
+        // Recalculate parent totals
+        const totalBuy = newItems[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
+        const totalSell = newItems[lineIdx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
+        
+        const parentQty = parseFloat(newItems[lineIdx].qty || 1);
+        newItems[lineIdx].buyPrice = totalBuy / parentQty;
+        newItems[lineIdx].price = totalSell / parentQty;
+
+        setTx({ ...tx, items: newItems });
+    };
+
+    const handlePhotoAttach = async (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+        
+        setAttachingPhoto(true);
+        const newPhotos = [...(tx.localPhotos || [])];
+
+        for (const file of files) {
+            const reader = new FileReader();
+            const promise = new Promise((resolve) => {
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(file);
+            });
+            const base64 = await promise;
+            
+            const fileName = `tx_${nextId}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+            
+            newPhotos.push({
+                name: fileName,
+                data: base64,
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        setTx({ ...tx, localPhotos: newPhotos });
+        setAttachingPhoto(false);
+    };
+
+    const removePhoto = (pIdx) => {
+        const n = [...(tx.localPhotos || [])];
+        n.splice(pIdx, 1);
+        setTx({ ...tx, localPhotos: n });
     };
 
     const addLinkedItem = (parentIdx, linkIdx) => {
@@ -669,52 +732,45 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                                                         </div>
                                                                         <div className="flex-1">
                                                                             <p className="text-[10px] font-black text-white uppercase truncate tracking-wide">{subMaster?.name || 'Bundle Part'}</p>
-                                                                            <div className="flex items-center gap-2 mt-1">
-                                                                                <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{sub.qty} {subMaster?.unit || 'pcs'} × {formatCurrency(sub.price)}</span>
-                                                                            </div>
+                                                                            <p className="text-[8px] font-bold text-slate-500 mt-0.5">{subMaster?.id}</p>
                                                                         </div>
-                                                                        <button onClick={() => removeSubItem(idx, sIdx)} className="p-2 text-slate-500 hover:text-rose-500 transition-colors bg-white/5 rounded-xl"><X size={14}/></button>
+                                                                        <button onClick={() => removeSubItem(idx, sIdx)} className="p-2 text-slate-500 hover:text-rose-500 transition-colors bg-white/5 rounded-xl"><Trash2 size={14}/></button>
                                                                     </div>
 
                                                                     <div className="grid grid-cols-2 gap-3">
                                                                         <div className="bg-white/5 p-3 rounded-2xl border border-white/10">
-                                                                            <div className="flex justify-between items-center mb-1">
-                                                                                <p className="text-[8px] font-black text-slate-500 uppercase">Variant / Brand</p>
-                                                                                <span className={`text-[8px] font-black ${(sub.price - sub.buyPrice) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>Yield: {formatCurrency((sub.price - sub.buyPrice) * sub.qty)}</span>
-                                                                            </div>
-                                                                            <select className="w-full bg-transparent text-[10px] text-white font-black outline-none cursor-pointer" value={sub.brand || ''} onChange={e => {
-                                                                                const ni = [...tx.items];
-                                                                                ni[idx].subItems[sIdx].brand = e.target.value;
-                                                                                const bData = subMaster?.brands?.find(b => b.name === e.target.value);
-                                                                                if (bData) {
-                                                                                    ni[idx].subItems[sIdx].buyPrice = bData.buyPrice;
-                                                                                    ni[idx].subItems[sIdx].price = bData.sellPrice;
-                                                                                    const totalBuy = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.buyPrice || 0)), 0);
-                                                                                    const totalSell = ni[idx].subItems.reduce((acc, s) => acc + (parseFloat(s.qty || 0) * parseFloat(s.price || 0)), 0);
-                                                                                    const parentQty = parseFloat(ni[idx].qty || 1);
-                                                                                    ni[idx].buyPrice = totalBuy / parentQty;
-                                                                                    ni[idx].price = totalSell / parentQty;
-                                                                                }
-                                                                                setTx({...tx, items: ni});
-                                                                            }}>
-                                                                                <option value="" className="text-slate-900">Standard / Default</option>
-                                                                                {subMaster?.brands?.map((b, bi) => <option key={bi} value={b.name} className="text-slate-900">{b.name}</option>)}
-                                                                            </select>
+                                                                            <p className="text-[8px] font-black text-slate-500 mb-1 uppercase">Variant / Brand</p>
+                                                                            <SearchableSelect 
+                                                                                placeholder={subMaster?.brands?.length ? "Variant" : "Standard"}
+                                                                                options={subMaster?.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}` })) || []}
+                                                                                value={sub.brand || ''}
+                                                                                onChange={v => updateSubItem(idx, sIdx, 'brand', v)}
+                                                                                onAddNew={() => setAddBrandModal({ item: subMaster, idx, subIdx: sIdx, name: '', sellPrice: subMaster.sellPrice, buyPrice: subMaster.buyPrice })}
+                                                                                className="transaction-sub-select"
+                                                                            />
                                                                         </div>
                                                                         <div className="bg-white/5 p-3 rounded-2xl border border-white/10">
-                                                                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Comp. Total</p>
-                                                                            <p className="text-[10px] text-blue-400 font-black px-1">{formatCurrency(sub.qty * sub.price)}</p>
+                                                                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Quantity</p>
+                                                                            <input type="number" className="w-full bg-transparent text-[10px] text-white font-black outline-none" value={sub.qty} onChange={e => updateSubItem(idx, sIdx, 'qty', e.target.value)} />
                                                                         </div>
                                                                     </div>
+
+                                                                    <div className="grid grid-cols-2 gap-3">
+                                                                        <div className="bg-white/5 p-3 rounded-2xl border border-white/10">
+                                                                            <p className="text-[8px] font-black text-slate-500 mb-1 uppercase">Buy Rate</p>
+                                                                            <input type="number" className="w-full bg-transparent text-[10px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => updateSubItem(idx, sIdx, 'buyPrice', e.target.value)} />
+                                                                        </div>
+                                                                        <div className="bg-white/5 p-3 rounded-2xl border border-white/10">
+                                                                            <p className="text-[8px] font-black text-slate-500 mb-1 uppercase">Sell Rate</p>
+                                                                            <input type="number" className="w-full bg-transparent text-[10px] text-emerald-400 font-black outline-none" value={sub.price} onChange={e => updateSubItem(idx, sIdx, 'price', e.target.value)} />
+                                                                        </div>
+                                                                    </div>
+
                                                                     <input 
                                                                         className="w-full bg-white/5 p-3 rounded-xl text-[9px] font-bold text-slate-400 border border-white/5 outline-none placeholder:text-slate-600 focus:border-blue-500/30 transition-all" 
                                                                         placeholder="Component notes / serial number / IMEI..." 
                                                                         value={sub.description || ''} 
-                                                                        onChange={e => {
-                                                                            const ni = [...tx.items];
-                                                                            ni[idx].subItems[sIdx].description = e.target.value;
-                                                                            setTx({...tx, items: ni});
-                                                                        }} 
+                                                                        onChange={e => updateSubItem(idx, sIdx, 'description', e.target.value)} 
                                                                     />
                                                                 </div>
                                                             );
@@ -822,6 +878,30 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                         <div className="space-y-2">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Voucher Remarks</label>
                             <textarea className="w-full p-5 bg-white border border-slate-200 rounded-[32px] text-sm font-bold shadow-sm min-h-[100px] outline-none" placeholder="Add memorandum..." value={tx.notes} onChange={e=>setTx({...tx, notes: e.target.value})} />
+                        </div>
+
+                        <div className="space-y-4 pt-4">
+                            <div className="flex justify-between items-center px-1">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Camera size={14}/> Evidence / Photos</label>
+                                <span className="text-[8px] font-black text-blue-500 bg-blue-50 px-2 py-1 rounded-lg uppercase tracking-tighter">Pixel Local Backup Mode</span>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3">
+                                {tx.localPhotos?.map((photo, pIdx) => (
+                                    <div key={pIdx} className="relative aspect-square rounded-2xl overflow-hidden border border-slate-100 shadow-sm group animate-in zoom-in-95">
+                                        <img src={photo.data} alt="Evidence" className="w-full h-full object-cover" />
+                                        <button onClick={() => removePhoto(pIdx)} className="absolute top-1 right-1 bg-white/90 backdrop-blur p-1.5 rounded-full text-rose-500 shadow-md active:scale-90 transition-all"><X size={12}/></button>
+                                    </div>
+                                ))}
+                                <label className={`aspect-square rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-100 transition-all active:scale-95 ${attachingPhoto ? 'opacity-50 pointer-events-none' : ''}`}>
+                                    <input type="file" multiple accept="image/*" className="hidden" onChange={handlePhotoAttach} />
+                                    <div className="p-3 bg-white rounded-full shadow-sm text-blue-600">
+                                        {attachingPhoto ? <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div> : <Plus size={20}/>}
+                                    </div>
+                                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Add Media</span>
+                                </label>
+                            </div>
+                            <p className="text-[8px] font-bold text-slate-400 text-center italic">Stored locally for Google Photos auto-sync.</p>
                         </div>
                     </div>
 
@@ -1003,7 +1083,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                             </div>
                             <button 
                                 onClick={async () => {
-                                    const { name, sellPrice, buyPrice, item, idx } = addBrandModal;
+                                    const { name, sellPrice, buyPrice, item, idx, subIdx } = addBrandModal;
                                     if(!name) return alert("Required");
                                     
                                     const newBrands = [...(item.brands || []), { name, sellPrice: parseFloat(sellPrice||0), buyPrice: parseFloat(buyPrice||0) }];
@@ -1011,7 +1091,12 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                     
                                     await setDoc(doc(db, "items", item.id), updatedItem, { merge: true });
                                     setData(prev => ({ ...prev, items: prev.items.map(i => i.id === item.id ? updatedItem : i) }));
-                                    updateLine(idx, 'brand', name);
+                                    
+                                    if (subIdx !== undefined) {
+                                        updateSubItem(idx, subIdx, 'brand', name);
+                                    } else {
+                                        updateLine(idx, 'brand', name);
+                                    }
                                     setAddBrandModal(null);
                                 }}
                                 className="w-full py-6 bg-slate-900 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-slate-200 active:scale-95 transition-all mt-4"
