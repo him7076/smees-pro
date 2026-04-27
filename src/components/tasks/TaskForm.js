@@ -452,12 +452,23 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                     <button onClick={() => removePhoto(pIdx)} className="absolute top-1 right-1 bg-white/90 backdrop-blur p-1.5 rounded-full text-rose-500 shadow-md active:scale-90 transition-all"><X size={12}/></button>
                                 </div>
                             ))}
-                            <label className={`aspect-square rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-100 transition-all active:scale-95 ${attachingPhoto ? 'opacity-50 pointer-events-none' : ''}`}>
+                            
+                            {/* Option 1: Gallery */}
+                            <label className={`aspect-square rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-slate-100 transition-all active:scale-95 ${attachingPhoto ? 'opacity-50 pointer-events-none' : ''}`}>
                                 <input type="file" multiple accept="image/*" className="hidden" onChange={handlePhotoAttach} />
-                                <div className="p-3 bg-white rounded-full shadow-sm text-blue-600">
-                                    {attachingPhoto ? <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div> : <Plus size={20}/>}
+                                <div className="p-2.5 bg-white rounded-full shadow-sm text-blue-600">
+                                    {attachingPhoto ? <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div> : <ImageIcon size={18}/>}
                                 </div>
-                                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Add Media</span>
+                                <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Gallery</span>
+                            </label>
+
+                            {/* Option 2: Live Camera */}
+                            <label className={`aspect-square rounded-2xl border-2 border-dashed border-blue-100 bg-blue-50/30 flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-blue-50 transition-all active:scale-95 ${attachingPhoto ? 'opacity-50 pointer-events-none' : ''}`}>
+                                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoAttach} />
+                                <div className="p-2.5 bg-white rounded-full shadow-sm text-blue-600">
+                                    {attachingPhoto ? <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div> : <Camera size={18}/>}
+                                </div>
+                                <span className="text-[7px] font-black text-blue-600 uppercase tracking-widest font-black">Camera</span>
                             </label>
                         </div>
                         <p className="text-[8px] font-bold text-slate-400 text-center italic">Photos are saved to your local device storage for Google Photos backup.</p>
