@@ -141,14 +141,15 @@ User Command: "${text}"
             const rawContent = result.candidates[0].content.parts[0].text;
             let parsedAction = null;
             try {
-                parsedAction = JSON.parse(rawContent.trim());
+                let cleanedContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
+                parsedAction = JSON.parse(cleanedContent);
             } catch (e) {
                 console.error("Failed to parse JSON from AI:", rawContent);
                 throw new Error("AI returned malformed data.");
             }
 
             if (parsedAction.action === "CREATE_TASK") {
-                const nextId = getNextId(data.tasks);
+                const nextId = getNextId(data.tasks || []);
                 const newTask = {
                     id: nextId,
                     name: parsedAction.data.name || 'New Task',
@@ -163,7 +164,7 @@ User Command: "${text}"
                 setTimeout(() => { setIsOpen(false); setTranscript(''); setSuccessMessage(''); }, 3000);
             } 
             else if (parsedAction.action === "CREATE_TRANSACTION") {
-                const nextId = getNextId(data.transactions);
+                const nextId = getNextId(data.transactions || []);
                 const isPayment = parsedAction.data.type === 'payment';
                 const newTx = {
                     id: nextId,
