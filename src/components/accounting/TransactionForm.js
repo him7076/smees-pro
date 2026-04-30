@@ -11,8 +11,10 @@ import {
     getTransactionTotals, formatCurrency, getBillStats, getNextId, 
     getPartyBalances, getItemStock 
 } from '../../utils/helpers';
+import { getTransactionTotals, formatCurrency, getBillStats, getNextId, getPartyBalances, getItemStock } from '../../utils/helpers';
 import { doc, setDoc } from "firebase/firestore";
 import { db } from '../../services/firebase';
+import piexif from 'piexifjs';
 
 const TransactionForm = ({ data, setData, type: initialType = 'sales', record, onClose }) => {
     const { saveRecord } = useDatabase(data, setData);
@@ -211,36 +213,46 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
                     
-                    canvas.width = img.width;
-                    canvas.height = img.height;
+                    let w = img.width;
+                    let h = img.height;
+                    const MAX_DIM = 1920;
+                    if (w > MAX_DIM || h > MAX_DIM) {
+                        if (w > h) {
+                            h = (h / w) * MAX_DIM;
+                            w = MAX_DIM;
+                        } else {
+                            w = (w / h) * MAX_DIM;
+                            h = MAX_DIM;
+                        }
+                    }
+                    canvas.width = w;
+                    canvas.height = h;
+                    ctx.drawImage(img, 0, 0, w, h);
                     
-                    ctx.drawImage(img, 0, 0);
-                    
-                    const fontSize = Math.max(Math.round(img.width * 0.03), 16);
-                    ctx.font = `bold ${fontSize}px sans-serif`;
+                    const jpegBase64 = canvas.toDataURL('image/jpeg', 0.9);
                     
                     const partyName = selectedParty?.name || 'N/A';
                     const docType = type.charAt(0).toUpperCase() + type.slice(1);
                     const dateStr = new Date().toLocaleString();
-                    const lines = [
+                    const captionParts = [
                         `Client: ${partyName}`,
                         `Type: ${docType} #${nextId}`,
                         `Date: ${dateStr}`
                     ];
-                    if (customNote) lines.push(`Note: ${customNote}`);
-                    
-                    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-                    const padding = fontSize;
-                    const rectHeight = (lines.length * fontSize * 1.5) + padding;
-                    ctx.fillRect(0, img.height - rectHeight, img.width, rectHeight);
-                    
-                    ctx.fillStyle = 'white';
-                    lines.forEach((line, i) => {
-                        ctx.fillText(line, padding, img.height - rectHeight + padding + (i + 1) * fontSize * 1.2);
-                    });
-                    
-                    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-                    resolve(dataUrl);
+                    if (customNote) captionParts.push(`Note: ${customNote}`);
+                    const captionText = captionParts.join(' | ');
+
+                    try {
+                        const zeroth = {};
+                        zeroth[piexif.ImageIFD.ImageDescription] = captionText;
+                        const exifObj = {"0th": zeroth};
+                        const exifStr = piexif.dump(exifObj);
+                        const finalBase64 = piexif.insert(exifStr, jpegBase64);
+                        resolve(finalBase64);
+                    } catch(err) {
+                        console.error("EXIF Error:", err);
+                        resolve(jpegBase64);
+                    }
                 };
                 img.src = e.target.result;
             };

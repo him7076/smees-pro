@@ -11,6 +11,7 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
     const [showLogs, setShowLogs] = useState(false);
     const [showItems, setShowItems] = useState(false);
     const [showAllStaff, setShowAllStaff] = useState(false);
+    const [showAllPhotos, setShowAllPhotos] = useState(false);
 
     const party = data.parties.find(p => p.id === task.partyId);
     const subTasks = data.tasks.filter(t => t.parentId === task.id);
@@ -389,6 +390,34 @@ const TaskDetailView = ({ task, data, user, onBack, setViewDetail, setModal, del
                                     </div>
                                 ))}
                             </div>
+                        )}
+                    </div>
+                )}
+
+                {/* LOCAL PHOTOS GALLERY */}
+                {task.localPhotos && task.localPhotos.length > 0 && (
+                    <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm">
+                        <div className="flex items-center gap-2 mb-4">
+                            <span className="text-xl">📸</span>
+                            <h3 className="text-lg font-black text-slate-900 tracking-tight">Attached Evidence</h3>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                            {(showAllPhotos ? task.localPhotos : task.localPhotos.slice(0, 3)).map((photo, i) => (
+                                <a key={i} href={photo.data} download={photo.name} className="relative aspect-square rounded-2xl overflow-hidden shadow-sm group border border-slate-100 block">
+                                    <img src={photo.data} alt="Evidence" className="w-full h-full object-cover" />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                        <span className="text-[9px] font-black text-white uppercase tracking-widest">Download</span>
+                                    </div>
+                                </a>
+                            ))}
+                        </div>
+                        {task.localPhotos.length > 3 && (
+                            <button 
+                                onClick={() => setShowAllPhotos(!showAllPhotos)}
+                                className="mt-4 w-full py-3 bg-slate-50 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-100 transition-colors"
+                            >
+                                {showAllPhotos ? 'Show Less' : `View All ${task.localPhotos.length} Photos`}
+                            </button>
                         )}
                     </div>
                 )}

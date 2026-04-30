@@ -3,6 +3,7 @@ import { ArrowLeft, Share2, MapPin, Package, ChevronRight, Link as LinkIcon, Ban
 import { formatCurrency, formatDate } from '../../utils/helpers';
 
 const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal, cancelTransaction, restoreTransaction, deleteRecord, checkPermission }) => {
+    const [showAllPhotos, setShowAllPhotos] = React.useState(false);
     const party = React.useMemo(() => tx ? data.parties.find(p => p.id && (p.id.toString() === tx.partyId?.toString())) : null, [tx, data.parties]);
     const isPayment = tx?.type === 'payment';
 
@@ -470,6 +471,34 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                         </div>
                     );
                 })()}
+
+                {/* LOCAL PHOTOS GALLERY */}
+                {tx.localPhotos && tx.localPhotos.length > 0 && (
+                    <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm">
+                        <div className="flex items-center gap-2 mb-4">
+                            <span className="text-xl">📸</span>
+                            <h3 className="text-lg font-black text-slate-900 tracking-tight">Attached Evidence</h3>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                            {(showAllPhotos ? tx.localPhotos : tx.localPhotos.slice(0, 3)).map((photo, i) => (
+                                <a key={i} href={photo.data} download={photo.name} className="relative aspect-square rounded-2xl overflow-hidden shadow-sm group border border-slate-100 block">
+                                    <img src={photo.data} alt="Evidence" className="w-full h-full object-cover" />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                        <span className="text-[9px] font-black text-white uppercase tracking-widest">Download</span>
+                                    </div>
+                                </a>
+                            ))}
+                        </div>
+                        {tx.localPhotos.length > 3 && (
+                            <button 
+                                onClick={() => setShowAllPhotos(!showAllPhotos)}
+                                className="mt-4 w-full py-3 bg-slate-50 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-100 transition-colors"
+                            >
+                                {showAllPhotos ? 'Show Less' : `View All ${tx.localPhotos.length} Photos`}
+                            </button>
+                        )}
+                    </div>
+                )}
 
                 {/* Memo */}
                 {tx.notes && (
