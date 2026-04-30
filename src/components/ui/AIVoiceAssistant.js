@@ -250,11 +250,11 @@ User Command: "${text}"
             setStatusText('');
         } catch (error) {
             console.error("AI Assistant Error:", error);
-            const msg = 'Network ya AI error aa gaya hai.';
+            const msg = error.message.includes('missing') ? error.message : 'Error: ' + error.message;
             setChatHistory([]); // Reset on error to prevent being stuck
             setTranscript('');
             setStatusText(msg);
-            speakText(msg);
+            speakText('Mujhe error aa raha hai. ' + (error.message.includes('missing') ? 'API key missing hai.' : 'Connection check kijiye.'));
         } finally {
             setIsProcessing(false);
             // Auto close handled in the success blocks or manual close on error
