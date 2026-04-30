@@ -355,7 +355,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         setShowLocPicker(false);
     };
 
-    const handleSave = async () => {
+    const handleSave = () => {
         if (!tx.partyId && type !== 'expense' && tx.paymentMode !== 'Cash') return alert("Select Party");
         if (['sales', 'purchase', 'estimate'].includes(type) && tx.items.length === 0) return alert("Items required");
         
@@ -369,7 +369,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
             updatedAt: new Date().toISOString()
         };
 
-        await saveRecord('transactions', finalToSave, type);
+        saveRecord('transactions', finalToSave, type).catch(console.error);
         onClose();
     };
 
@@ -1084,7 +1084,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                 <button onClick={onClose} className="flex-1 py-5 bg-slate-100 text-slate-400 rounded-3xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all">Cancel</button>
                 <button onClick={handleSave} className="flex-[2] py-5 bg-slate-900 text-white rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-slate-900/20 active:scale-95 transition-all flex items-center justify-center gap-3">
                     <CheckCircle2 size={20}/>
-                    Commit Voucher
+                    Save
                 </button>
             </div>
 

@@ -199,16 +199,16 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
         setShowLocPicker(false);
     };
 
-    const handleSave = async () => {
+    const handleSave = () => {
         if (!form.name) return alert("Task Name required");
         if (!form.partyId && !form.parentId && !isPersonal) return alert("Client required");
         
-        await saveRecord(collection, { 
+        saveRecord(collection, { 
             ...form, 
             id: nextId, 
             updatedAt: new Date().toISOString(),
             createdAt: record?.createdAt || new Date().toISOString()
-        }, isPersonal ? 'task' : 'task');
+        }, isPersonal ? 'task' : 'task').catch(console.error);
         onClose();
     };
 
@@ -844,7 +844,7 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                 <button onClick={onClose} className="flex-1 py-5 bg-slate-100 text-slate-400 rounded-3xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all">Discard</button>
                 <button onClick={handleSave} className="flex-[2] py-5 bg-slate-900 text-white rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-slate-900/20 active:scale-95 transition-all flex items-center justify-center gap-3">
                     <CheckCircle2 size={20}/>
-                    Commit Record
+                    Save
                 </button>
             </div>
 
