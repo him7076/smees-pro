@@ -11,7 +11,6 @@ import {
     getTransactionTotals, formatCurrency, getBillStats, getNextId, 
     getPartyBalances, getItemStock 
 } from '../../utils/helpers';
-import { getTransactionTotals, formatCurrency, getBillStats, getNextId, getPartyBalances, getItemStock } from '../../utils/helpers';
 import { doc, setDoc } from "firebase/firestore";
 import { db } from '../../services/firebase';
 import piexif from 'piexifjs';
