@@ -282,7 +282,15 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
         setAttachingPhoto(true);
         
         const base64 = await processWatermark(photoEditor.file, photoEditor.note);
-        const fileName = `SMEES_Task_${nextId}_${Date.now()}.jpg`;
+        
+        const cleanStr = (str) => (str || '').replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '-').trim().substring(0, 30);
+        const fParty = cleanStr(selectedParty?.name || 'Client');
+        const fTask = cleanStr(form.name || 'Task');
+        const fNote = cleanStr(photoEditor.note || '');
+        const fileNameParts = ['SMEES', fParty, fTask];
+        if (fNote) fileNameParts.push(fNote);
+        fileNameParts.push(Date.now());
+        const fileName = `${fileNameParts.join('_')}.jpg`;
         
         const newPhotos = [...(form.localPhotos || []), {
             name: fileName,
