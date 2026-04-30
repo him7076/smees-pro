@@ -46,7 +46,7 @@ import BackupRestore from './components/layout/BackupRestore';
 import SystemMenu from './components/layout/SystemMenu';
 import TaskSettings from './components/tasks/TaskSettings';
 import CloseFYModal from './components/layout/CloseFYModal';
-
+import AIVoiceAssistant from './components/ui/AIVoiceAssistant';
 
 const App = () => {
     const navigate = useNavigate();
@@ -596,6 +596,7 @@ const App = () => {
                     ) : <Navigate to="/" />} />
                     <Route path="*" element={<Navigate to="/" />} />
                 </Routes>
+                {user && <AIVoiceAssistant data={data} setData={setData} />}
             </div>
         </React.Fragment>
         </ErrorBoundary>
