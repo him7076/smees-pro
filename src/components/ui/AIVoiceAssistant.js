@@ -136,9 +136,9 @@ ${historyText}
 User Command: "${text}"
 `;
 
-            const apiKey = process.env.REACT_APP_GEMINI_API_KEY || "AIzaSyDxf3BgmftWckaBLyjyn71b1hnRGc6BwqI";
+            const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
             if (!apiKey) {
-                throw new Error("Gemini API key is missing.");
+                throw new Error("Gemini API key is missing. Please add it to Vercel environment variables.");
             }
 
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
