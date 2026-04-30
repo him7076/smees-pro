@@ -70,6 +70,20 @@ const AIVoiceAssistant = ({ data, setData }) => {
         }
     }, [isListening, transcript]);
 
+    const speakText = (text, onEndCallback = null) => {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel(); // Stop any ongoing speech
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'hi-IN'; 
+            if (onEndCallback) {
+                utterance.onend = onEndCallback;
+            }
+            window.speechSynthesis.speak(utterance);
+        } else if (onEndCallback) {
+            onEndCallback();
+        }
+    };
+
     const processWithAI = async (text) => {
         setIsProcessing(true);
         setStatusText('Processing with AI...');
@@ -85,33 +99,23 @@ const AIVoiceAssistant = ({ data, setData }) => {
             const prompt = `
 You are Jarvis, an AI assistant for an ERP system. 
 Parse the following user voice command in Hindi/Hinglish/English and figure out what action to take.
-The user might ask to create a "Task" or a "Transaction" (like an expense, sale, or payment).
 
 Available Database Context:
 ${JSON.stringify(contextData)}
 
 Rules for Output:
-Return ONLY a strictly valid JSON object (no markdown, no backticks, no comments).
+Return ONLY a strictly valid JSON object.
 Format:
 {
-  "action": "CREATE_TASK" | "CREATE_TRANSACTION" | "UNKNOWN",
+  "action": "CREATE_TASK" | "CREATE_TRANSACTION" | "ASK_QUESTION" | "UNKNOWN",
   "data": { ...record details... }
 }
 
-If CREATE_TASK:
-"data" must have:
-- "name": string (e.g., "AC Repair")
-- "partyId": number (match the client name to party id from context. If not found, leave null or try to guess)
-- "status": "Pending"
-- "description": string (any extra info)
-
-If CREATE_TRANSACTION:
-"data" must have:
-- "type": "sales" | "purchase" | "expense" | "payment" (guess based on command, e.g., "petrol" -> expense)
-- "partyId": number (if applicable)
-- "category": string (e.g., "Vehicle Expenses")
-- "amount": number (extract amount)
-- "notes": string
+Important Rules:
+- "partyId" MUST be exact integer ID from the context. If you find multiple matches (e.g. user says "Umesh bhaiya" but context has "Umesh 1" and "Umesh 2"), you MUST return action="ASK_QUESTION" and data.question="Mujhe do Umesh mile hain, Umesh 1 ya Umesh 2, kisme banana hai?".
+- If data is missing to complete the request safely, return ASK_QUESTION.
+- If it's a task: { "name": "Task Name", "partyId": 123, "description": "...", "status": "Pending" }
+- If it's a transaction/expense: { "type": "expense", "category": "Vehicle", "amount": 500, "notes": "..." }
 
 User Command: "${text}"
 `;
@@ -148,20 +152,38 @@ User Command: "${text}"
                 throw new Error("AI returned malformed data.");
             }
 
+            if (parsedAction.action === "ASK_QUESTION") {
+                setTranscript('');
+                setStatusText(parsedAction.data.question);
+                speakText(parsedAction.data.question, () => {
+                    // Trigger listening again
+                    setStatusText('Listening...');
+                    setIsListening(true);
+                    recognitionRef.current?.start();
+                });
+                setIsProcessing(false);
+                return;
+            }
+
             if (parsedAction.action === "CREATE_TASK") {
                 const nextId = getNextId(data.tasks || []);
                 const newTask = {
                     id: nextId,
                     name: parsedAction.data.name || 'New Task',
-                    partyId: parsedAction.data.partyId || '',
+                    partyId: parsedAction.data.partyId || parsedAction.data.party_id || '',
                     status: parsedAction.data.status || 'Pending',
                     description: parsedAction.data.description || text,
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString()
                 };
                 await saveRecord('tasks', newTask, 'task');
-                setSuccessMessage(`Task Created: ${newTask.name}`);
-                setTimeout(() => { setIsOpen(false); setTranscript(''); setSuccessMessage(''); }, 3000);
+                
+                const clientName = data.parties.find(p => p.id === newTask.partyId)?.name || '';
+                const msg = `Task save ho gaya hai: ${newTask.name} ${clientName}`;
+                setTranscript('');
+                setSuccessMessage(msg);
+                speakText(msg);
+                setTimeout(() => { setIsOpen(false); setSuccessMessage(''); }, 3000);
             } 
             else if (parsedAction.action === "CREATE_TRANSACTION") {
                 const nextId = getNextId(data.transactions || []);
@@ -169,7 +191,7 @@ User Command: "${text}"
                 const newTx = {
                     id: nextId,
                     type: parsedAction.data.type || 'expense',
-                    partyId: parsedAction.data.partyId || '',
+                    partyId: parsedAction.data.partyId || parsedAction.data.party_id || '',
                     category: parsedAction.data.category || '',
                     notes: parsedAction.data.notes || text,
                     amount: parsedAction.data.amount || 0,
@@ -191,11 +213,17 @@ User Command: "${text}"
                 }
 
                 await saveRecord('transactions', newTx, newTx.type);
-                setSuccessMessage(`${newTx.type.toUpperCase()} Logged: ₹${newTx.amount}`);
-                setTimeout(() => { setIsOpen(false); setTranscript(''); setSuccessMessage(''); }, 3000);
+                const msg = `${newTx.type} record ho gaya hai, amount hai ${newTx.amount} rupay.`;
+                setTranscript('');
+                setSuccessMessage(msg);
+                speakText(msg);
+                setTimeout(() => { setIsOpen(false); setSuccessMessage(''); }, 3000);
             } 
             else {
-                setStatusText("Sorry, I didn't understand the command.");
+                const msg = "Sorry, main command samajh nahi paya.";
+                setTranscript('');
+                setStatusText(msg);
+                speakText(msg);
                 setIsProcessing(false);
                 return;
             }
@@ -203,7 +231,10 @@ User Command: "${text}"
             setStatusText('');
         } catch (error) {
             console.error("AI Assistant Error:", error);
-            setStatusText('Failed: ' + error.message);
+            const msg = 'Network ya AI error aa gaya hai.';
+            setTranscript('');
+            setStatusText(msg);
+            speakText(msg);
         } finally {
             setIsProcessing(false);
             // Auto close handled in the success blocks or manual close on error
