@@ -42,6 +42,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
     });
 
     const [attachingPhoto, setAttachingPhoto] = useState(false);
+    const [photoEditor, setPhotoEditor] = useState(null);
     const [showLocPicker, setShowLocPicker] = useState(false);
     const [addBrandModal, setAddBrandModal] = useState(null);
     const [addItemModal, setAddItemModal] = useState(null);
@@ -201,31 +202,84 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
         setTx({ ...tx, items: newItems });
     };
 
-    const handlePhotoAttach = async (e) => {
-        const files = Array.from(e.target.files);
-        if (files.length === 0) return;
-        
-        setAttachingPhoto(true);
-        const newPhotos = [...(tx.localPhotos || [])];
-
-        for (const file of files) {
+    const processWatermark = (file, customNote) => {
+        return new Promise((resolve) => {
             const reader = new FileReader();
-            const promise = new Promise((resolve) => {
-                reader.onloadend = () => resolve(reader.result);
-                reader.readAsDataURL(file);
-            });
-            const base64 = await promise;
-            
-            const fileName = `tx_${nextId}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-            
-            newPhotos.push({
-                name: fileName,
-                data: base64,
-                timestamp: new Date().toISOString()
-            });
-        }
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    
+                    ctx.drawImage(img, 0, 0);
+                    
+                    const fontSize = Math.max(Math.round(img.width * 0.03), 16);
+                    ctx.font = `bold ${fontSize}px sans-serif`;
+                    
+                    const partyName = selectedParty?.name || 'N/A';
+                    const docType = type.charAt(0).toUpperCase() + type.slice(1);
+                    const dateStr = new Date().toLocaleString();
+                    const lines = [
+                        `Client: ${partyName}`,
+                        `Type: ${docType} #${nextId}`,
+                        `Date: ${dateStr}`
+                    ];
+                    if (customNote) lines.push(`Note: ${customNote}`);
+                    
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                    const padding = fontSize;
+                    const rectHeight = (lines.length * fontSize * 1.5) + padding;
+                    ctx.fillRect(0, img.height - rectHeight, img.width, rectHeight);
+                    
+                    ctx.fillStyle = 'white';
+                    lines.forEach((line, i) => {
+                        ctx.fillText(line, padding, img.height - rectHeight + padding + (i + 1) * fontSize * 1.2);
+                    });
+                    
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+                    resolve(dataUrl);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+    };
 
+    const handlePhotoSelect = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const previewUrl = URL.createObjectURL(file);
+        setPhotoEditor({ file, preview: previewUrl, note: '' });
+        e.target.value = ''; 
+    };
+
+    const confirmAndSavePhoto = async () => {
+        if (!photoEditor) return;
+        setAttachingPhoto(true);
+        
+        const base64 = await processWatermark(photoEditor.file, photoEditor.note);
+        const fileName = `SMEES_Tx_${nextId}_${Date.now()}.jpg`;
+        
+        const newPhotos = [...(tx.localPhotos || []), {
+            name: fileName,
+            data: base64,
+            timestamp: new Date().toISOString()
+        }];
         setTx({ ...tx, localPhotos: newPhotos });
+        
+        // Trigger Device Download to public folder for Google Photos indexing
+        const a = document.createElement('a');
+        a.href = base64;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        setPhotoEditor(null);
         setAttachingPhoto(false);
     };
 
@@ -897,7 +951,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                 
                                 {/* Option 1: Gallery */}
                                 <label className={`aspect-square rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-slate-100 transition-all active:scale-95 ${attachingPhoto ? 'opacity-50 pointer-events-none' : ''}`}>
-                                    <input type="file" multiple accept="image/*" className="hidden" onChange={handlePhotoAttach} />
+                                    <input type="file" accept="image/*" className="hidden" onChange={handlePhotoSelect} />
                                     <div className="p-2.5 bg-white rounded-full shadow-sm text-blue-600">
                                         {attachingPhoto ? <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div> : <ImageIcon size={18}/>}
                                     </div>
@@ -906,7 +960,7 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
 
                                 {/* Option 2: Live Camera */}
                                 <label className={`aspect-square rounded-2xl border-2 border-dashed border-blue-100 bg-blue-50/30 flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-blue-50 transition-all active:scale-95 ${attachingPhoto ? 'opacity-50 pointer-events-none' : ''}`}>
-                                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoAttach} />
+                                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoSelect} />
                                     <div className="p-2.5 bg-white rounded-full shadow-sm text-blue-600">
                                         {attachingPhoto ? <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div> : <Camera size={18}/>}
                                     </div>
@@ -1195,6 +1249,44 @@ const TransactionForm = ({ data, setData, type: initialType = 'sales', record, o
                                 {tx.items[addItemModal.idx].isBundle ? 'Create & Add Bundle' : 'Create & Add Item'}
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Photo Editor Modal */}
+            {photoEditor && (
+                <div className="fixed inset-0 z-[300] bg-black/90 backdrop-blur-md flex flex-col p-4 animate-in fade-in">
+                    <div className="flex justify-between items-center mb-6 pt-4 px-2">
+                        <p className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2"><Camera size={18}/> Photo Evidence</p>
+                        <button onClick={() => setPhotoEditor(null)} className="p-2 bg-white/10 rounded-full text-white"><X size={18}/></button>
+                    </div>
+                    
+                    <div className="flex-1 relative rounded-3xl overflow-hidden bg-slate-900 border border-white/10 flex items-center justify-center shadow-2xl">
+                        <img src={photoEditor.preview} alt="Preview" className="max-w-full max-h-full object-contain" />
+                        
+                        {/* Overlay Preview */}
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/50 p-4">
+                            <p className="text-[10px] font-black text-white/70 uppercase">Client: {selectedParty?.name || 'N/A'}</p>
+                            <p className="text-[10px] font-black text-white/70 uppercase">Type: {type.charAt(0).toUpperCase() + type.slice(1)} #{nextId}</p>
+                            {photoEditor.note && <p className="text-[10px] font-black text-blue-400 uppercase mt-1">Note: {photoEditor.note}</p>}
+                        </div>
+                    </div>
+
+                    <div className="mt-6 space-y-4 px-2">
+                        <input 
+                            type="text" 
+                            className="w-full p-4 bg-white/10 border border-white/20 rounded-2xl text-white font-black placeholder:text-white/40 outline-none focus:border-blue-500 transition-all"
+                            placeholder="Add an optional note (e.g., Delivery confirmed)..."
+                            value={photoEditor.note}
+                            onChange={(e) => setPhotoEditor({...photoEditor, note: e.target.value})}
+                        />
+                        <button 
+                            onClick={confirmAndSavePhoto} 
+                            disabled={attachingPhoto}
+                            className={`w-full py-5 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-[0.2em] shadow-xl ${attachingPhoto ? 'opacity-50' : 'active:scale-95 transition-all'}`}
+                        >
+                            {attachingPhoto ? 'Processing...' : 'Watermark & Save to Gallery'}
+                        </button>
                     </div>
                 </div>
             )}
