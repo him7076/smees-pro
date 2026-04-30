@@ -10,6 +10,7 @@ const AIVoiceAssistant = ({ data, setData }) => {
     const [transcript, setTranscript] = useState('');
     const [statusText, setStatusText] = useState('How can I help you?');
     const [successMessage, setSuccessMessage] = useState('');
+    const [chatHistory, setChatHistory] = useState([]);
     
     const recognitionRef = useRef(null);
     const { saveRecord } = useDatabase(data, setData);
@@ -57,7 +58,9 @@ const AIVoiceAssistant = ({ data, setData }) => {
         } else {
             setTranscript('');
             setSuccessMessage('');
-            setStatusText('Listening...');
+            if (!chatHistory.length) {
+                setStatusText('Listening...');
+            }
             recognitionRef.current.start();
             setIsListening(true);
         }
@@ -74,7 +77,16 @@ const AIVoiceAssistant = ({ data, setData }) => {
         if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel(); // Stop any ongoing speech
             const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'hi-IN'; 
+            
+            const voices = window.speechSynthesis.getVoices();
+            // Google's en-IN voice is usually much better for Hinglish than pure hi-IN
+            const preferredVoice = voices.find(v => v.lang === 'en-IN' && v.name.includes('Google')) || voices.find(v => v.lang === 'en-IN') || voices.find(v => v.lang === 'hi-IN');
+            if (preferredVoice) {
+                utterance.voice = preferredVoice;
+            } else {
+                utterance.lang = 'en-IN'; 
+            }
+
             if (onEndCallback) {
                 utterance.onend = onEndCallback;
             }
@@ -96,6 +108,10 @@ const AIVoiceAssistant = ({ data, setData }) => {
                 staff: data.staff.map(s => ({ id: s.id, name: s.name }))
             };
 
+            const historyText = chatHistory.length > 0 ? 
+                "\nPrevious Conversation Context:\n" + chatHistory.map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.text}`).join('\n') + "\n" 
+                : "";
+
             const prompt = `
 You are Jarvis, an AI assistant for an ERP system. 
 Parse the following user voice command in Hindi/Hinglish/English and figure out what action to take.
@@ -116,7 +132,7 @@ Important Rules:
 - If data is missing to complete the request safely, return ASK_QUESTION.
 - If it's a task: { "name": "Task Name", "partyId": 123, "description": "...", "status": "Pending" }
 - If it's a transaction/expense: { "type": "expense", "category": "Vehicle", "amount": 500, "notes": "..." }
-
+${historyText}
 User Command: "${text}"
 `;
 
@@ -153,17 +169,20 @@ User Command: "${text}"
             }
 
             if (parsedAction.action === "ASK_QUESTION") {
+                setChatHistory([...chatHistory, { role: 'user', text }, { role: 'assistant', text: parsedAction.data.question }]);
                 setTranscript('');
                 setStatusText(parsedAction.data.question);
                 speakText(parsedAction.data.question, () => {
                     // Trigger listening again
-                    setStatusText('Listening...');
                     setIsListening(true);
                     recognitionRef.current?.start();
                 });
                 setIsProcessing(false);
                 return;
             }
+
+            // Success resets history
+            setChatHistory([]);
 
             if (parsedAction.action === "CREATE_TASK") {
                 const nextId = getNextId(data.tasks || []);
@@ -232,6 +251,7 @@ User Command: "${text}"
         } catch (error) {
             console.error("AI Assistant Error:", error);
             const msg = 'Network ya AI error aa gaya hai.';
+            setChatHistory([]); // Reset on error to prevent being stuck
             setTranscript('');
             setStatusText(msg);
             speakText(msg);
@@ -270,7 +290,7 @@ User Command: "${text}"
                             <p className="text-[9px] font-black uppercase tracking-widest text-blue-600">{isProcessing ? 'Processing' : isListening ? 'Listening...' : 'Ready'}</p>
                         </div>
                     </div>
-                    <button onClick={() => { setIsOpen(false); if(isListening) recognitionRef.current?.stop(); }} className="p-2 bg-slate-100 rounded-full text-slate-500 active:scale-95">
+                    <button onClick={() => { setIsOpen(false); setChatHistory([]); if(isListening) recognitionRef.current?.stop(); }} className="p-2 bg-slate-100 rounded-full text-slate-500 active:scale-95">
                         <X size={18} />
                     </button>
                 </div>
