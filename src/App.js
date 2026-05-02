@@ -5,8 +5,8 @@ import { auth } from './services/firebase';
 import { useFirebaseSync } from './hooks/useFirebaseSync';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import { checkPermission, formatCurrency, getPartyBalances, getItemStock, getBillStats, getFilteredAttendance, getTransactionTotals } from './utils/helpers';
-import { doc, setDoc, getDoc, deleteDoc } from "firebase/firestore";
-import { db } from './services/firebase';
+import { doc, setDoc, getDoc, deleteDoc, disableNetwork, enableNetwork } from "firebase/firestore";
+import { db, personalDb } from './services/firebase';
 import { Plus, TrendingUp, FileText, FileMinus, FileCheck, RefreshCw, X, ChevronRight } from 'lucide-react';
 
 // Layout & Auth
@@ -60,11 +60,19 @@ const App = () => {
     const [uiConfig, setUiConfig] = useState(() => {
         const saved = localStorage.getItem('smees_ui_config');
         const parsed = saved ? JSON.parse(saved) : {};
-        return { isCompact: false, aiEnabled: true, ...parsed };
+        return { isCompact: false, aiEnabled: true, syncEnabled: true, ...parsed };
     });
 
     useEffect(() => {
         localStorage.setItem('smees_ui_config', JSON.stringify(uiConfig));
+        
+        if (uiConfig.syncEnabled === false) {
+            disableNetwork(db).catch(console.error);
+            disableNetwork(personalDb).catch(console.error);
+        } else {
+            enableNetwork(db).catch(console.error);
+            enableNetwork(personalDb).catch(console.error);
+        }
     }, [uiConfig]);
 
     const [mode, setMode] = useState('business');

@@ -103,6 +103,7 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                     </div>
                 </div>
                 <div className="flex gap-1.5">
+                    <button onClick={() => setModal({ type: 'personalTransaction', intent: 'expense', context: 'personal' })} className="p-2 bg-rose-50 text-rose-600 rounded-xl active:scale-95 transition-all shadow-sm"><Plus size={16}/></button>
                     <button onClick={() => setPTab('ledger')} className={`p-2 rounded-xl transition-all ${pTab === 'ledger' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><List size={16}/></button>
                     <button onClick={() => setPTab('stats')} className={`p-2 rounded-xl transition-all ${pTab === 'stats' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><PieIcon size={16}/></button>
                     <button onClick={() => setPTab('manage')} className={`p-2 rounded-xl transition-all ${pTab === 'manage' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}><Landmark size={16}/></button>
@@ -506,7 +507,7 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                              <button 
                                  onClick={() => {
                                      const win = window.open('', '_blank');
-                                     const accTxs = transactions.filter(t => t.account === selectedAccount.name || t.toAccount === selectedAccount.name).sort((a,b) => new Date(a.date) - new Date(b.date));
+                                     const accTxs = transactions.filter(t => t.account === selectedAccount.name || (t.type === 'transfer' && t.toAccount === selectedAccount.name)).sort((a,b) => new Date(a.date) - new Date(b.date));
                                      let bal = parseFloat(selectedAccount.initialBalance || 0);
                                      const html = `
                                          <html><head><title>${selectedAccount.name} Statement</title>
@@ -519,7 +520,7 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                          <tbody>
                                          <tr><td>--</td><td>Initial Balance</td><td>--</td><td>--</td><td class="bal">${formatCurrency(bal)}</td></tr>
                                          ${accTxs.map(t => {
-                                             const isIn = t.toAccount === selectedAccount.name || (t.account === selectedAccount.name && t.type === 'income');
+                                             const isIn = (t.type === 'transfer' && t.toAccount === selectedAccount.name) || (t.account === selectedAccount.name && t.type === 'income');
                                              const flow = isIn ? parseFloat(t.amount) : -parseFloat(t.amount);
                                              bal += flow;
                                              return `<tr><td>${t.date}</td><td>${t.category || t.note || 'Internal'}</td><td>${t.type.toUpperCase()}</td><td class="${flow >= 0 ? 'cr' : 'dr'}">${flow >= 0 ? '+' : ''}${formatCurrency(t.amount)}</td><td class="bal">${formatCurrency(bal)}</td></tr>`;
@@ -545,13 +546,13 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                         <div className="space-y-2">
                             <h3 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-4 pl-2">Operation Audit Trail</h3>
                             {transactions
-                                .filter(t => t.account === selectedAccount.name || t.toAccount === selectedAccount.name)
+                                .filter(t => t.account === selectedAccount.name || (t.type === 'transfer' && t.toAccount === selectedAccount.name))
                                 .sort((a,b) => new Date(b.date) - new Date(a.date))
                                 .map(t => (
                                     <div key={t.id} onClick={() => setModal({ type: 'personalTransaction', data: t, context: 'personal' })} className="p-5 bg-slate-50 rounded-[28px] border border-slate-100 flex justify-between items-center group hover:bg-white hover:shadow-sm transition-all cursor-pointer select-none">
                                         <div className="flex items-center gap-4">
-                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${t.type === 'income' || t.toAccount === selectedAccount.name ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                                                {t.type === 'income' || t.toAccount === selectedAccount.name ? <ArrowUpRight size={18}/> : <ArrowDownLeft size={18}/>}
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${t.type === 'income' || (t.type === 'transfer' && t.toAccount === selectedAccount.name) ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                                                {t.type === 'income' || (t.type === 'transfer' && t.toAccount === selectedAccount.name) ? <ArrowUpRight size={18}/> : <ArrowDownLeft size={18}/>}
                                             </div>
                                             <div>
                                                 <div className="flex items-center gap-2">
@@ -563,8 +564,8 @@ const PersonalDashboard = ({ data, setData, setViewDetail, setModal }) => {
                                                 <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{t.date} • {t.type}</p>
                                             </div>
                                         </div>
-                                        <p className={`text-xs font-black tracking-tighter ${t.type === 'income' || t.toAccount === selectedAccount.name ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                            {t.type === 'income' || t.toAccount === selectedAccount.name ? '+' : '-'}{formatCurrency(t.amount)}
+                                        <p className={`text-xs font-black tracking-tighter ${t.type === 'income' || (t.type === 'transfer' && t.toAccount === selectedAccount.name) ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                            {t.type === 'income' || (t.type === 'transfer' && t.toAccount === selectedAccount.name) ? '+' : '-'}{formatCurrency(t.amount)}
                                         </p>
                                     </div>
                                 ))

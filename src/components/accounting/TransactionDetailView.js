@@ -318,6 +318,17 @@ const TransactionDetailView = ({ tx, data, user, onBack, setViewDetail, setModal
                         </div>
                     </div>
 
+                    {party && (
+                        <div className="flex justify-center mb-4">
+                            <button 
+                                onClick={() => { setModal(null); setViewDetail({ type: 'party', id: party.id }); }}
+                                className="px-4 py-1.5 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest border border-blue-100 hover:bg-blue-100 transition-colors active:scale-95 flex items-center gap-2"
+                            >
+                                <span className="opacity-50">Client:</span> {party.name}
+                            </button>
+                        </div>
+                    )}
+
                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-0.5">Total Bill Amount</p>
                     <h1 className="text-3xl font-black text-slate-900 tracking-tighter mb-2">{formatCurrency(totals.final)}</h1>
                     

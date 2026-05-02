@@ -15,6 +15,17 @@ const SystemMenu = ({ setModal, onClose, uiConfig = { aiEnabled: true }, setUiCo
             }
         },
         { 
+            id: 'syncToggle', 
+            label: uiConfig.syncEnabled !== false ? 'Disable Cloud Sync' : 'Enable Cloud Sync', 
+            desc: uiConfig.syncEnabled !== false ? 'Go offline (save locally only)' : 'Sync local changes to Firebase',
+            icon: <Database size={20} className={uiConfig.syncEnabled !== false ? "text-blue-600" : "text-slate-400"}/>,
+            onClick: () => {
+                if(setUiConfig) {
+                    setUiConfig(prev => ({ ...prev, syncEnabled: prev.syncEnabled === false ? true : false }));
+                }
+            }
+        },
+        { 
             id: 'backup', 
             label: 'Backup & Restore', 
             desc: 'Secure your data to local or cloud storage',

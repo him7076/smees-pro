@@ -206,7 +206,7 @@ const BackupRestore = ({ data, setData, onClose }) => {
             <div className="bg-slate-50 p-6 rounded-[32px] space-y-4">
                  <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">A-Z Coverage List</h5>
                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    {['Parties', 'Transactions', 'Assets', 'Tasks', 'Timelogs', 'Attendance', 'Staffs', 'Vault Data', 'Categories', 'Counters'].map(item => (
+                    {['Parties', 'Transactions', 'Assets', 'Tasks', 'Timelogs', 'Attendance', 'Staffs', 'Vault Data', 'Categories', 'Evidence & Photos', 'Counters'].map(item => (
                         <div key={item} className="flex items-center gap-2 px-3 py-2 bg-white rounded-xl border border-slate-100">
                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
                              <span className="text-[8px] font-black text-slate-600 uppercase tracking-tight">{item}</span>
