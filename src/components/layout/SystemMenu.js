@@ -1,8 +1,19 @@
 import React from 'react';
 import { RefreshCw, FileText, Settings, X, ChevronRight, ShieldCheck, Database, TrendingUp, Landmark } from 'lucide-react';
 
-const SystemMenu = ({ setModal, onClose }) => {
+const SystemMenu = ({ setModal, onClose, uiConfig = { aiEnabled: true }, setUiConfig }) => {
     const menuItems = [
+        { 
+            id: 'aiToggle', 
+            label: uiConfig.aiEnabled !== false ? 'Disable AI Assistant' : 'Enable AI Assistant', 
+            desc: uiConfig.aiEnabled !== false ? 'Turn off voice commands (Jarvis)' : 'Turn on voice commands (Jarvis)',
+            icon: <RefreshCw size={20} className={uiConfig.aiEnabled !== false ? "text-emerald-600" : "text-slate-400"}/>,
+            onClick: () => {
+                if(setUiConfig) {
+                    setUiConfig(prev => ({ ...prev, aiEnabled: prev.aiEnabled === false ? true : false }));
+                }
+            }
+        },
         { 
             id: 'backup', 
             label: 'Backup & Restore', 

@@ -59,7 +59,8 @@ const App = () => {
 
     const [uiConfig, setUiConfig] = useState(() => {
         const saved = localStorage.getItem('smees_ui_config');
-        return saved ? JSON.parse(saved) : { isCompact: false };
+        const parsed = saved ? JSON.parse(saved) : {};
+        return { isCompact: false, aiEnabled: true, ...parsed };
     });
 
     useEffect(() => {
@@ -317,7 +318,7 @@ const App = () => {
                                     <TransactionForm data={data} setData={setData} type={modal.type} record={modal.data} onClose={() => setModal(null)} />
                                 )}
                                 {modal.type === 'backup' && <BackupRestore data={data} setData={setData} onClose={() => setModal(null)} />}
-                                {modal.type === 'systemMenu' && <SystemMenu setModal={setModal} onClose={() => setModal(null)} />}
+                                {modal.type === 'systemMenu' && <SystemMenu setModal={setModal} onClose={() => setModal(null)} uiConfig={uiConfig} setUiConfig={setUiConfig} />}
                                 {modal.type === 'taskSettings' && <TaskSettings data={data} setData={setData} onClose={() => setModal(null)} />}
                                 {modal.type === 'dashboard_drilldown' && (
                                     <div className="space-y-4">
@@ -596,7 +597,7 @@ const App = () => {
                     ) : <Navigate to="/" />} />
                     <Route path="*" element={<Navigate to="/" />} />
                 </Routes>
-                {user && <AIVoiceAssistant data={data} setData={setData} />}
+                {user && uiConfig.aiEnabled !== false && <AIVoiceAssistant data={data} setData={setData} />}
             </div>
         </React.Fragment>
         </ErrorBoundary>
