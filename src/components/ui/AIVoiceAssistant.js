@@ -2,13 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Mic, X, Bot, CheckCircle2, Loader2, Send, Eye, AlertCircle } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
 
+// Rate limiter: min 4 sec between Gemini calls
+let lastGeminiCall = 0;
+
 const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [isListening, setIsListening] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [transcript, setTranscript] = useState('');
     const [inputText, setInputText] = useState('');
-    const [statusText, setStatusText] = useState('JARVIS Online. Awaiting command.');
+    const [statusText, setStatusText] = useState('JARVIS Online.');
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
     const [lastCreatedRecord, setLastCreatedRecord] = useState(null);
@@ -30,39 +33,32 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                 setTranscript(t);
             };
             r.onend = () => setIsListening(false);
-            r.onerror = (e) => { setIsListening(false); setError('Microphone: ' + e.error); };
+            r.onerror = (e) => { setIsListening(false); setError('Mic: ' + e.error); };
             recognitionRef.current = r;
         }
     }, []);
 
-    // ─── Voice Loading (mobile needs this) ───
+    // ─── Voice Loading ───
     useEffect(() => {
         const load = () => window.speechSynthesis?.getVoices();
         load();
         if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = load;
     }, []);
 
-    // ─── Jarvis Voice: Deep Male Hindi ───
+    // ─── Jarvis Voice ───
     const speakJarvis = (text, cb = null) => {
         if (!('speechSynthesis' in window)) { cb?.(); return; }
         window.speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(text);
         const voices = window.speechSynthesis.getVoices();
-        
-        // Priority for Hindi Male Deep Voice (Iron Man Hindi Dub style)
         const pick = voices.find(v => /hindi/i.test(v.name) && !/female/i.test(v.name))
             || voices.find(v => /\bhi[-_]IN\b/i.test(v.lang) && !/female/i.test(v.name))
             || voices.find(v => /male/i.test(v.name) && /en/i.test(v.lang))
             || voices.find(v => /david/i.test(v.name))
-            || voices.find(v => /\ben[-_]IN\b/i.test(v.lang) && !/female/i.test(v.name))
             || voices.find(v => /\ben[-_]/i.test(v.lang) && !/female/i.test(v.name))
             || voices[0];
-        
         if (pick) u.voice = pick;
-        u.lang = 'hi-IN';    // Hindi language for Jarvis Hindi dub feel
-        u.pitch = 0.65;      // Very deep
-        u.rate = 0.95;       // Measured, confident
-        u.volume = 1.0;
+        u.lang = 'hi-IN'; u.pitch = 0.65; u.rate = 0.95; u.volume = 1.0;
         if (cb) u.onend = cb;
         window.speechSynthesis.speak(u);
     };
@@ -84,22 +80,34 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         catch (e) { setError('Mic failed: ' + e.message); }
     };
 
-    // ─── Local Smart Parser (handles 100% commands — NO API needed) ───
+    // ─── SMART Local Parser ───
     const parseLocally = (text) => {
         if (!text || !data) return null;
         const t = text.toLowerCase().trim();
 
-        // Extract numbers
-        const amtMatch = t.match(/(\d+)\s*(?:rs|rupay|rupees|₹|rupes|rupiya)/i) || t.match(/(?:₹|rs\.?)\s*(\d+)/i) || t.match(/(\d+)/);
+        // STEP 1: Detect intent FIRST (before extracting numbers)
+        const isTask = /task|kaam|service|remind/i.test(t);
+        const isModify = /add|jod|jodo|update|modify|badal|daal|dal do|me dal|item dal|add kar/i.test(t);
+        const isExpense = /expense|kharcha|kharche|kharch|bill|payment|pay/i.test(t);
+        const isSale = /sale|sell|bech|bikri/i.test(t);
+        const isPurchase = /purchase|kharid|buy|liya/i.test(t);
+        const isCreate = /create|bana|banao|kar do|kardo|likho|likh|dal do|dalo/i.test(t);
+
+        // STEP 2: Extract Task ID — ONLY numbers near "task/T-" context
+        const taskIdMatch = t.match(/(?:task\s*(?:number|no|num|#)?\s*(\d+))|(?:t[-\s]?(\d{2,}))/i);
+        const taskId = taskIdMatch ? `T-${taskIdMatch[1] || taskIdMatch[2]}` : null;
+
+        // STEP 3: Extract Amount — ONLY when explicitly marked with rs/rupay/₹
+        const amtMatch = t.match(/(\d+)\s*(?:rs|rupay|rupees|₹|rupes|rupiya)/i) 
+                       || t.match(/(?:₹|rs\.?)\s*(\d+)/i)
+                       || t.match(/(?:price|rate|amount|total)\s*(\d+)/i);
         const amount = amtMatch ? parseFloat(amtMatch[1]) : null;
+
+        // STEP 4: Extract Qty
         const qtyMatch = t.match(/(\d+)\s*(?:qty|quantity|piece|pcs|nug)/i);
         const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
 
-        // Extract Task ID (T-778, t778, etc.)
-        const taskIdMatch = t.match(/t[-\s]?(\d{2,})/i);
-        const taskId = taskIdMatch ? `T-${taskIdMatch[1]}` : null;
-
-        // Match items, parties, brands from local data
+        // STEP 5: Match items, parties from master data
         let foundItem = null, foundParty = null, foundBrand = null;
         for (const item of (data.items || [])) {
             const n = (item.name || '').toLowerCase();
@@ -115,73 +123,59 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             if (pn && pn.length > 1 && t.includes(pn)) { foundParty = p; break; }
         }
 
-        // Intent detection (Hindi + English + Hinglish)
-        const isModify = /add|jod|jodo|update|modify|badal|daal|dal do|me dal|item dal|add kar/i.test(t);
-        const isTask = /task|kaam|service|remind|kaam|काम/i.test(t);
-        const isExpense = /expense|kharcha|kharche|kharch|bill|payment|pay/i.test(t);
-        const isSale = /sale|sell|bech|bikri/i.test(t);
-        const isPurchase = /purchase|kharid|buy|liya/i.test(t);
-        const isCreate = /create|bana|banao|kar do|kardo|likho|likh|dal do|dalo/i.test(t);
-
-        // 1. MODIFY TASK by ID or keyword
-        if ((isModify || taskId) && foundItem) {
-            return {
-                action: 'MODIFY_TASK',
-                data: {
-                    taskId: taskId,
-                    itemName: foundItem.name, itemId: foundItem.id,
-                    qty: qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0,
-                    brand: foundBrand?.name || ''
-                }
-            };
+        // ── RULE 1: Task with number = Task reference (NOT expense) ──
+        if (isTask && taskId) {
+            if (foundItem) {
+                return { action: 'MODIFY_TASK', data: { taskId, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
+            }
+            // "task 778 open karo" or "task 778 dekhao"
+            return { action: 'VIEW_TASK', data: { taskId } };
         }
 
-        // 2. CREATE TASK
-        if (isTask) {
+        // ── RULE 2: Modify task (add item) ──
+        if (isModify && foundItem) {
+            return { action: 'MODIFY_TASK', data: { taskId: null, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
+        }
+
+        // ── RULE 3: Create task ──
+        if (isTask && !taskId) {
             const taskName = foundItem?.name || foundParty?.name || text.replace(/task|create|banao|bana|karo|kar do|kaam/gi, '').trim() || 'New Task';
             return { action: 'CREATE_TASK', data: { name: taskName, partyId: foundParty?.id || '' } };
         }
 
-        // 3. CREATE TRANSACTION (expense/sale/purchase)
+        // ── RULE 4: Expense/Sale/Purchase with explicit amount ──
         if (amount !== null) {
             let type = 'expense';
             if (isSale) type = 'sales';
             else if (isPurchase) type = 'purchase';
-
-            return {
-                action: 'CREATE_TRANSACTION',
-                data: {
-                    type,
-                    partyId: foundParty?.id || '',
-                    category: foundItem?.category || '',
-                    amount,
-                    items: foundItem ? [{ itemId: foundItem.id, qty, price: amount / qty, brand: foundBrand?.name || '' }] : []
-                }
-            };
+            return { action: 'CREATE_TRANSACTION', data: { type, partyId: foundParty?.id || '', category: foundItem?.category || '', amount, items: foundItem ? [{ itemId: foundItem.id, qty, price: amount / qty, brand: foundBrand?.name || '' }] : [] } };
         }
 
-        // 4. If item or party found but no amount, still create expense with 0
-        if (foundItem || foundParty) {
-            if (isExpense || isCreate) {
-                return {
-                    action: 'CREATE_TRANSACTION',
-                    data: {
-                        type: 'expense',
-                        partyId: foundParty?.id || '',
-                        category: foundItem?.category || '',
-                        amount: 0,
-                        items: foundItem ? [{ itemId: foundItem.id, qty: 1, price: foundItem.sellPrice || 0, brand: '' }] : []
-                    }
-                };
-            }
+        // ── RULE 5: Expense with item but no amount ──
+        if ((isExpense || isCreate) && (foundItem || foundParty)) {
+            return { action: 'CREATE_TRANSACTION', data: { type: 'expense', partyId: foundParty?.id || '', category: foundItem?.category || '', amount: 0, items: foundItem ? [{ itemId: foundItem.id, qty: 1, price: foundItem.sellPrice || 0, brand: '' }] : [] } };
         }
 
-        return null;
+        return null; // Can't parse locally → will go to Gemini
     };
 
     // ─── Execute Action ───
     const executeAction = async (parsed, originalText) => {
         if (!parsed?.action) throw new Error('Command samajh nahi aaya.');
+
+        if (parsed.action === 'VIEW_TASK') {
+            const tasks = data?.tasks || [];
+            const task = tasks.find(t => t.id === parsed.data.taskId);
+            if (task) {
+                setTranscript(''); setSuccessMessage(`Task: ${task.name} (${task.status})`);
+                setLastCreatedRecord({ id: task.id, type: 'task', data: task });
+                speakJarvis(`Task mila. ${task.name}. Status ${task.status}.`);
+            } else {
+                throw new Error(`Task ${parsed.data.taskId} nahi mila.`);
+            }
+            setIsProcessing(false);
+            return;
+        }
 
         if (parsed.action === 'MODIFY_TASK') {
             const tasks = data?.tasks || [];
@@ -191,20 +185,19 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             if (!targetTask) throw new Error('Koi active task nahi mila.');
 
             const existingItems = targetTask.itemsUsed || [];
-            const existingIdx = existingItems.findIndex(i => i.itemId === parsed.data.itemId);
+            const idx = existingItems.findIndex(i => i.itemId === parsed.data.itemId);
             let updatedItems, msg;
-            if (existingIdx >= 0) {
+            if (idx >= 0) {
                 updatedItems = [...existingItems];
-                updatedItems[existingIdx] = { ...updatedItems[existingIdx], qty: parseFloat(updatedItems[existingIdx].qty || 0) + parsed.data.qty };
-                msg = `${parsed.data.itemName} pehle se tha. Qty: ${updatedItems[existingIdx].qty}`;
+                updatedItems[idx] = { ...updatedItems[idx], qty: parseFloat(updatedItems[idx].qty || 0) + parsed.data.qty };
+                msg = `${parsed.data.itemName} pehle se tha. Qty: ${updatedItems[idx].qty}`;
             } else {
                 updatedItems = [...existingItems, { itemId: parsed.data.itemId, qty: parsed.data.qty, price: parsed.data.price, brand: parsed.data.brand }];
                 msg = `${parsed.data.itemName} add kiya: ${targetTask.name}`;
             }
-            const updatedTask = { ...targetTask, itemsUsed: updatedItems, updatedAt: new Date().toISOString() };
-            await saveRecord('tasks', updatedTask, 'task');
+            await saveRecord('tasks', { ...targetTask, itemsUsed: updatedItems, updatedAt: new Date().toISOString() }, 'task');
             setTranscript(''); setSuccessMessage(msg);
-            setLastCreatedRecord({ id: targetTask.id, type: 'task', data: updatedTask });
+            setLastCreatedRecord({ id: targetTask.id, type: 'task', data: { ...targetTask, itemsUsed: updatedItems } });
             speakJarvis(msg); setIsProcessing(false);
             return;
         }
@@ -212,10 +205,9 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         if (parsed.action === 'CREATE_TASK') {
             const task = { name: parsed.data?.name || 'New Task', partyId: parsed.data?.partyId || '', status: 'To Do', description: originalText, createdAt: new Date().toISOString() };
             const id = await saveRecord('tasks', task, 'task');
-            const msg = `Task banaya: ${task.name}`;
-            setTranscript(''); setSuccessMessage(msg);
+            setTranscript(''); setSuccessMessage(`Task: ${task.name}`);
             setLastCreatedRecord({ id, type: 'task', data: { ...task, id } });
-            speakJarvis(msg); setIsProcessing(false);
+            speakJarvis(`Task ban gaya, ${task.name}`); setIsProcessing(false);
             return;
         }
 
@@ -227,8 +219,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             if (type === 'expense' || type === 'purchase') tx.paid = total;
             else if (type === 'sales') tx.received = total;
             const id = await saveRecord('transactions', tx, type);
-            const msg = `${type.toUpperCase()} saved: ₹${total}`;
-            setTranscript(''); setSuccessMessage(msg);
+            setTranscript(''); setSuccessMessage(`${type.toUpperCase()}: ₹${total}`);
             setLastCreatedRecord({ id, type: 'transaction', data: { ...tx, id } });
             speakJarvis(`${type} entry, ${total} rupaye.`); setIsProcessing(false);
             return;
@@ -237,30 +228,94 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         throw new Error('Command samajh nahi aaya.');
     };
 
-    // ─── Main Pipeline (100% LOCAL — No Gemini API calls) ───
+    // ─── Gemini AI Call (with rate limiter) ───
+    const callGemini = async (text) => {
+        const now = Date.now();
+        const gap = now - lastGeminiCall;
+        if (gap < 4000) {
+            // Wait for remaining cooldown
+            await new Promise(r => setTimeout(r, 4000 - gap));
+        }
+        lastGeminiCall = Date.now();
+
+        const ctx = {
+            parties: (data?.parties || []).map(p => ({ id: p.id, name: p.name })),
+            items: (data?.items || []).map(i => ({ id: i.id, name: i.name, category: i.category })),
+            recentTasks: (data?.tasks || []).filter(t => t.status !== 'Done').slice(0, 10).map(t => ({ id: t.id, name: t.name, status: t.status }))
+        };
+
+        const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+        if (!apiKey) throw new Error('API Key not set.');
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12000);
+
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: `You are JARVIS, an ERP assistant. Parse this Hinglish/Hindi command into JSON action.
+
+RULES:
+- Return ONLY valid JSON, nothing else
+- Actions: CREATE_TASK, CREATE_TRANSACTION, MODIFY_TASK, VIEW_TASK, ASK_QUESTION
+- For CREATE_TRANSACTION: {"action":"CREATE_TRANSACTION","data":{"type":"expense|sales|purchase","partyId":"","category":"","amount":0,"items":[{"itemId":"","qty":1,"price":0,"brand":""}]}}
+- For CREATE_TASK: {"action":"CREATE_TASK","data":{"name":"","partyId":""}}
+- For MODIFY_TASK: {"action":"MODIFY_TASK","data":{"taskId":"T-xxx","itemName":"","itemId":"","qty":1,"price":0,"brand":""}}
+- For VIEW_TASK: {"action":"VIEW_TASK","data":{"taskId":"T-xxx"}}
+- For ASK_QUESTION: {"action":"ASK_QUESTION","data":{"question":"your question in Hinglish"}}
+- "task 778" or "task number 778" means taskId "T-778", NOT amount 778
+- If qty missing, default 1. If price missing, use 0.
+- Match party/item names from context. Use IDs from context.
+
+CONTEXT:
+${JSON.stringify(ctx)}
+
+USER COMMAND: "${text}"` }] }],
+                generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
+            })
+        });
+        clearTimeout(timer);
+
+        const json = await res.json();
+        if (json.error) {
+            if (json.error.code === 429) throw new Error('AI busy hai. 1 min baad try karo.');
+            throw new Error(json.error.message || 'AI error');
+        }
+        const raw = json.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!raw) throw new Error('AI ne jawab nahi diya.');
+        return JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim());
+    };
+
+    // ─── Main Pipeline: Local first → Gemini fallback ───
     const processCommand = async (text) => {
         if (!text) return;
         setIsProcessing(true); setStatusText('Processing...'); setSuccessMessage(''); setError('');
 
-        // Safety timeout
         const safetyTimer = setTimeout(() => {
             setIsProcessing(false); setTranscript('');
             setError('Timeout. Try again.');
-        }, 8000);
+        }, 15000);
 
         try {
+            // Try local parsing first (instant)
             const local = parseLocally(text);
             if (local) {
                 await executeAction(local, text);
-            } else {
-                // Instead of calling Gemini, show helpful error
-                throw new Error('Command samajh nahi aaya. Item ya amount bol ke try karo.');
+                clearTimeout(safetyTimer);
+                return;
             }
+
+            // Fallback: Ask Gemini AI (with rate limiter)
+            setStatusText('AI soch raha hai...');
+            const aiResult = await callGemini(text);
+            await executeAction(aiResult, text);
             clearTimeout(safetyTimer);
+
         } catch (e) {
             clearTimeout(safetyTimer);
-            setTranscript(''); setError(e.message);
-            speakJarvis(e.message);
+            setTranscript(''); setError(e.message || 'Error');
+            speakJarvis(e.message || 'Error aa gaya');
             setIsProcessing(false);
         }
     };
@@ -277,7 +332,6 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             <div className="w-full max-w-md bg-slate-900 border border-blue-500/20 rounded-[40px] shadow-2xl shadow-blue-500/10 p-6 relative overflow-hidden" style={{animation: 'jarvisSlide 0.3s ease-out'}}>
                 <div className="absolute top-0 right-0 w-40 h-40 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
 
-                {/* Header */}
                 <div className="flex justify-between items-center mb-6 relative z-10">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-blue-600/20 border border-blue-500/40 text-blue-400 rounded-2xl flex items-center justify-center"><Bot size={20} /></div>
@@ -291,7 +345,6 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                     <button onClick={() => { setIsOpen(false); if(isListening) { recognitionRef.current?.stop(); setIsListening(false); } }} className="p-2.5 bg-white/5 rounded-full text-slate-400"><X size={18} /></button>
                 </div>
 
-                {/* Content */}
                 <div className="min-h-[150px] flex flex-col items-center justify-center mb-6 relative z-10">
                     {error ? (
                         <div className="flex flex-col items-center gap-4 text-center px-4">
@@ -321,7 +374,6 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                     )}
                 </div>
 
-                {/* Controls */}
                 {!successMessage && !isProcessing && !error && (
                     <div className="flex flex-col items-center gap-5 relative z-10">
                         <div className="relative">
