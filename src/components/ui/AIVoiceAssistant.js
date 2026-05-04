@@ -2,7 +2,34 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Mic, X, Bot, CheckCircle2, Loader2, Send, Eye, AlertCircle, Check, XCircle, Pencil } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
 
+// Rate limiter: min 4 sec between Gemini calls
 let lastGeminiCall = 0;
+
+// ─── SMART FUZZY HELPERS ───
+const getSimilarity = (s1, s2) => {
+    if (!s1 || !s2) return 0;
+    const a = s1.toLowerCase().trim();
+    const b = s2.toLowerCase().trim();
+    if (a === b) return 100;
+    if (a.includes(b) || b.includes(a)) return 80;
+    
+    // Simple word match score
+    const w1 = a.split(/[\s-]+/);
+    const w2 = b.split(/[\s-]+/);
+    let matches = 0;
+    w1.forEach(x => { if (x.length > 2 && w2.some(y => y.includes(x) || x.includes(y))) matches++; });
+    return (matches / Math.max(w1.length, w2.length)) * 70;
+};
+
+const findBestMatch = (text, list, minScore = 30) => {
+    let best = null;
+    let max = -1;
+    list.forEach(item => {
+        const score = getSimilarity(text, item.name || '');
+        if (score > max) { max = score; best = item; }
+    });
+    return max >= minScore ? { item: best, score: max } : null;
+};
 
 const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -217,27 +244,25 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
 
         let foundItem = null, foundParty = null, foundBrand = null;
         
-        // Memory match first
+        // 1. Party Match (Smart)
+        const partyMatch = findBestMatch(t, data.parties || []);
+        if (partyMatch) foundParty = partyMatch.item;
+
+        // 2. Item Match (Memory -> Smart)
         const memory = getLearningData();
         if (memory[t]) foundItem = (data?.items || []).find(i => i.id === memory[t]);
 
         if (!foundItem) {
-            const words = t.split(/[\s-]+/);
-            let bestScore = 0;
-            for (const item of (data.items || [])) {
-                const n = (item.name || '').toLowerCase();
-                let score = 0;
-                if (t === n) score += 50;
-                if (t.includes(n)) score += 20;
-                const itemWords = n.split(/[\s-]+/);
-                itemWords.forEach(iw => {
-                    if (iw.length > 1 && words.some(w => w === iw)) score += 10;
-                    else if (iw.length > 2 && words.some(w => w.includes(iw))) score += 5;
-                });
-                if (score > bestScore && score > 0) { bestScore = score; foundItem = item; }
+            const itemMatch = findBestMatch(t, data.items || []);
+            if (itemMatch) foundItem = itemMatch.item;
+            
+            // Check brands in match
+            if (foundItem) {
+                for (const b of (foundItem.brands || [])) {
+                    if (t.includes((b.name || '').toLowerCase())) { foundBrand = b; break; }
+                }
             }
         }
-        for (const p of (data.parties || [])) { const pn = (p.name || '').toLowerCase(); if (pn && pn.length > 1 && t.includes(pn)) { foundParty = p; break; } }
 
         if (isTask && taskId) {
             if (foundItem) return { action: 'MODIFY_TASK', data: { taskId, partyId: foundParty?.id || null, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
@@ -280,17 +305,12 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                 
                 // 2. Score tasks based on command text keywords
                 if (pool.length > 1) {
-                    const cmdWords = originalText.toLowerCase().split(/\s+/);
-                    let bestScore = -1;
                     let bestTask = pool[0];
+                    let maxScore = -1;
                     
                     pool.forEach(task => {
-                        const taskWords = (task.name || '').toLowerCase().split(/[\s-]+/);
-                        let score = 0;
-                        taskWords.forEach(tw => {
-                            if (tw.length > 2 && cmdWords.some(cw => cw.includes(tw) || tw.includes(cw))) score += 10;
-                        });
-                        if (score > bestScore) { bestScore = score; bestTask = task; }
+                        const score = getSimilarity(originalText, task.name);
+                        if (score > maxScore) { maxScore = score; bestTask = task; }
                     });
                     t = bestTask;
                 } else {
