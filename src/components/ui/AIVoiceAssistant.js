@@ -219,60 +219,9 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         speakJarvis('Theek hai, update kar diya. Ab confirm karo.');
     };
 
-    // ─── SMART Local Parser ───
+    // ─── Local Parser (DISABLED for now as requested) ───
     const parseLocally = (text) => {
-        if (!text || !data) return null;
-        const t = text.toLowerCase().trim();
-
-        const isTask = /task|kaam|service|remind/i.test(t);
-        const isModify = /add|jod|jodo|update|modify|badal|daal|dal do|me dal|item dal|add kar/i.test(t);
-        const isExpense = /expense|kharcha|kharche|kharch|bill|payment|pay/i.test(t);
-        const isSale = /sale|sell|bech|bikri/i.test(t);
-        const isPurchase = /purchase|kharid|buy|liya/i.test(t);
-        const isCreate = /create|bana|banao|kar do|kardo|likho|likh|dal do|dalo/i.test(t);
-
-        const taskIdMatch = t.match(/(?:task\s*(?:number|no|num|#)?\s*(\d+))|(?:t[-\s]?(\d{2,}))/i);
-        const taskId = taskIdMatch ? `T-${taskIdMatch[1] || taskIdMatch[2]}` : null;
-
-        const amtMatch = t.match(/(\d+)\s*(?:rs|rupay|rupees|₹|rupes|rupiya)/i)
-            || t.match(/(?:₹|rs\.?)\s*(\d+)/i)
-            || t.match(/(?:price|rate|amount|total)\s*(\d+)/i);
-        const amount = amtMatch ? parseFloat(amtMatch[1]) : null;
-
-        const qtyMatch = t.match(/(\d+)\s*(?:qty|quantity|piece|pcs|nug)/i) || t.match(/(?:qty|quantity)\s*(\d+)/i);
-        const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
-
-        let foundItem = null, foundParty = null, foundBrand = null;
-        
-        // 1. Party Match (Smart)
-        const partyMatch = findBestMatch(t, data.parties || []);
-        if (partyMatch) foundParty = partyMatch.item;
-
-        // 2. Item Match (Memory -> Smart)
-        const memory = getLearningData();
-        if (memory[t]) foundItem = (data?.items || []).find(i => i.id === memory[t]);
-
-        if (!foundItem) {
-            const itemMatch = findBestMatch(t, data.items || []);
-            if (itemMatch) foundItem = itemMatch.item;
-            
-            // Check brands in match
-            if (foundItem) {
-                for (const b of (foundItem.brands || [])) {
-                    if (t.includes((b.name || '').toLowerCase())) { foundBrand = b; break; }
-                }
-            }
-        }
-
-        if (isTask && taskId) {
-            if (foundItem) return { action: 'MODIFY_TASK', data: { taskId, partyId: foundParty?.id || null, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
-            if (isModify) return null; // Let Gemini handle
-            return { action: 'VIEW_TASK', data: { taskId } };
-        }
-        if (isModify && foundItem) return { action: 'MODIFY_TASK', data: { taskId: null, partyId: foundParty?.id || null, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
-        if (isTask && !taskId) { const n = foundItem?.name || foundParty?.name || text.replace(/task|create|banao|bana|karo|kar do|kaam/gi, '').trim() || 'New Task'; return { action: 'CREATE_TASK', data: { name: n, partyId: foundParty?.id || '' } }; }
-        if (amount !== null) { let tp = 'expense'; if (isSale) tp = 'sales'; else if (isPurchase) tp = 'purchase'; return { action: 'CREATE_TRANSACTION', data: { type: tp, partyId: foundParty?.id || '', category: foundItem?.category || '', amount, items: foundItem ? [{ itemId: foundItem.id, qty, price: amount / qty, brand: foundBrand?.name || '' }] : [] } }; }
-        if ((isExpense || isCreate) && (foundItem || foundParty)) return { action: 'CREATE_TRANSACTION', data: { type: 'expense', partyId: foundParty?.id || '', category: foundItem?.category || '', amount: 0, items: foundItem ? [{ itemId: foundItem.id, qty: 1, price: foundItem.sellPrice || 0, brand: '' }] : [] } };
+        // ALWAYS return null to force Gemini AI usage
         return null;
     };
 
@@ -351,19 +300,45 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         const gap = Date.now() - lastGeminiCall;
         if (gap < 4000) await new Promise(r => setTimeout(r, 4000 - gap));
         lastGeminiCall = Date.now();
-        const ctx = { parties: (data?.parties || []).map(p => ({ id: p.id, name: p.name })), items: (data?.items || []).map(i => ({ id: i.id, name: i.name, category: i.category })), recentTasks: (data?.tasks || []).filter(t => t.status !== 'Done').slice(0, 10).map(t => ({ id: t.id, name: t.name, status: t.status })) };
+
+        const ctx = { 
+            parties: (data?.parties || []).map(p => ({ id: p.id, name: p.name })), 
+            items: (data?.items || []).map(i => ({ id: i.id, name: i.name, category: i.category })), 
+            activeTasks: (data?.tasks || []).filter(t => t.status !== 'Done').map(t => ({ id: t.id, name: t.name, partyId: t.partyId })) 
+        };
+
         const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
         if (!apiKey) throw new Error('API Key not set.');
-        const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 12000);
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+
+        const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 15000);
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
-            body: JSON.stringify({ contents: [{ parts: [{ text: `Parse ERP command to JSON. Actions: CREATE_TASK,CREATE_TRANSACTION,MODIFY_TASK,VIEW_TASK. "task 778"=taskId "T-778" NOT amount. Default qty=1. Context: ${JSON.stringify(ctx)}. Command: "${text}"` }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } })
+            body: JSON.stringify({ 
+                contents: [{ parts: [{ text: `You are JARVIS ERP Assistant. Parse this Hinglish/Hindi command into JSON.
+                
+                RULES:
+                - Return ONLY JSON.
+                - Actions: CREATE_TASK, CREATE_TRANSACTION, MODIFY_TASK, VIEW_TASK.
+                - "task 778" means taskId "T-778".
+                - Match party/item names from CONTEXT.
+                - For MODIFY_TASK: If user mentions a person (e.g. Sona Didi) and a task context (e.g. AC Repair), pick the matching task ID from activeTasks.
+                - If qty missing, default 1.
+                
+                CONTEXT:
+                ${JSON.stringify(ctx)}
+                
+                COMMAND: "${text}"` }] }], 
+                generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } 
+            })
         });
         clearTimeout(tm);
         const json = await res.json();
-        if (json.error) { if (json.error.code === 429) throw new Error('AI busy. 1 min wait.'); throw new Error(json.error.message || 'AI error'); }
+        if (json.error) { 
+            if (json.error.code === 429) throw new Error('AI Busy (Rate Limit). 10 sec wait karo.'); 
+            throw new Error(json.error.message || 'AI Error'); 
+        }
         const raw = json.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!raw) throw new Error('AI ne jawab nahi diya.');
+        if (!raw) throw new Error('AI response missing.');
         return JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim());
     };
 
