@@ -263,16 +263,24 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         if (!text) return;
         setIsProcessing(true); setStatusText('Scanning...'); setSuccessMessage(''); setError('');
 
+        // GLOBAL SAFETY: Force-clear after 12s no matter what
+        const safetyTimer = setTimeout(() => {
+            setIsProcessing(false); setTranscript('');
+            setError('Timeout. Dobara try karo.');
+            speakJarvis('Timeout ho gaya. Try again.');
+        }, 12000);
+
         try {
-            // Step 1: Local parse (instant, no API, no reads)
+            // Step 1: Local parse (instant, no API)
             const local = parseLocally(text);
             if (local) {
-                await new Promise(r => setTimeout(r, 300));
+                setStatusText('Executing...');
                 await executeAction(local, text);
+                clearTimeout(safetyTimer);
                 return;
             }
 
-            // Step 2: Gemini AI fallback with 10s TIMEOUT
+            // Step 2: Gemini AI (10s timeout)
             setStatusText('AI Processing...');
             const ctx = {
                 parties: (data?.parties || []).map(p => ({ id: p.id, name: p.name })),
@@ -283,38 +291,35 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
             if (!apiKey) throw new Error('API Key not set.');
 
-            // Timeout wrapper - 10 seconds max
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const fetchTimer = setTimeout(() => controller.abort(), 10000);
 
             const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 signal: controller.signal,
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: `Parse ERP command. JSON only: {action, data}. Actions: CREATE_TASK, CREATE_TRANSACTION, MODIFY_TASK, ASK_QUESTION. Context: ${JSON.stringify(ctx)}. Command: "${text}"` }] }],
+                    contents: [{ parts: [{ text: `Parse ERP command to JSON: {action,data}. Actions: CREATE_TASK,CREATE_TRANSACTION,MODIFY_TASK,ASK_QUESTION. Context: ${JSON.stringify(ctx)}. Command: "${text}"` }] }],
                     generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
                 })
             });
-            clearTimeout(timeoutId);
+            clearTimeout(fetchTimer);
 
             const json = await res.json();
             if (json.error) {
-                if (json.error.code === 429) throw new Error('AI busy. 60 sec wait karo.');
-                if (json.error.message?.includes('expired')) throw new Error('API Key expired.');
-                if (json.error.message?.includes('not found')) throw new Error('AI model unavailable.');
+                if (json.error.code === 429) throw new Error('AI busy. 60 sec wait.');
                 throw new Error(json.error.message);
             }
             const raw = json.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!raw) throw new Error('AI ne kuch nahi bheja.');
+            if (!raw) throw new Error('AI empty response.');
 
             await executeAction(JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim()), text);
+            clearTimeout(safetyTimer);
 
         } catch (e) {
-            console.error('Jarvis:', e);
-            const msg = e.name === 'AbortError' ? 'AI timed out. Try again.' : (e.message || 'Unknown error');
+            clearTimeout(safetyTimer);
+            const msg = e.name === 'AbortError' ? 'AI timeout. Try again.' : (e.message || 'Error');
             setTranscript(''); setError(msg);
-            speakJarvis('Error aa gaya hai. Screen dekhiye.');
+            speakJarvis('Error aa gaya.');
             setIsProcessing(false);
         }
     };
