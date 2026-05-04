@@ -639,53 +639,76 @@ const TaskForm = ({ data, setData, record, onClose, context }) => {
                                                                 {(line.subItems || []).map((sub, sIdx) => {
                                                                     const subMaster = data.items.find(i => i.id === sub.itemId);
                                                                     return (
-                                                                        <div key={sIdx} className="bg-white/5 p-4 rounded-3xl border border-white/10 space-y-4">
-                                                                            <div className="flex justify-between items-start gap-4">
-                                                                                <div className="w-8 h-8 bg-white/10 rounded-xl flex items-center justify-center text-blue-400 shrink-0">
-                                                                                    <Package size={14}/>
+                                                                        <div key={sIdx} className="bg-white/5 p-2.5 rounded-2xl border border-white/10 space-y-2 relative overflow-hidden">
+                                                                            {/* Line 1: Item & Remove */}
+                                                                            <div className="flex justify-between items-center">
+                                                                                <div className="flex items-center gap-2 min-w-0">
+                                                                                    <div className="w-5 h-5 bg-white/10 rounded flex items-center justify-center text-blue-400 shrink-0">
+                                                                                        {(subMaster?.category || '').toLowerCase().includes('service') ? <Wrench size={10}/> : <Package size={10}/>}
+                                                                                    </div>
+                                                                                    <p className="text-[9px] font-black text-white uppercase truncate flex-1">{subMaster?.name || 'Part'}</p>
                                                                                 </div>
-                                                                                <div className="flex-1 min-w-0">
-                                                                                    <p className="text-[10px] font-black text-white truncate">{subMaster?.name || 'Part'}</p>
-                                                                                    <p className="text-[8px] font-bold text-slate-500 mt-0.5">{subMaster?.id}</p>
-                                                                                </div>
-                                                                                <button onClick={() => removeSubItem(idx, sIdx)} className="text-rose-400 p-1.5 bg-white/5 rounded-xl hover:bg-rose-500/20 transition-all"><Trash2 size={12}/></button>
+                                                                                <button onClick={() => removeSubItem(idx, sIdx)} className="text-rose-400 p-1 bg-white/5 rounded hover:bg-rose-500/20 transition-all"><Trash2 size={10}/></button>
                                                                             </div>
                                                                             
-                                                                            <div className="grid grid-cols-2 gap-2">
-                                                                                <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
-                                                                                    <p className="text-[7px] font-black text-slate-500 mb-1 uppercase">Variant / Brand</p>
-                                                                                    <SearchableSelect 
-                                                                                        placeholder={subMaster?.brands?.length ? "Variant" : "Standard"}
-                                                                                        options={subMaster?.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}` })) || []}
-                                                                                        value={sub.brand || ''}
-                                                                                        onChange={v => updateSubItem(idx, sIdx, 'brand', v)}
-                                                                                        onAddNew={() => setAddBrandModal({ item: subMaster, idx, subIdx: sIdx, name: '', sellPrice: subMaster.sellPrice, buyPrice: subMaster.buyPrice })}
-                                                                                        className="transaction-sub-select"
-                                                                                    />
+                                                                            {/* Line 2: Variant */}
+                                                                            <div className="bg-slate-900/50 p-1.5 rounded-lg border border-white/5">
+                                                                                <SearchableSelect 
+                                                                                    placeholder={subMaster?.brands?.length ? "Variant" : "Standard"}
+                                                                                    options={subMaster?.brands?.map(b => ({ id: b.name, name: b.name, subText: `₹${b.sellPrice}` })) || []}
+                                                                                    value={sub.brand || ''}
+                                                                                    onChange={v => updateSubItem(idx, sIdx, 'brand', v)}
+                                                                                    onAddNew={() => setAddBrandModal({ item: subMaster, idx, subIdx: sIdx, name: '', sellPrice: subMaster.sellPrice, buyPrice: subMaster.buyPrice })}
+                                                                                    className="transaction-sub-select-small"
+                                                                                />
+                                                                            </div>
+
+                                                                            {/* Line 3: Qty, Buy, Sell, Total, P&L */}
+                                                                            <div className="grid grid-cols-5 gap-1 bg-slate-900/50 p-1.5 rounded-lg border border-white/5 items-center">
+                                                                                <div className="flex flex-col">
+                                                                                    <p className="text-[6px] font-black text-slate-500 mb-0.5 uppercase tracking-widest">Qty</p>
+                                                                                    <input type="number" className="w-full bg-transparent text-[9px] text-white font-black outline-none" value={sub.qty} onChange={e => updateSubItem(idx, sIdx, 'qty', e.target.value)} />
                                                                                 </div>
-                                                                                <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
-                                                                                    <p className="text-[7px] font-black text-slate-500 mb-1 uppercase">Quantity</p>
-                                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-white font-black outline-none" value={sub.qty} onChange={e => updateSubItem(idx, sIdx, 'qty', e.target.value)} />
+                                                                                <div className="flex flex-col border-l border-white/5 pl-1">
+                                                                                    <p className="text-[6px] font-black text-blue-400 mb-0.5 uppercase tracking-widest">Buy</p>
+                                                                                    <input type="number" className="w-full bg-transparent text-[9px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => updateSubItem(idx, sIdx, 'buyPrice', e.target.value)} />
+                                                                                </div>
+                                                                                <div className="flex flex-col border-l border-white/5 pl-1">
+                                                                                    <p className="text-[6px] font-black text-emerald-400 mb-0.5 uppercase tracking-widest">Sell</p>
+                                                                                    <input type="number" className="w-full bg-transparent text-[9px] text-emerald-400 font-black outline-none" value={sub.price || 0} onChange={e => updateSubItem(idx, sIdx, 'price', e.target.value)} />
+                                                                                </div>
+                                                                                <div className="flex flex-col border-l border-white/5 pl-1 text-right">
+                                                                                    <p className="text-[6px] font-black text-slate-500 mb-0.5 uppercase tracking-widest">Total</p>
+                                                                                    <p className="text-[8px] font-black text-white">{formatCurrency((parseFloat(sub.qty||0)*parseFloat(sub.price||0)))}</p>
+                                                                                </div>
+                                                                                <div className="flex flex-col border-l border-white/5 pl-1 text-right">
+                                                                                    <p className="text-[6px] font-black text-amber-500 mb-0.5 uppercase tracking-widest">P&L</p>
+                                                                                    <p className="text-[8px] font-black text-amber-400">
+                                                                                        {((parseFloat(sub.price||0) - parseFloat(sub.buyPrice||0)) * parseFloat(sub.qty||0)) >= 0 ? '+' : ''}
+                                                                                        {formatCurrency((parseFloat(sub.price||0) - parseFloat(sub.buyPrice||0)) * parseFloat(sub.qty||0))}
+                                                                                    </p>
                                                                                 </div>
                                                                             </div>
 
-                                                                            <div className="grid grid-cols-2 gap-2">
-                                                                                <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 text-blue-400">
-                                                                                    <p className="text-[7px] font-black text-slate-500 mb-1 uppercase">Buy Rate</p>
-                                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-blue-400 font-black outline-none" value={sub.buyPrice} onChange={e => updateSubItem(idx, sIdx, 'buyPrice', e.target.value)} />
-                                                                                </div>
-                                                                                <div className="bg-white/5 p-2.5 rounded-xl border border-white/10 text-emerald-400">
-                                                                                    <p className="text-[7px] font-black text-slate-500 mb-1 uppercase">Sell Rate</p>
-                                                                                    <input type="number" className="w-full bg-transparent text-[10px] text-emerald-400 font-black outline-none" value={sub.price || 0} onChange={e => updateSubItem(idx, sIdx, 'price', e.target.value)} />
-                                                                                </div>
+                                                                            {/* Line 4: Desc & Warranty */}
+                                                                            <div className="flex gap-1.5">
+                                                                                <input 
+                                                                                    className="flex-1 bg-slate-900/50 px-2 py-1.5 rounded-lg text-[8px] font-bold text-slate-300 border border-white/5 outline-none placeholder:text-slate-600 focus:border-blue-500/30 transition-all" 
+                                                                                    placeholder="Description/Serial No..." 
+                                                                                    value={sub.description || ''} 
+                                                                                    onChange={e => updateSubItem(idx, sIdx, 'description', e.target.value)} 
+                                                                                />
+                                                                                <select 
+                                                                                    className="w-16 bg-slate-900/50 px-1 py-1.5 rounded-lg text-[8px] font-bold text-blue-400 border border-white/5 outline-none"
+                                                                                    value={sub.warrantyMonths || ''}
+                                                                                    onChange={e => updateSubItem(idx, sIdx, 'warrantyMonths', e.target.value)}
+                                                                                >
+                                                                                    <option value="">Wrrty</option>
+                                                                                    <option value="6">6 Mon</option>
+                                                                                    <option value="12">1 Yr</option>
+                                                                                    <option value="24">2 Yr</option>
+                                                                                </select>
                                                                             </div>
-
-                                                                            <input 
-                                                                                className="w-full bg-white/5 p-3 rounded-xl text-[9px] font-bold text-slate-400 border border-white/5 outline-none placeholder:text-slate-600" 
-                                                                                placeholder="Sub-item description / serial..." 
-                                                                                value={sub.description || ''} 
-                                                                                onChange={e => updateSubItem(idx, sIdx, 'description', e.target.value)} 
-                                                                            />
                                                                         </div>
                                                                     );
                                                                 })}

@@ -147,7 +147,8 @@ User Command: "${text}"
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
                     generationConfig: {
-                        responseMimeType: "application/json"
+                        responseMimeType: "application/json",
+                        temperature: 0.1
                     }
                 })
             });
@@ -185,9 +186,7 @@ User Command: "${text}"
             setChatHistory([]);
 
             if (parsedAction.action === "CREATE_TASK") {
-                const nextId = getNextId(data.tasks || []);
                 const newTask = {
-                    id: nextId,
                     name: parsedAction.data.name || 'New Task',
                     partyId: parsedAction.data.partyId || parsedAction.data.party_id || '',
                     status: parsedAction.data.status || 'Pending',
@@ -205,10 +204,8 @@ User Command: "${text}"
                 setTimeout(() => { setIsOpen(false); setSuccessMessage(''); }, 3000);
             } 
             else if (parsedAction.action === "CREATE_TRANSACTION") {
-                const nextId = getNextId(data.transactions || []);
                 const isPayment = parsedAction.data.type === 'payment';
                 const newTx = {
-                    id: nextId,
                     type: parsedAction.data.type || 'expense',
                     partyId: parsedAction.data.partyId || parsedAction.data.party_id || '',
                     category: parsedAction.data.category || '',
