@@ -107,6 +107,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     };
 
     const attemptLocalParsing = (text) => {
+        if (!text) return null;
         const cleanText = text.toLowerCase().trim();
         
         // 1. Extract Amount
@@ -122,8 +123,11 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         let foundParty = null;
         let foundBrand = null;
 
+        const itemsList = data?.items || [];
+        const partiesList = data?.parties || [];
+
         // Sort items by name length (longest first)
-        const sortedItems = [...(data.items || [])].sort((a, b) => (b.name || '').length - (a.name || '').length);
+        const sortedItems = [...itemsList].sort((a, b) => (b.name || '').length - (a.name || '').length);
         for (const item of sortedItems) {
             if (item.name && cleanText.includes(item.name.toLowerCase())) {
                 foundItem = item;
@@ -141,7 +145,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             if (foundItem) break;
         }
 
-        const sortedParties = [...(data.parties || [])].sort((a, b) => (b.name || '').length - (a.name || '').length);
+        const sortedParties = [...partiesList].sort((a, b) => (b.name || '').length - (a.name || '').length);
         for (const party of sortedParties) {
             if (party.name && cleanText.includes(party.name.toLowerCase())) {
                 foundParty = party;
@@ -186,113 +190,114 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     };
 
     const handleParsedAction = async (parsedAction, originalText) => {
-        if (parsedAction.action === "ASK_QUESTION") {
-            setChatHistory([...chatHistory, { role: 'user', text: originalText }, { role: 'assistant', text: parsedAction.data.question }]);
-            setTranscript('');
-            setStatusText(parsedAction.data.question);
-            speakText(parsedAction.data.question, () => {
-                setIsListening(true);
-                recognitionRef.current?.start();
-            });
-            setIsProcessing(false);
-            return;
-        }
+        try {
+            if (parsedAction.action === "ASK_QUESTION") {
+                setChatHistory([...chatHistory, { role: 'user', text: originalText }, { role: 'assistant', text: parsedAction.data.question }]);
+                setTranscript('');
+                setStatusText(parsedAction.data.question);
+                speakText(parsedAction.data.question, () => {
+                    setIsListening(true);
+                    recognitionRef.current?.start();
+                });
+                setIsProcessing(false);
+                return;
+            }
 
-        setChatHistory([]);
+            setChatHistory([]);
 
-        if (parsedAction.action === "CREATE_TASK") {
-            const newTask = {
-                name: parsedAction.data.name || 'New Task',
-                partyId: parsedAction.data.partyId || '',
-                status: parsedAction.data.status || 'To Do',
-                description: parsedAction.data.description || originalText,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            };
-            const id = await saveRecord('tasks', newTask, 'task');
-            const clientName = data.parties.find(p => p.id === newTask.partyId)?.name || '';
-            const msg = `Task create ho gaya: ${newTask.name} ${clientName}`;
-            setTranscript('');
-            setSuccessMessage(msg);
-            setLastCreatedRecord({ id, type: 'task', data: { ...newTask, id } });
-            speakText(msg);
-            setIsProcessing(false);
-            setTimeout(() => { if(!lastCreatedRecord) setIsOpen(false); setSuccessMessage(''); }, 6000);
-        } 
-        else if (parsedAction.action === "CREATE_TRANSACTION") {
-            const items = (parsedAction.data.items || []).map(item => {
-                const qty = parseFloat(item.qty || 1);
-                let price = parseFloat(item.price || 0);
-                let buyPrice = parseFloat(item.buyPrice || 0);
+            if (parsedAction.action === "CREATE_TASK") {
+                const newTask = {
+                    name: parsedAction.data.name || 'New Task',
+                    partyId: parsedAction.data.partyId || '',
+                    status: parsedAction.data.status || 'To Do',
+                    description: parsedAction.data.description || originalText,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+                const id = await saveRecord('tasks', newTask, 'task');
+                const clientName = (data?.parties || []).find(p => p.id === newTask.partyId)?.name || '';
+                const msg = `Task create ho gaya: ${newTask.name} ${clientName}`;
+                setTranscript('');
+                setSuccessMessage(msg);
+                setLastCreatedRecord({ id, type: 'task', data: { ...newTask, id } });
+                speakText(msg);
+                setIsProcessing(false);
+                setTimeout(() => { if(!lastCreatedRecord) setIsOpen(false); setSuccessMessage(''); }, 6000);
+            } 
+            else if (parsedAction.action === "CREATE_TRANSACTION") {
+                const items = (parsedAction.data.items || []).map(item => {
+                    const qty = parseFloat(item.qty || 1);
+                    let price = parseFloat(item.price || 0);
+                    let buyPrice = parseFloat(item.buyPrice || 0);
 
-                if (price === 0 && item.itemId) {
-                    const master = data.items.find(i => i.id === item.itemId);
-                    if (master) {
-                        if (item.brand) {
-                            const brand = master.brands?.find(b => b.name === item.brand);
-                            if (brand) { price = brand.sellPrice; buyPrice = brand.buyPrice; }
-                        } else { price = master.sellPrice; buyPrice = master.buyPrice; }
+                    if (price === 0 && item.itemId) {
+                        const master = (data?.items || []).find(i => i.id === item.itemId);
+                        if (master) {
+                            if (item.brand) {
+                                const brand = master.brands?.find(b => b.name === item.brand);
+                                if (brand) { price = brand.sellPrice; buyPrice = brand.buyPrice; }
+                            } else { price = master.sellPrice; buyPrice = master.buyPrice; }
+                        }
                     }
-                }
-                return { ...item, qty, price, buyPrice, isBundle: false, subItems: [] };
-            });
+                    return { ...item, qty, price, buyPrice, isBundle: false, subItems: [] };
+                });
 
-            const totalAmount = items.reduce((acc, i) => acc + (i.qty * i.price), 0) || parsedAction.data.amount || 0;
+                const totalAmount = items.reduce((acc, i) => acc + (i.qty * i.price), 0) || parsedAction.data.amount || 0;
 
-            const newTx = {
-                type: parsedAction.data.type || 'expense',
-                partyId: parsedAction.data.partyId || '',
-                category: parsedAction.data.category || '',
-                notes: parsedAction.data.notes || originalText,
-                amount: totalAmount,
-                finalTotal: totalAmount,
-                grossTotal: totalAmount,
-                paymentMode: 'Cash',
-                items: items,
-                date: new Date().toISOString().split('T')[0],
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            };
-            
-            if (newTx.type === 'expense' || newTx.type === 'purchase') newTx.paid = newTx.amount;
-            else if (newTx.type === 'sales') newTx.received = newTx.amount;
+                const newTx = {
+                    type: parsedAction.data.type || 'expense',
+                    partyId: parsedAction.data.partyId || '',
+                    category: parsedAction.data.category || '',
+                    notes: parsedAction.data.notes || originalText,
+                    amount: totalAmount,
+                    finalTotal: totalAmount,
+                    grossTotal: totalAmount,
+                    paymentMode: 'Cash',
+                    items: items,
+                    date: new Date().toISOString().split('T')[0],
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+                
+                if (newTx.type === 'expense' || newTx.type === 'purchase') newTx.paid = newTx.amount;
+                else if (newTx.type === 'sales') newTx.received = newTx.amount;
 
-            const id = await saveRecord('transactions', newTx, newTx.type);
-            const msg = `${newTx.type} entry done: ₹${newTx.amount}.`;
-            setTranscript('');
-            setSuccessMessage(msg);
-            setLastCreatedRecord({ id, type: 'transaction', data: { ...newTx, id } });
-            speakText(msg);
-            setIsProcessing(false);
-            setTimeout(() => { if(!lastCreatedRecord) setIsOpen(false); setSuccessMessage(''); }, 6000);
-        } 
-        else {
-            const msg = "Sorry, main samajh nahi paya.";
-            setTranscript('');
-            setStatusText(msg);
-            speakText(msg);
-            setIsProcessing(false);
+                const id = await saveRecord('transactions', newTx, newTx.type);
+                const msg = `${newTx.type} entry done: ₹${newTx.amount}.`;
+                setTranscript('');
+                setSuccessMessage(msg);
+                setLastCreatedRecord({ id, type: 'transaction', data: { ...newTx, id } });
+                speakText(msg);
+                setIsProcessing(false);
+                setTimeout(() => { if(!lastCreatedRecord) setIsOpen(false); setSuccessMessage(''); }, 6000);
+            } 
+            else {
+                throw new Error("Sorry, main samajh nahi paya.");
+            }
+        } catch (e) {
+            throw e;
         }
     };
 
     const processWithAI = async (text) => {
+        if (!text) return;
         setIsProcessing(true);
         setStatusText('Instant Scanning...');
         
-        // 1. Try Local Parsing First
-        const localResult = attemptLocalParsing(text);
-        if (localResult) {
-            await new Promise(r => setTimeout(r, 400)); // Small delay for visual feedback
-            handleParsedAction(localResult, text);
-            return;
-        }
-
-        // 2. Fallback to Gemini
-        setStatusText('AI Thinking...');
         try {
+            // 1. Try Local Parsing First
+            const localResult = attemptLocalParsing(text);
+            if (localResult) {
+                await new Promise(r => setTimeout(r, 400));
+                await handleParsedAction(localResult, text);
+                return;
+            }
+
+            // 2. Fallback to Gemini
+            setStatusText('AI Thinking...');
             const contextData = {
-                parties: data.parties.map(p => ({ id: p.id, name: p.name })),
-                items: data.items.map(i => ({ 
+                parties: (data?.parties || []).map(p => ({ id: p.id, name: p.name })),
+                items: (data?.items || []).map(i => ({ 
                     id: i.id, name: i.name, type: i.type, category: i.category, 
                     sellPrice: i.sellPrice, buyPrice: i.buyPrice, brands: i.brands || [] 
                 }))
@@ -327,12 +332,14 @@ Command: "${text}"
 
             const rawContent = result.candidates[0].content.parts[0].text;
             const parsedAction = JSON.parse(rawContent.replace(/```json/g, '').replace(/```/g, '').trim());
-            handleParsedAction(parsedAction, text);
+            await handleParsedAction(parsedAction, text);
         } catch (error) {
-            console.error(error);
+            console.error("AI Assistant Global Error:", error);
             setStatusText(error.message);
-            speakText('Error aa raha hai.');
+            speakText('Sorry, mujhe error aa raha hai.');
             setIsProcessing(false);
+            // Optionally clear success message if any
+            setSuccessMessage('');
         }
     };
 
