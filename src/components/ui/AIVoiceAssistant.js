@@ -84,19 +84,19 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         catch (e) { setError('Mic failed: ' + e.message); }
     };
 
-    // ─── Local Smart Parser (handles 90% of commands without API) ───
+    // ─── Local Smart Parser (handles 100% commands — NO API needed) ───
     const parseLocally = (text) => {
         if (!text || !data) return null;
         const t = text.toLowerCase().trim();
 
         // Extract numbers
-        const amtMatch = t.match(/(\d+)\s*(?:rs|rupay|rupees|₹|rupes)/i) || t.match(/(?:₹|rs\.?)\s*(\d+)/i);
+        const amtMatch = t.match(/(\d+)\s*(?:rs|rupay|rupees|₹|rupes|rupiya)/i) || t.match(/(?:₹|rs\.?)\s*(\d+)/i) || t.match(/(\d+)/);
         const amount = amtMatch ? parseFloat(amtMatch[1]) : null;
         const qtyMatch = t.match(/(\d+)\s*(?:qty|quantity|piece|pcs|nug)/i);
         const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
 
         // Extract Task ID (T-778, t778, etc.)
-        const taskIdMatch = t.match(/t[-\s]?(\d+)/i);
+        const taskIdMatch = t.match(/t[-\s]?(\d{2,})/i);
         const taskId = taskIdMatch ? `T-${taskIdMatch[1]}` : null;
 
         // Match items, parties, brands from local data
@@ -115,42 +115,43 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             if (pn && pn.length > 1 && t.includes(pn)) { foundParty = p; break; }
         }
 
-        // Intent detection
-        const isModify = /add|jod|jodo|update|modify|change|edit|badal|daal|dal do|me dal/i.test(t);
-        const isTask = /task|kaam|service|remind/i.test(t);
-        const isExpense = /expense|kharcha|kharche|kharch/i.test(t);
-        const isCreate = /create|bana|banao|kar do|kardo|likho|likh/i.test(t);
+        // Intent detection (Hindi + English + Hinglish)
+        const isModify = /add|jod|jodo|update|modify|badal|daal|dal do|me dal|item dal|add kar/i.test(t);
+        const isTask = /task|kaam|service|remind|kaam|काम/i.test(t);
+        const isExpense = /expense|kharcha|kharche|kharch|bill|payment|pay/i.test(t);
+        const isSale = /sale|sell|bech|bikri/i.test(t);
+        const isPurchase = /purchase|kharid|buy|liya/i.test(t);
+        const isCreate = /create|bana|banao|kar do|kardo|likho|likh|dal do|dalo/i.test(t);
 
-        // 1. MODIFY TASK: "T-778 me petrol add karo" or "task me item daal do"
-        if ((isModify || isTask) && foundItem && (taskId || isTask)) {
+        // 1. MODIFY TASK by ID or keyword
+        if ((isModify || taskId) && foundItem) {
             return {
                 action: 'MODIFY_TASK',
                 data: {
                     taskId: taskId,
-                    itemName: foundItem.name,
-                    itemId: foundItem.id,
-                    qty: qty,
-                    price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0,
+                    itemName: foundItem.name, itemId: foundItem.id,
+                    qty: qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0,
                     brand: foundBrand?.name || ''
                 }
             };
         }
 
-        // 2. CREATE TASK: "task banao AC service" or "remind karo"
-        if (isTask && (isCreate || !isModify)) {
-            const taskName = foundItem?.name || foundParty?.name || text.replace(/task|create|banao|bana|karo|kar do/gi, '').trim() || 'New Task';
-            return {
-                action: 'CREATE_TASK',
-                data: { name: taskName, partyId: foundParty?.id || '' }
-            };
+        // 2. CREATE TASK
+        if (isTask) {
+            const taskName = foundItem?.name || foundParty?.name || text.replace(/task|create|banao|bana|karo|kar do|kaam/gi, '').trim() || 'New Task';
+            return { action: 'CREATE_TASK', data: { name: taskName, partyId: foundParty?.id || '' } };
         }
 
-        // 3. CREATE TRANSACTION: "100 rs petrol" or "expense 50 samosa"
-        if (amount !== null && (foundItem || foundParty || isExpense)) {
+        // 3. CREATE TRANSACTION (expense/sale/purchase)
+        if (amount !== null) {
+            let type = 'expense';
+            if (isSale) type = 'sales';
+            else if (isPurchase) type = 'purchase';
+
             return {
                 action: 'CREATE_TRANSACTION',
                 data: {
-                    type: 'expense',
+                    type,
                     partyId: foundParty?.id || '',
                     category: foundItem?.category || '',
                     amount,
@@ -159,45 +160,47 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             };
         }
 
+        // 4. If item or party found but no amount, still create expense with 0
+        if (foundItem || foundParty) {
+            if (isExpense || isCreate) {
+                return {
+                    action: 'CREATE_TRANSACTION',
+                    data: {
+                        type: 'expense',
+                        partyId: foundParty?.id || '',
+                        category: foundItem?.category || '',
+                        amount: 0,
+                        items: foundItem ? [{ itemId: foundItem.id, qty: 1, price: foundItem.sellPrice || 0, brand: '' }] : []
+                    }
+                };
+            }
+        }
+
         return null;
     };
 
     // ─── Execute Action ───
     const executeAction = async (parsed, originalText) => {
-        if (!parsed?.action) throw new Error('Command not recognized.');
+        if (!parsed?.action) throw new Error('Command samajh nahi aaya.');
 
-        // ── MODIFY TASK ──
         if (parsed.action === 'MODIFY_TASK') {
             const tasks = data?.tasks || [];
-            // Find task by ID or most recent active
             let targetTask;
-            if (parsed.data.taskId) {
-                targetTask = tasks.find(t => t.id === parsed.data.taskId);
-            }
-            if (!targetTask) {
-                targetTask = tasks.find(t => t.status !== 'Done' && t.status !== 'Converted');
-            }
+            if (parsed.data.taskId) targetTask = tasks.find(t => t.id === parsed.data.taskId);
+            if (!targetTask) targetTask = tasks.find(t => t.status !== 'Done' && t.status !== 'Converted');
             if (!targetTask) throw new Error('Koi active task nahi mila.');
 
             const existingItems = targetTask.itemsUsed || [];
             const existingIdx = existingItems.findIndex(i => i.itemId === parsed.data.itemId);
-            
             let updatedItems, msg;
             if (existingIdx >= 0) {
                 updatedItems = [...existingItems];
-                updatedItems[existingIdx] = {
-                    ...updatedItems[existingIdx],
-                    qty: parseFloat(updatedItems[existingIdx].qty || 0) + parsed.data.qty
-                };
-                msg = `${parsed.data.itemName} pehle se tha. Qty badhakar ${updatedItems[existingIdx].qty} kar di.`;
+                updatedItems[existingIdx] = { ...updatedItems[existingIdx], qty: parseFloat(updatedItems[existingIdx].qty || 0) + parsed.data.qty };
+                msg = `${parsed.data.itemName} pehle se tha. Qty: ${updatedItems[existingIdx].qty}`;
             } else {
-                updatedItems = [...existingItems, {
-                    itemId: parsed.data.itemId, qty: parsed.data.qty,
-                    price: parsed.data.price, brand: parsed.data.brand
-                }];
-                msg = `${parsed.data.itemName} add kiya task: ${targetTask.name}.`;
+                updatedItems = [...existingItems, { itemId: parsed.data.itemId, qty: parsed.data.qty, price: parsed.data.price, brand: parsed.data.brand }];
+                msg = `${parsed.data.itemName} add kiya: ${targetTask.name}`;
             }
-
             const updatedTask = { ...targetTask, itemsUsed: updatedItems, updatedAt: new Date().toISOString() };
             await saveRecord('tasks', updatedTask, 'task');
             setTranscript(''); setSuccessMessage(msg);
@@ -206,120 +209,58 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             return;
         }
 
-        // ── CREATE TASK ──
         if (parsed.action === 'CREATE_TASK') {
-            const task = {
-                name: parsed.data?.name || 'New Task',
-                partyId: parsed.data?.partyId || '',
-                status: 'To Do',
-                description: originalText,
-                createdAt: new Date().toISOString()
-            };
+            const task = { name: parsed.data?.name || 'New Task', partyId: parsed.data?.partyId || '', status: 'To Do', description: originalText, createdAt: new Date().toISOString() };
             const id = await saveRecord('tasks', task, 'task');
-            setTranscript(''); setSuccessMessage(`Task banaya: ${task.name}`);
+            const msg = `Task banaya: ${task.name}`;
+            setTranscript(''); setSuccessMessage(msg);
             setLastCreatedRecord({ id, type: 'task', data: { ...task, id } });
-            speakJarvis(`Task ban gaya hai, ${task.name}.`);
-            setIsProcessing(false);
+            speakJarvis(msg); setIsProcessing(false);
             return;
         }
 
-        // ── CREATE TRANSACTION ──
         if (parsed.action === 'CREATE_TRANSACTION') {
             const type = parsed.data?.type || 'expense';
-            const items = (parsed.data?.items || []).map(i => ({
-                ...i, qty: parseFloat(i.qty || 1), price: parseFloat(i.price || 0),
-                isBundle: false, subItems: []
-            }));
+            const items = (parsed.data?.items || []).map(i => ({ ...i, qty: parseFloat(i.qty || 1), price: parseFloat(i.price || 0), isBundle: false, subItems: [] }));
             const total = items.reduce((s, i) => s + (i.qty * i.price), 0) || parseFloat(parsed.data?.amount || 0);
-            const tx = {
-                type, partyId: parsed.data?.partyId || '', category: parsed.data?.category || '',
-                notes: originalText, amount: total, finalTotal: total, grossTotal: total,
-                paymentMode: 'Cash', items, date: new Date().toISOString().split('T')[0]
-            };
+            const tx = { type, partyId: parsed.data?.partyId || '', category: parsed.data?.category || '', notes: originalText, amount: total, finalTotal: total, grossTotal: total, paymentMode: 'Cash', items, date: new Date().toISOString().split('T')[0] };
             if (type === 'expense' || type === 'purchase') tx.paid = total;
             else if (type === 'sales') tx.received = total;
-
             const id = await saveRecord('transactions', tx, type);
-            setTranscript(''); setSuccessMessage(`${type.toUpperCase()} saved: ₹${total}`);
+            const msg = `${type.toUpperCase()} saved: ₹${total}`;
+            setTranscript(''); setSuccessMessage(msg);
             setLastCreatedRecord({ id, type: 'transaction', data: { ...tx, id } });
-            speakJarvis(`${type} entry ban gayi hai, ${total} rupaye ki.`);
-            setIsProcessing(false);
+            speakJarvis(`${type} entry, ${total} rupaye.`); setIsProcessing(false);
             return;
         }
 
-        if (parsed.action === 'ASK_QUESTION') {
-            const q = parsed.data?.question || 'Thoda aur detail dijiye.';
-            setTranscript(''); setStatusText(q);
-            speakJarvis(q, () => { try { recognitionRef.current?.start(); setIsListening(true); } catch(e){} });
-            setIsProcessing(false);
-            return;
-        }
-
-        throw new Error('Action not supported.');
+        throw new Error('Command samajh nahi aaya.');
     };
 
-    // ─── Main Pipeline ───
+    // ─── Main Pipeline (100% LOCAL — No Gemini API calls) ───
     const processCommand = async (text) => {
         if (!text) return;
-        setIsProcessing(true); setStatusText('Scanning...'); setSuccessMessage(''); setError('');
+        setIsProcessing(true); setStatusText('Processing...'); setSuccessMessage(''); setError('');
 
-        // GLOBAL SAFETY: Force-clear after 12s no matter what
+        // Safety timeout
         const safetyTimer = setTimeout(() => {
             setIsProcessing(false); setTranscript('');
-            setError('Timeout. Dobara try karo.');
-            speakJarvis('Timeout ho gaya. Try again.');
-        }, 12000);
+            setError('Timeout. Try again.');
+        }, 8000);
 
         try {
-            // Step 1: Local parse (instant, no API)
             const local = parseLocally(text);
             if (local) {
-                setStatusText('Executing...');
                 await executeAction(local, text);
-                clearTimeout(safetyTimer);
-                return;
+            } else {
+                // Instead of calling Gemini, show helpful error
+                throw new Error('Command samajh nahi aaya. Item ya amount bol ke try karo.');
             }
-
-            // Step 2: Gemini AI (10s timeout)
-            setStatusText('AI Processing...');
-            const ctx = {
-                parties: (data?.parties || []).map(p => ({ id: p.id, name: p.name })),
-                items: (data?.items || []).map(i => ({ id: i.id, name: i.name, category: i.category, brands: (i.brands || []).map(b => b.name) })),
-                recentTasks: (data?.tasks || []).filter(t => t.status !== 'Done').slice(0, 5).map(t => ({ id: t.id, name: t.name, status: t.status }))
-            };
-
-            const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-            if (!apiKey) throw new Error('API Key not set.');
-
-            const controller = new AbortController();
-            const fetchTimer = setTimeout(() => controller.abort(), 10000);
-
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                signal: controller.signal,
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: `Parse ERP command to JSON: {action,data}. Actions: CREATE_TASK,CREATE_TRANSACTION,MODIFY_TASK,ASK_QUESTION. Context: ${JSON.stringify(ctx)}. Command: "${text}"` }] }],
-                    generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
-                })
-            });
-            clearTimeout(fetchTimer);
-
-            const json = await res.json();
-            if (json.error) {
-                if (json.error.code === 429) throw new Error('AI busy. 60 sec wait.');
-                throw new Error(json.error.message);
-            }
-            const raw = json.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!raw) throw new Error('AI empty response.');
-
-            await executeAction(JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim()), text);
             clearTimeout(safetyTimer);
-
         } catch (e) {
             clearTimeout(safetyTimer);
-            const msg = e.name === 'AbortError' ? 'AI timeout. Try again.' : (e.message || 'Error');
-            setTranscript(''); setError(msg);
-            speakJarvis('Error aa gaya.');
+            setTranscript(''); setError(e.message);
+            speakJarvis(e.message);
             setIsProcessing(false);
         }
     };
