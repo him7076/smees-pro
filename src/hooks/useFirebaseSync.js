@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { collection, onSnapshot, doc, query, orderBy, limit, where } from "firebase/firestore";
+import { collection, onSnapshot, doc, query, orderBy, limit, where, getDocs } from "firebase/firestore";
 import { db, personalDb } from '../services/firebase';
 import { INITIAL_DATA } from '../utils/constants';
 
@@ -12,9 +12,9 @@ export const useFirebaseSync = () => {
     const [syncing, setSyncing] = useState(false);
     const [loading, setLoading] = useState(true);
     
-    // Debounce localStorage writes to avoid 9+ rapid serializations on load
     const saveTimerRef = useRef(null);
     const dataRef = useRef(data);
+    const unsubscribersRef = useRef([]);
     dataRef.current = data;
 
     const debouncedSave = useCallback((newData) => {
@@ -25,43 +25,50 @@ export const useFirebaseSync = () => {
             } catch (e) {
                 console.warn('localStorage save failed:', e);
             }
-        }, 500); // Wait 500ms after last update before saving to localStorage
+        }, 1000); // Increased debounce to 1s to reduce serialization overhead
     }, []);
 
     useEffect(() => {
+        // Check if sync is disabled - if so, just use local data
+        const uiConfig = JSON.parse(localStorage.getItem('smees_ui_config') || '{}');
+        if (uiConfig.syncEnabled === false) {
+            setLoading(false);
+            return; // Don't set up any listeners - pure offline mode
+        }
+
         setLoading(true);
         const unsubscribers = [];
         let loadedCount = 0;
-        const totalListeners = 13; // 6 biz + 3 personal + 4 settings docs
+        const totalListeners = 11; // Reduced: removed attendance from real-time
 
         const checkLoaded = () => {
             loadedCount++;
-            if (loadedCount >= totalListeners) {
-                setLoading(false);
-            }
+            if (loadedCount >= totalListeners) setLoading(false);
         };
 
-        // --- 1. BUSINESS REPOSITORY REAL-TIME SYNC ---
-        const bizCollections = ['parties', 'items', 'staff', 'tasks', 'transactions', 'attendance'];
+        // --- 1. BUSINESS COLLECTIONS (Real-time but with tighter limits) ---
+        const bizCollections = ['parties', 'items', 'staff', 'tasks', 'transactions'];
         
         bizCollections.forEach(colName => {
             let q = collection(db, colName);
             
-            // Optimization: Apply limits and filters to high-volume collections
             if (colName === 'transactions') {
-                q = query(q, orderBy('date', 'desc'), limit(2000));
+                q = query(q, orderBy('date', 'desc'), limit(500)); // Reduced from 2000 to 500
             } else if (colName === 'tasks') {
-                q = query(q, orderBy('createdAt', 'desc'), limit(500));
-            } else if (colName === 'attendance') {
-                const sixtyDaysAgo = new Date();
-                sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
-                q = query(q, where('date', '>=', sixtyDaysAgo.toISOString().split('T')[0]));
+                q = query(q, orderBy('createdAt', 'desc'), limit(200)); // Reduced from 500 to 200
             }
 
             const unsub = onSnapshot(q, (snapshot) => {
                 const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
                 setData(prev => {
-                    const newData = { ...prev, [colName]: list };
+                    // For limited queries, merge with existing local data to keep old records
+                    let merged = list;
+                    if (colName === 'transactions' || colName === 'tasks') {
+                        const existingIds = new Set(list.map(r => r.id));
+                        const oldRecords = (prev[colName] || []).filter(r => !existingIds.has(r.id));
+                        merged = [...list, ...oldRecords];
+                    }
+                    const newData = { ...prev, [colName]: merged };
                     debouncedSave(newData);
                     return newData;
                 });
@@ -73,7 +80,25 @@ export const useFirebaseSync = () => {
             unsubscribers.push(unsub);
         });
 
-        // --- 2. PERSONAL VAULT REAL-TIME SYNC (Isolated Database) ---
+        // --- 2. ATTENDANCE: ONE-TIME FETCH (not real-time) ---
+        const fetchAttendance = async () => {
+            try {
+                const thirtyDaysAgo = new Date();
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                const q = query(collection(db, 'attendance'), where('date', '>=', thirtyDaysAgo.toISOString().split('T')[0]));
+                const snapshot = await getDocs(q);
+                const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                setData(prev => {
+                    const newData = { ...prev, attendance: list };
+                    debouncedSave(newData);
+                    return newData;
+                });
+            } catch (e) { console.error('Attendance fetch error:', e); }
+            checkLoaded();
+        };
+        fetchAttendance();
+
+        // --- 3. PERSONAL VAULT (Real-time with limits) ---
         const personalCollections = [
             { key: 'personalTasks', col: 'tasks' },
             { key: 'personalTransactions', col: 'transactions' },
@@ -83,9 +108,9 @@ export const useFirebaseSync = () => {
         personalCollections.forEach(({ key, col }) => {
             let q = collection(personalDb, col);
             if (key === 'personalTransactions') {
-                q = query(q, orderBy('date', 'desc'), limit(2000));
+                q = query(q, orderBy('date', 'desc'), limit(500));
             } else if (key === 'personalTasks') {
-                q = query(q, orderBy('createdAt', 'desc'), limit(500));
+                q = query(q, orderBy('createdAt', 'desc'), limit(200));
             }
 
             const unsub = onSnapshot(q, (snapshot) => {
@@ -103,7 +128,7 @@ export const useFirebaseSync = () => {
             unsubscribers.push(unsub);
         });
 
-        // --- 3. SETTINGS & METADATA SYNC ---
+        // --- 4. SETTINGS DOCS (Real-time, low cost - single docs) ---
         const settingsDocs = ['counters', 'categories', 'company', 'counters_26_27'];
         settingsDocs.forEach(sDoc => {
             const unsub = onSnapshot(doc(db, "settings", sDoc), (snapshot) => {
@@ -122,7 +147,7 @@ export const useFirebaseSync = () => {
             unsubscribers.push(unsub);
         });
 
-        // --- 4. COUNTERS & CATEGORIES FOR PERSONAL (From Personal DB) ---
+        // --- 5. PERSONAL SETTINGS ---
         const unsubPC = onSnapshot(doc(personalDb, "settings", "counters"), (snapshot) => {
             if (snapshot.exists()) {
                 setData(prev => {
@@ -145,21 +170,19 @@ export const useFirebaseSync = () => {
         });
         unsubscribers.push(unsubPCat);
 
+        unsubscribersRef.current = unsubscribers;
+
         return () => {
             unsubscribers.forEach(unsub => unsub());
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         };
     }, [debouncedSave]);
 
-    // Real manual sync — unsubscribes all listeners and re-subscribes 
-    // (triggers fresh fetch without full page reload)
     const syncData = useCallback(async () => {
         setSyncing(true);
-        // Force a fresh save of current state
         try {
             localStorage.setItem('smees_data', JSON.stringify(dataRef.current));
         } catch (e) { /* ignore */ }
-        // Small delay for visual feedback, then reload to re-init listeners
         setTimeout(() => {
             window.location.reload();
         }, 300);
