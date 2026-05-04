@@ -84,20 +84,22 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         catch (e) { setError('Mic failed: ' + e.message); }
     };
 
-    // ─── Local Smart Parser ───
+    // ─── Local Smart Parser (handles 90% of commands without API) ───
     const parseLocally = (text) => {
         if (!text || !data) return null;
         const t = text.toLowerCase().trim();
 
-        // Amount
+        // Extract numbers
         const amtMatch = t.match(/(\d+)\s*(?:rs|rupay|rupees|₹|rupes)/i) || t.match(/(?:₹|rs\.?)\s*(\d+)/i);
         const amount = amtMatch ? parseFloat(amtMatch[1]) : null;
-
-        // Qty
         const qtyMatch = t.match(/(\d+)\s*(?:qty|quantity|piece|pcs|nug)/i);
         const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
 
-        // Item & Party match
+        // Extract Task ID (T-778, t778, etc.)
+        const taskIdMatch = t.match(/t[-\s]?(\d+)/i);
+        const taskId = taskIdMatch ? `T-${taskIdMatch[1]}` : null;
+
+        // Match items, parties, brands from local data
         let foundItem = null, foundParty = null, foundBrand = null;
         for (const item of (data.items || [])) {
             const n = (item.name || '').toLowerCase();
@@ -113,18 +115,38 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             if (pn && pn.length > 1 && t.includes(pn)) { foundParty = p; break; }
         }
 
-        // Check for modify/update intent
-        const isModify = /add|jod|jodo|update|modify|change|edit|badal|daal|dal do/i.test(t);
+        // Intent detection
+        const isModify = /add|jod|jodo|update|modify|change|edit|badal|daal|dal do|me dal/i.test(t);
         const isTask = /task|kaam|service|remind/i.test(t);
+        const isExpense = /expense|kharcha|kharche|kharch/i.test(t);
+        const isCreate = /create|bana|banao|kar do|kardo|likho|likh/i.test(t);
 
-        if (isModify && isTask && foundItem) {
-            return { action: 'MODIFY_TASK', data: { itemName: foundItem.name, itemId: foundItem.id, qty: qty, price: amount || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
+        // 1. MODIFY TASK: "T-778 me petrol add karo" or "task me item daal do"
+        if ((isModify || isTask) && foundItem && (taskId || isTask)) {
+            return {
+                action: 'MODIFY_TASK',
+                data: {
+                    taskId: taskId,
+                    itemName: foundItem.name,
+                    itemId: foundItem.id,
+                    qty: qty,
+                    price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0,
+                    brand: foundBrand?.name || ''
+                }
+            };
         }
 
-        if (amount !== null && (foundItem || foundParty)) {
-            if (isTask && !isModify) {
-                return { action: 'CREATE_TASK', data: { name: foundItem?.name || 'Task', partyId: foundParty?.id || '' } };
-            }
+        // 2. CREATE TASK: "task banao AC service" or "remind karo"
+        if (isTask && (isCreate || !isModify)) {
+            const taskName = foundItem?.name || foundParty?.name || text.replace(/task|create|banao|bana|karo|kar do/gi, '').trim() || 'New Task';
+            return {
+                action: 'CREATE_TASK',
+                data: { name: taskName, partyId: foundParty?.id || '' }
+            };
+        }
+
+        // 3. CREATE TRANSACTION: "100 rs petrol" or "expense 50 samosa"
+        if (amount !== null && (foundItem || foundParty || isExpense)) {
             return {
                 action: 'CREATE_TRANSACTION',
                 data: {
@@ -136,6 +158,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                 }
             };
         }
+
         return null;
     };
 
@@ -143,43 +166,43 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     const executeAction = async (parsed, originalText) => {
         if (!parsed?.action) throw new Error('Command not recognized.');
 
-        // ── MODIFY TASK: Add item to existing task ──
+        // ── MODIFY TASK ──
         if (parsed.action === 'MODIFY_TASK') {
             const tasks = data?.tasks || [];
-            // Find most recent active task
-            const activeTask = tasks.find(t => t.status !== 'Done' && t.status !== 'Converted');
-            if (!activeTask) throw new Error('No active task found to modify.');
+            // Find task by ID or most recent active
+            let targetTask;
+            if (parsed.data.taskId) {
+                targetTask = tasks.find(t => t.id === parsed.data.taskId);
+            }
+            if (!targetTask) {
+                targetTask = tasks.find(t => t.status !== 'Done' && t.status !== 'Converted');
+            }
+            if (!targetTask) throw new Error('Koi active task nahi mila.');
 
-            const existingItems = activeTask.itemsUsed || [];
+            const existingItems = targetTask.itemsUsed || [];
             const existingIdx = existingItems.findIndex(i => i.itemId === parsed.data.itemId);
             
-            let updatedItems;
-            let msg;
+            let updatedItems, msg;
             if (existingIdx >= 0) {
-                // Item already exists — add qty
                 updatedItems = [...existingItems];
                 updatedItems[existingIdx] = {
                     ...updatedItems[existingIdx],
                     qty: parseFloat(updatedItems[existingIdx].qty || 0) + parsed.data.qty
                 };
-                msg = `${parsed.data.itemName} already in task. Qty updated to ${updatedItems[existingIdx].qty}.`;
+                msg = `${parsed.data.itemName} pehle se tha. Qty badhakar ${updatedItems[existingIdx].qty} kar di.`;
             } else {
-                // New item
                 updatedItems = [...existingItems, {
-                    itemId: parsed.data.itemId,
-                    qty: parsed.data.qty,
-                    price: parsed.data.price,
-                    brand: parsed.data.brand
+                    itemId: parsed.data.itemId, qty: parsed.data.qty,
+                    price: parsed.data.price, brand: parsed.data.brand
                 }];
-                msg = `${parsed.data.itemName} added to task: ${activeTask.name}.`;
+                msg = `${parsed.data.itemName} add kiya task: ${targetTask.name}.`;
             }
 
-            const updatedTask = { ...activeTask, itemsUsed: updatedItems, updatedAt: new Date().toISOString() };
+            const updatedTask = { ...targetTask, itemsUsed: updatedItems, updatedAt: new Date().toISOString() };
             await saveRecord('tasks', updatedTask, 'task');
             setTranscript(''); setSuccessMessage(msg);
-            setLastCreatedRecord({ id: activeTask.id, type: 'task', data: updatedTask });
-            speakJarvis(msg);
-            setIsProcessing(false);
+            setLastCreatedRecord({ id: targetTask.id, type: 'task', data: updatedTask });
+            speakJarvis(msg); setIsProcessing(false);
             return;
         }
 
@@ -224,7 +247,6 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             return;
         }
 
-        // ── ASK QUESTION ──
         if (parsed.action === 'ASK_QUESTION') {
             const q = parsed.data?.question || 'Thoda aur detail dijiye.';
             setTranscript(''); setStatusText(q);
@@ -250,55 +272,48 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                 return;
             }
 
-            // Step 2: Gemini AI fallback (uses local data context, not firebase)
+            // Step 2: Gemini AI fallback with 10s TIMEOUT
             setStatusText('AI Processing...');
             const ctx = {
                 parties: (data?.parties || []).map(p => ({ id: p.id, name: p.name })),
                 items: (data?.items || []).map(i => ({ id: i.id, name: i.name, category: i.category, brands: (i.brands || []).map(b => b.name) })),
-                recentTasks: (data?.tasks || []).filter(t => t.status !== 'Done').slice(0, 5).map(t => ({ id: t.id, name: t.name, status: t.status, itemsUsed: (t.itemsUsed || []).map(i => i.itemId) }))
+                recentTasks: (data?.tasks || []).filter(t => t.status !== 'Done').slice(0, 5).map(t => ({ id: t.id, name: t.name, status: t.status }))
             };
 
             const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-            if (!apiKey) throw new Error('Gemini API key not set.');
+            if (!apiKey) throw new Error('API Key not set.');
+
+            // Timeout wrapper - 10 seconds max
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
 
             const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: `You are an ERP assistant. Parse user command into JSON.
-Return ONLY JSON: {"action":"CREATE_TASK"|"CREATE_TRANSACTION"|"MODIFY_TASK"|"ASK_QUESTION","data":{...}}
-
-For CREATE_TRANSACTION: {type(expense/sales/purchase), partyId, category, amount, items:[{itemId,qty,price,brand}]}
-For CREATE_TASK: {name, partyId}
-For MODIFY_TASK: {taskId, itemName, itemId, qty, price, brand} - Use this when user wants to ADD items to existing task
-For ASK_QUESTION: {question}
-
-Rules:
-- Match IDs from context exactly
-- Default qty=1, default task status="To Do"
-- If user says "add item to task" or "task me daal do", use MODIFY_TASK
-- If item already exists in the task's itemsUsed, just increase qty
-
-Context: ${JSON.stringify(ctx)}
-Command: "${text}"` }] }],
+                    contents: [{ parts: [{ text: `Parse ERP command. JSON only: {action, data}. Actions: CREATE_TASK, CREATE_TRANSACTION, MODIFY_TASK, ASK_QUESTION. Context: ${JSON.stringify(ctx)}. Command: "${text}"` }] }],
                     generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
                 })
             });
+            clearTimeout(timeoutId);
 
             const json = await res.json();
             if (json.error) {
-                if (json.error.code === 429) throw new Error('Rate limit. 60 sec wait.');
+                if (json.error.code === 429) throw new Error('AI busy. 60 sec wait karo.');
                 if (json.error.message?.includes('expired')) throw new Error('API Key expired.');
+                if (json.error.message?.includes('not found')) throw new Error('AI model unavailable.');
                 throw new Error(json.error.message);
             }
             const raw = json.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!raw) throw new Error('AI empty response.');
+            if (!raw) throw new Error('AI ne kuch nahi bheja.');
 
             await executeAction(JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim()), text);
 
         } catch (e) {
             console.error('Jarvis:', e);
-            setTranscript(''); setError(e.message);
+            const msg = e.name === 'AbortError' ? 'AI timed out. Try again.' : (e.message || 'Unknown error');
+            setTranscript(''); setError(msg);
             speakJarvis('Error aa gaya hai. Screen dekhiye.');
             setIsProcessing(false);
         }
