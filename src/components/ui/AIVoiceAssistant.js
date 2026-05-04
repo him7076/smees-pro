@@ -186,7 +186,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         if (newItem) learnMatch(t, newItem.id);
 
         const newPreview = getPreview(updated);
-        setPendingAction({ parsed: updated, originalText: pendingAction.originalText, preview: newPreview });
+        setPendingAction({ parsed: updated, originalText: correctionText, preview: newPreview });
         setTranscript('');
         setIsEditingText(false);
         speakJarvis('Theek hai, update kar diya. Ab confirm karo.');
@@ -240,11 +240,11 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         for (const p of (data.parties || [])) { const pn = (p.name || '').toLowerCase(); if (pn && pn.length > 1 && t.includes(pn)) { foundParty = p; break; } }
 
         if (isTask && taskId) {
-            if (foundItem) return { action: 'MODIFY_TASK', data: { taskId, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
+            if (foundItem) return { action: 'MODIFY_TASK', data: { taskId, partyId: foundParty?.id || null, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
             if (isModify) return null; // Let Gemini handle
             return { action: 'VIEW_TASK', data: { taskId } };
         }
-        if (isModify && foundItem) return { action: 'MODIFY_TASK', data: { taskId: null, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
+        if (isModify && foundItem) return { action: 'MODIFY_TASK', data: { taskId: null, partyId: foundParty?.id || null, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
         if (isTask && !taskId) { const n = foundItem?.name || foundParty?.name || text.replace(/task|create|banao|bana|karo|kar do|kaam/gi, '').trim() || 'New Task'; return { action: 'CREATE_TASK', data: { name: n, partyId: foundParty?.id || '' } }; }
         if (amount !== null) { let tp = 'expense'; if (isSale) tp = 'sales'; else if (isPurchase) tp = 'purchase'; return { action: 'CREATE_TRANSACTION', data: { type: tp, partyId: foundParty?.id || '', category: foundItem?.category || '', amount, items: foundItem ? [{ itemId: foundItem.id, qty, price: amount / qty, brand: foundBrand?.name || '' }] : [] } }; }
         if ((isExpense || isCreate) && (foundItem || foundParty)) return { action: 'CREATE_TRANSACTION', data: { type: 'expense', partyId: foundParty?.id || '', category: foundItem?.category || '', amount: 0, items: foundItem ? [{ itemId: foundItem.id, qty: 1, price: foundItem.sellPrice || 0, brand: '' }] : [] } };
@@ -264,9 +264,41 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
 
         if (parsed.action === 'MODIFY_TASK') {
             const tasks = data?.tasks || [];
-            let t; if (parsed.data.taskId) t = tasks.find(x => x.id === parsed.data.taskId);
-            if (!t) t = tasks.find(x => x.status !== 'Done' && x.status !== 'Converted');
-            if (!t) throw new Error('Koi active task nahi mila.');
+            let t;
+            
+            if (parsed.data.taskId) {
+                t = tasks.find(x => x.id === parsed.data.taskId);
+            } else {
+                // Smart Task Search
+                let pool = tasks.filter(x => x.status !== 'Done' && x.status !== 'Converted');
+                
+                // 1. Filter by Party if provided
+                if (parsed.data.partyId) {
+                    const partyTasks = pool.filter(x => x.partyId === parsed.data.partyId);
+                    if (partyTasks.length > 0) pool = partyTasks;
+                }
+                
+                // 2. Score tasks based on command text keywords
+                if (pool.length > 1) {
+                    const cmdWords = originalText.toLowerCase().split(/\s+/);
+                    let bestScore = -1;
+                    let bestTask = pool[0];
+                    
+                    pool.forEach(task => {
+                        const taskWords = (task.name || '').toLowerCase().split(/[\s-]+/);
+                        let score = 0;
+                        taskWords.forEach(tw => {
+                            if (tw.length > 2 && cmdWords.some(cw => cw.includes(tw) || tw.includes(cw))) score += 10;
+                        });
+                        if (score > bestScore) { bestScore = score; bestTask = task; }
+                    });
+                    t = bestTask;
+                } else {
+                    t = pool[0];
+                }
+            }
+            
+            if (!t) throw new Error('Sahi task nahi mila. Task ka naam ya ID bolo.');
             const items = t.itemsUsed || []; const idx = items.findIndex(i => i.itemId === parsed.data.itemId);
             let updated, msg;
             if (idx >= 0) { updated = [...items]; updated[idx] = { ...updated[idx], qty: parseFloat(updated[idx].qty || 0) + parsed.data.qty }; msg = `${parsed.data.itemName} pehle se tha. Qty: ${updated[idx].qty}`; }
