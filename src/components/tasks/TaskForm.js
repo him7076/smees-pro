@@ -3,7 +3,7 @@ import {
     X, Plus, Trash2, Edit2, Package, Calendar, Clock, 
     Link as LinkIcon, ShoppingBag, MapPin, Phone, 
     CheckCircle2, AlertCircle, Info, Layout, Camera, Image as ImageIcon,
-    FileText, HardDrive, DownloadCloud
+    FileText, HardDrive, DownloadCloud, Wrench
 } from 'lucide-react';
 import SearchableSelect from '../ui/SearchableSelect';
 import { useDatabase } from '../../hooks/useDatabase';
