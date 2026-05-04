@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, X, Bot, CheckCircle2, Loader2, Sparkles, Send } from 'lucide-react';
+import { Mic, X, Bot, CheckCircle2, Loader2, Sparkles, Send, Eye } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
 
-const AIVoiceAssistant = ({ data, setData }) => {
+const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [isListening, setIsListening] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -10,6 +10,7 @@ const AIVoiceAssistant = ({ data, setData }) => {
     const [inputText, setInputText] = useState('');
     const [statusText, setStatusText] = useState('How can I help you?');
     const [successMessage, setSuccessMessage] = useState('');
+    const [lastCreatedRecord, setLastCreatedRecord] = useState(null);
     const [chatHistory, setChatHistory] = useState([]);
     
     const recognitionRef = useRef(null);
@@ -58,6 +59,7 @@ const AIVoiceAssistant = ({ data, setData }) => {
         } else {
             setTranscript('');
             setSuccessMessage('');
+            setLastCreatedRecord(null);
             if (!chatHistory.length) {
                 setStatusText('Listening...');
             }
@@ -79,6 +81,7 @@ const AIVoiceAssistant = ({ data, setData }) => {
             setTranscript(inputText);
             processWithAI(inputText);
             setInputText('');
+            setLastCreatedRecord(null);
         }
     };
 
@@ -136,13 +139,19 @@ Format:
 
 Important Rules:
 1. "partyId", "itemId" MUST match EXACT integer ID from Context Data.
-2. Transaction data MUST map carefully. If user says "vehicle exp dal do petrol 100rs ka in activa":
+2. If user doesn't specify a party or category, AUTO-INFER them from context if logical.
+   - Example: "petrol" -> Category: "Vehicle Expenses", Party: "Vehicle Exp".
+   - Example: "chai/coffee" -> Category: "Food Expense".
+3. Transaction data MUST map carefully. If user says "vehicle exp dal do petrol 100rs ka in activa":
    - "type": "expense"
    - "category": Match exact from Context categories (e.g. "Vehicle Expenses")
    - "partyId": Match exact from Context parties (e.g. "Vehicle Exp")
    - "items": [{ "itemId": ExactItem, "qty": 1, "price": 100, "buyPrice": 100, "description": "in activa", "isBundle": false, "subItems": [] }]
    - "amount": 100
-3. If context data is missing or ambiguous, ASK_QUESTION.
+4. If it is a task:
+   - "status" MUST be "To Do" by default.
+   - "name" MUST be the specific action (e.g. "AC Service", "Client Meeting"). Do NOT use "New Task".
+5. If context data is missing or ambiguous, ASK_QUESTION.
 ${historyText}
 User Command: "${text}"
 `;
@@ -192,19 +201,20 @@ User Command: "${text}"
                 const newTask = {
                     name: parsedAction.data.name || 'New Task',
                     partyId: parsedAction.data.partyId || '',
-                    status: parsedAction.data.status || 'Pending',
+                    status: parsedAction.data.status || 'To Do',
                     description: parsedAction.data.description || text,
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString()
                 };
-                await saveRecord('tasks', newTask, 'task');
+                const id = await saveRecord('tasks', newTask, 'task');
                 
                 const clientName = data.parties.find(p => p.id === newTask.partyId)?.name || '';
-                const msg = `Task save ho gaya hai: ${newTask.name} ${clientName}`;
+                const msg = `Task create ho gaya hai: ${newTask.name} ${clientName}`;
                 setTranscript('');
                 setSuccessMessage(msg);
+                setLastCreatedRecord({ id, type: 'task', data: { ...newTask, id } });
                 speakText(msg);
-                setTimeout(() => { setIsOpen(false); setSuccessMessage(''); }, 3000);
+                setTimeout(() => { if(!lastCreatedRecord) setIsOpen(false); setSuccessMessage(''); }, 6000);
             } 
             else if (parsedAction.action === "CREATE_TRANSACTION") {
                 const isPayment = parsedAction.data.type === 'payment';
@@ -231,12 +241,13 @@ User Command: "${text}"
                     newTx.received = newTx.amount;
                 }
 
-                await saveRecord('transactions', newTx, newTx.type);
-                const msg = `${newTx.type} record ho gaya hai, amount hai ${newTx.amount} rupay.`;
+                const id = await saveRecord('transactions', newTx, newTx.type);
+                const msg = `${newTx.type} entry ho gayi hai, amount ₹${newTx.amount}.`;
                 setTranscript('');
                 setSuccessMessage(msg);
+                setLastCreatedRecord({ id, type: 'transaction', data: { ...newTx, id } });
                 speakText(msg);
-                setTimeout(() => { setIsOpen(false); setSuccessMessage(''); }, 3000);
+                setTimeout(() => { if(!lastCreatedRecord) setIsOpen(false); setSuccessMessage(''); }, 6000);
             } 
             else {
                 const msg = "Sorry, main command samajh nahi paya.";
@@ -253,6 +264,15 @@ User Command: "${text}"
             setStatusText(msg);
             speakText('Mujhe error aa raha hai. Connection check kijiye.');
             setIsProcessing(false);
+        }
+    };
+
+    const handleViewEntry = () => {
+        if (lastCreatedRecord && setViewDetail) {
+            setViewDetail(lastCreatedRecord);
+            setIsOpen(false);
+            setSuccessMessage('');
+            setLastCreatedRecord(null);
         }
     };
 
@@ -291,19 +311,29 @@ User Command: "${text}"
 
                 <div className="min-h-[120px] flex flex-col items-center justify-center relative z-10 mb-6">
                     {successMessage ? (
-                        <div className="flex flex-col items-center gap-3 animate-in zoom-in">
+                        <div className="flex flex-col items-center gap-3 animate-in zoom-in text-center">
                             <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center">
                                 <CheckCircle2 size={32} />
                             </div>
-                            <p className="font-black text-emerald-600 text-center text-lg">{successMessage}</p>
+                            <div>
+                                <p className="font-black text-emerald-600 text-lg mb-1">{successMessage}</p>
+                                {lastCreatedRecord && (
+                                    <button 
+                                        onClick={handleViewEntry}
+                                        className="mt-2 px-6 py-2 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 mx-auto active:scale-95 transition-all shadow-lg"
+                                    >
+                                        <Eye size={14}/> Show Entry
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     ) : isProcessing ? (
-                        <div className="flex flex-col items-center gap-4">
+                        <div className="flex flex-col items-center gap-4 text-center">
                             <Loader2 size={32} className="text-blue-600 animate-spin" />
                             <p className="text-xs font-black text-slate-500 uppercase tracking-widest animate-pulse">{statusText}</p>
                         </div>
                     ) : (
-                        <div className="w-full text-center">
+                        <div className="w-full text-center px-2">
                             <p className="text-lg font-medium text-slate-800 leading-relaxed italic">
                                 "{transcript || statusText}"
                             </p>
@@ -324,11 +354,11 @@ User Command: "${text}"
                             <Mic size={28} />
                         </button>
                         
-                        <form onSubmit={handleSendText} className="w-full flex items-center gap-2 mt-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
+                        <form onSubmit={handleSendText} className="w-full flex items-center gap-2 mt-2 bg-slate-50 p-2 rounded-2xl border border-slate-100 shadow-inner">
                             <input 
                                 type="text"
                                 className="flex-1 bg-transparent px-3 py-2 text-sm font-bold outline-none text-slate-700 placeholder:text-slate-400"
-                                placeholder="Type your command..."
+                                placeholder="Type command..."
                                 value={inputText}
                                 onChange={e => setInputText(e.target.value)}
                             />

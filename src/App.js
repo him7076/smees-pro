@@ -605,7 +605,7 @@ const App = () => {
                     ) : <Navigate to="/" />} />
                     <Route path="*" element={<Navigate to="/" />} />
                 </Routes>
-                {user && uiConfig.aiEnabled !== false && <AIVoiceAssistant data={data} setData={setData} />}
+                {user && uiConfig.aiEnabled !== false && <AIVoiceAssistant data={data} setData={setData} setViewDetail={setViewDetail} />}
             </div>
         </React.Fragment>
         </ErrorBoundary>
