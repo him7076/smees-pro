@@ -147,8 +147,13 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             };
 
             const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
+            if (!apiKey) throw new Error('API Key missing in .env');
+
+            // Using the most stable model name and version
+            const modelName = 'gemini-1.5-flash'; 
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: `System: You are JARVIS for SMEES ERP. Parse command to JSON.
 Rules:
@@ -164,9 +169,16 @@ COMMAND: "${text}"` }] }],
                     generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
                 })
             });
+            
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.error?.message || `API Error: ${res.status}`);
+            }
+
             const json = await res.json();
-            if (json.error) throw new Error(json.error.message);
-            return JSON.parse(json.candidates[0].content.parts[0].text);
+            const raw = json.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!raw) throw new Error('AI ne koi response nahi diya.');
+            return JSON.parse(raw.trim());
         });
     };
 
