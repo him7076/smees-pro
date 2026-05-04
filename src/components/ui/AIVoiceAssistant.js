@@ -14,8 +14,18 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
     const [lastCreatedRecord, setLastCreatedRecord] = useState(null);
-    // ─── CONFIRMATION STATE ───
+    const [isEditingText, setIsEditingText] = useState(false);
     const [pendingAction, setPendingAction] = useState(null); // {parsed, originalText, preview}
+    
+    // ─── Local Learning Memory ───
+    const getLearningData = () => {
+        try { return JSON.parse(localStorage.getItem('jarvis_learning') || '{}'); } catch { return {}; }
+    };
+    const learnMatch = (text, itemId) => {
+        const memory = getLearningData();
+        memory[text.toLowerCase().trim()] = itemId;
+        localStorage.setItem('jarvis_learning', JSON.stringify(memory));
+    };
     
     const recognitionRef = useRef(null);
     const { saveRecord } = useDatabase(data, setData);
@@ -112,16 +122,26 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
 
         // Try to find a new item in the correction
         let newItem = null, newBrand = null;
-        const words = t.split(/\s+/);
-        for (const item of (data?.items || [])) {
-            const n = (item.name || '').toLowerCase();
-            if (n && n.length > 1 && t.includes(n)) { newItem = item; break; }
-            if (n && n.length > 2) {
-                const iw = n.split(/\s+/);
-                for (const w of iw) { if (w.length > 2 && words.some(x => x.includes(w) || w.includes(x))) { newItem = item; break; } }
+        const memory = getLearningData();
+        const learnedId = memory[t];
+        
+        if (learnedId) {
+            newItem = (data?.items || []).find(i => i.id === learnedId);
+        }
+
+        if (!newItem) {
+            const words = t.split(/[\s-]+/);
+            let bestScore = 0;
+            for (const item of (data?.items || [])) {
+                const n = (item.name || '').toLowerCase();
+                let score = 0;
+                if (t.includes(n)) score += 10;
+                const itemWords = n.split(/[\s-]+/);
+                itemWords.forEach(iw => {
+                    if (iw.length > 1 && words.some(w => w === iw || w.includes(iw))) score += 5;
+                });
+                if (score > bestScore) { bestScore = score; newItem = item; }
             }
-            for (const b of (item.brands || [])) { const bn = (b.name || '').toLowerCase(); if (bn && bn.length > 1 && t.includes(bn)) { newItem = item; newBrand = b; break; } }
-            if (newItem) break;
         }
 
         // Try to extract new qty
@@ -162,11 +182,14 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         if (updated.action === 'CREATE_TASK' && newItem) updated.data.name = newItem.name;
         if (newParty) updated.data.partyId = newParty.id;
 
-        // Update the pending action with new preview
+        // Learn this correction!
+        if (newItem) learnMatch(t, newItem.id);
+
         const newPreview = getPreview(updated);
         setPendingAction({ parsed: updated, originalText: pendingAction.originalText, preview: newPreview });
         setTranscript('');
-        speakJarvis('Update kiya. Confirm karo.');
+        setIsEditingText(false);
+        speakJarvis('Theek hai, update kar diya. Ab confirm karo.');
     };
 
     // ─── SMART Local Parser ───
@@ -193,16 +216,26 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
 
         let foundItem = null, foundParty = null, foundBrand = null;
-        const words = t.split(/\s+/);
-        for (const item of (data.items || [])) {
-            const n = (item.name || '').toLowerCase();
-            if (n && n.length > 1 && t.includes(n)) { foundItem = item; break; }
-            if (n && n.length > 2) {
-                const iw = n.split(/\s+/);
-                for (const w of iw) { if (w.length > 2 && words.some(x => x.includes(w) || w.includes(x))) { foundItem = item; break; } }
+        
+        // Memory match first
+        const memory = getLearningData();
+        if (memory[t]) foundItem = (data?.items || []).find(i => i.id === memory[t]);
+
+        if (!foundItem) {
+            const words = t.split(/[\s-]+/);
+            let bestScore = 0;
+            for (const item of (data.items || [])) {
+                const n = (item.name || '').toLowerCase();
+                let score = 0;
+                if (t === n) score += 50;
+                if (t.includes(n)) score += 20;
+                const itemWords = n.split(/[\s-]+/);
+                itemWords.forEach(iw => {
+                    if (iw.length > 1 && words.some(w => w === iw)) score += 10;
+                    else if (iw.length > 2 && words.some(w => w.includes(iw))) score += 5;
+                });
+                if (score > bestScore && score > 0) { bestScore = score; foundItem = item; }
             }
-            for (const b of (item.brands || [])) { const bn = (b.name || '').toLowerCase(); if (bn && bn.length > 1 && t.includes(bn)) { foundItem = item; foundBrand = b; break; } }
-            if (foundItem) break;
         }
         for (const p of (data.parties || [])) { const pn = (p.name || '').toLowerCase(); if (pn && pn.length > 1 && t.includes(pn)) { foundParty = p; break; } }
 
@@ -372,24 +405,45 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                         </div>
 
                     ) : pendingAction ? (
-                        /* ── CONFIRMATION SCREEN ── */
                         <div className="flex flex-col items-center gap-5 text-center w-full px-2">
                             <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Confirm Action</p>
-                            <div className="w-full bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4">
-                                <p className="text-white font-bold text-base leading-relaxed">{pendingAction.preview}</p>
-                            </div>
-                            <div className="flex gap-2 w-full">
-                                <button onClick={confirmAction} className="flex-1 py-3 bg-emerald-600 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-lg shadow-emerald-500/20">
-                                    <Check size={16} /> Haan
-                                </button>
-                                <button onClick={() => { setTranscript(''); setStatusText('Correction bolo...'); toggleListening(); }} className="flex-1 py-3 bg-amber-600 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-lg shadow-amber-500/20">
-                                    <Pencil size={16} /> Edit
-                                </button>
-                                <button onClick={cancelAction} className="flex-1 py-3 bg-rose-600/80 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-lg shadow-rose-500/20">
-                                    <XCircle size={16} /> Cancel
-                                </button>
-                            </div>
-                            <p className="text-[10px] text-white/30 font-bold">🎤 Haan / Cancel / ya correction bolo</p>
+                            
+                            {isEditingText ? (
+                                <div className="w-full space-y-3">
+                                    <div className="bg-white/5 border border-white/10 rounded-2xl p-1 flex items-center">
+                                        <input 
+                                            autoFocus
+                                            type="text" 
+                                            className="flex-1 bg-transparent px-3 py-2 text-sm text-white outline-none"
+                                            placeholder="Correction likho... (e.g. 3.15 mfd)"
+                                            onKeyDown={(e) => { if(e.key === 'Enter' && e.target.value) applyCorrection(e.target.value); }}
+                                        />
+                                        <button 
+                                            onClick={(e) => { const v = e.target.previousSibling.value; if(v) applyCorrection(v); }}
+                                            className="p-2 text-blue-400"
+                                        ><Send size={18}/></button>
+                                    </div>
+                                    <button onClick={() => setIsEditingText(false)} className="text-[10px] text-white/40 uppercase font-black tracking-widest">← Back</button>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="w-full bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4">
+                                        <p className="text-white font-bold text-base leading-relaxed">{pendingAction.preview}</p>
+                                    </div>
+                                    <div className="flex gap-2 w-full">
+                                        <button onClick={confirmAction} className="flex-1 py-3 bg-emerald-600 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-lg shadow-emerald-500/20">
+                                            <Check size={16} /> Haan
+                                        </button>
+                                        <button onClick={() => setIsEditingText(true)} className="flex-1 py-3 bg-amber-600 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-lg shadow-amber-500/20">
+                                            <Pencil size={16} /> Edit
+                                        </button>
+                                        <button onClick={cancelAction} className="flex-1 py-3 bg-rose-600/80 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-lg shadow-rose-500/20">
+                                            <XCircle size={16} /> Cancel
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-white/30 font-bold">🎤 Haan / Cancel / Correction bolo</p>
+                                </>
+                            )}
                         </div>
 
                     ) : successMessage ? (
