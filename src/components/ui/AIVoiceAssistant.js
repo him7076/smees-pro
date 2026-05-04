@@ -111,11 +111,19 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         setStatusText('Processing with AI...');
         
         try {
-            // Smaller context to reduce payload & speed up
+            // Context with full item details including brands (variants)
             const contextData = {
                 parties: data.parties.map(p => ({ id: p.id, name: p.name })),
-                items: data.items.map(i => ({ id: i.id, name: i.name, type: i.type, category: i.category, sellPrice: i.sellPrice, buyPrice: i.buyPrice })),
-                categories: data.categories || data.settings?.categories || {} // Add categories directly
+                items: data.items.map(i => ({ 
+                    id: i.id, 
+                    name: i.name, 
+                    type: i.type, 
+                    category: i.category, 
+                    sellPrice: i.sellPrice, 
+                    buyPrice: i.buyPrice,
+                    brands: i.brands || [] // Include variants
+                })),
+                categories: data.categories || data.settings?.categories || {}
             };
 
             const historyText = chatHistory.length > 0 ? 
@@ -130,7 +138,7 @@ Context Data:
 ${JSON.stringify(contextData)}
 
 Rules:
-Return ONLY strictly valid JSON. No markdown backticks unless strictly JSON inside.
+Return ONLY strictly valid JSON. No markdown backticks.
 Format:
 {
   "action": "CREATE_TASK" | "CREATE_TRANSACTION" | "ASK_QUESTION" | "UNKNOWN",
@@ -139,27 +147,28 @@ Format:
 
 Important Rules:
 1. "partyId", "itemId" MUST match EXACT integer ID from Context Data.
-2. If user doesn't specify a party or category, AUTO-INFER them from context if logical.
-   - Example: "petrol" -> Category: "Vehicle Expenses", Party: "Vehicle Exp".
-   - Example: "chai/coffee" -> Category: "Food Expense".
-3. Transaction data MUST map carefully. If user says "vehicle exp dal do petrol 100rs ka in activa":
-   - "type": "expense"
-   - "category": Match exact from Context categories (e.g. "Vehicle Expenses")
-   - "partyId": Match exact from Context parties (e.g. "Vehicle Exp")
-   - "items": [{ "itemId": ExactItem, "qty": 1, "price": 100, "buyPrice": 100, "description": "in activa", "isBundle": false, "subItems": [] }]
-   - "amount": 100
-4. If it is a task:
-   - "status" MUST be "To Do" by default.
-   - "name" MUST be the specific action (e.g. "AC Service", "Client Meeting"). Do NOT use "New Task".
-5. If context data is missing or ambiguous, ASK_QUESTION.
-${historyText}
+2. If user mentions a specific product like "samosa" or "petrol", check if an Item or Brand exists.
+   - If user says "samosa ka expenses dal do": 
+     - Search for item with name "Food" or similar.
+     - Set "brand": "Samosa". 
+     - If no matching item, use itemId: "" and name: "Food".
+3. Auto-Infer Defaults:
+   - "qty": Default to 1 if not specified.
+   - "price": Use the user-provided price. If none, use the Brand's sellPrice. If no brand, use Item's sellPrice.
+   - "category": Match logically (e.g., "samosa" -> "Food Expenses").
+4. Transaction Items structure:
+   - "items": [{ "itemId": ID, "qty": Number, "price": Number, "buyPrice": Number, "brand": "Variant Name", "description": "Notes" }]
+5. Task status MUST be "To Do" by default.
+6. Return empty strings for missing non-essential fields, NOT null.
+
 User Command: "${text}"
+${historyText}
 `;
 
             const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
             if (!apiKey) throw new Error("Gemini API key is missing.");
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -218,16 +227,51 @@ User Command: "${text}"
             } 
             else if (parsedAction.action === "CREATE_TRANSACTION") {
                 const isPayment = parsedAction.data.type === 'payment';
+                const items = (parsedAction.data.items || []).map(item => {
+                    // Ensure numeric values and defaults
+                    const qty = parseFloat(item.qty || 1);
+                    let price = parseFloat(item.price || 0);
+                    let buyPrice = parseFloat(item.buyPrice || 0);
+
+                    // If price is 0, try to fetch from master/brand
+                    if (price === 0 && item.itemId) {
+                        const master = data.items.find(i => i.id === item.itemId);
+                        if (master) {
+                            if (item.brand) {
+                                const brand = master.brands?.find(b => b.name === item.brand);
+                                if (brand) {
+                                    price = brand.sellPrice;
+                                    buyPrice = brand.buyPrice;
+                                }
+                            } else {
+                                price = master.sellPrice;
+                                buyPrice = master.buyPrice;
+                            }
+                        }
+                    }
+
+                    return {
+                        ...item,
+                        qty,
+                        price,
+                        buyPrice,
+                        isBundle: false,
+                        subItems: []
+                    };
+                });
+
+                const totalAmount = items.reduce((acc, i) => acc + (i.qty * i.price), 0);
+
                 const newTx = {
                     type: parsedAction.data.type || 'expense',
                     partyId: parsedAction.data.partyId || '',
                     category: parsedAction.data.category || '',
                     notes: parsedAction.data.notes || text,
-                    amount: parsedAction.data.amount || 0,
-                    finalTotal: parsedAction.data.amount || 0,
-                    grossTotal: parsedAction.data.amount || 0,
+                    amount: parsedAction.data.amount || totalAmount,
+                    finalTotal: parsedAction.data.amount || totalAmount,
+                    grossTotal: totalAmount,
                     paymentMode: 'Cash',
-                    items: parsedAction.data.items || [],
+                    items: items,
                     date: new Date().toISOString().split('T')[0],
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString()
