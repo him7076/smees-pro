@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, X, Bot, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
-import { getNextId } from '../../utils/helpers';
+import { Mic, X, Bot, CheckCircle2, Loader2, Sparkles, Send } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
 
 const AIVoiceAssistant = ({ data, setData }) => {
@@ -8,6 +7,7 @@ const AIVoiceAssistant = ({ data, setData }) => {
     const [isListening, setIsListening] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [transcript, setTranscript] = useState('');
+    const [inputText, setInputText] = useState('');
     const [statusText, setStatusText] = useState('How can I help you?');
     const [successMessage, setSuccessMessage] = useState('');
     const [chatHistory, setChatHistory] = useState([]);
@@ -73,13 +73,20 @@ const AIVoiceAssistant = ({ data, setData }) => {
         }
     }, [isListening, transcript]);
 
+    const handleSendText = (e) => {
+        e.preventDefault();
+        if (inputText.trim() && !isProcessing) {
+            setTranscript(inputText);
+            processWithAI(inputText);
+            setInputText('');
+        }
+    };
+
     const speakText = (text, onEndCallback = null) => {
         if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel(); // Stop any ongoing speech
+            window.speechSynthesis.cancel();
             const utterance = new SpeechSynthesisUtterance(text);
-            
             const voices = window.speechSynthesis.getVoices();
-            // Google's en-IN voice is usually much better for Hinglish than pure hi-IN
             const preferredVoice = voices.find(v => v.lang === 'en-IN' && v.name.includes('Google')) || voices.find(v => v.lang === 'en-IN') || voices.find(v => v.lang === 'hi-IN');
             if (preferredVoice) {
                 utterance.voice = preferredVoice;
@@ -101,11 +108,11 @@ const AIVoiceAssistant = ({ data, setData }) => {
         setStatusText('Processing with AI...');
         
         try {
-            // Simplified Database Context for AI
+            // Smaller context to reduce payload & speed up
             const contextData = {
                 parties: data.parties.map(p => ({ id: p.id, name: p.name })),
                 items: data.items.map(i => ({ id: i.id, name: i.name, type: i.type, category: i.category, sellPrice: i.sellPrice, buyPrice: i.buyPrice })),
-                staff: data.staff.map(s => ({ id: s.id, name: s.name }))
+                categories: data.categories || data.settings?.categories || {} // Add categories directly
             };
 
             const historyText = chatHistory.length > 0 ? 
@@ -114,32 +121,34 @@ const AIVoiceAssistant = ({ data, setData }) => {
 
             const prompt = `
 You are Jarvis, an AI assistant for an ERP system. 
-Parse the following user voice command in Hindi/Hinglish/English and figure out what action to take.
+Parse the user voice/text command (Hindi/English) into an action.
 
-Available Database Context:
+Context Data:
 ${JSON.stringify(contextData)}
 
-Rules for Output:
-Return ONLY a strictly valid JSON object.
+Rules:
+Return ONLY strictly valid JSON. No markdown backticks unless strictly JSON inside.
 Format:
 {
   "action": "CREATE_TASK" | "CREATE_TRANSACTION" | "ASK_QUESTION" | "UNKNOWN",
-  "data": { ...record details... }
+  "data": { ... }
 }
 
 Important Rules:
-- "partyId" MUST be exact integer ID from the context. If you find multiple matches (e.g. user says "Umesh bhaiya" but context has "Umesh 1" and "Umesh 2"), you MUST return action="ASK_QUESTION" and data.question="Mujhe do Umesh mile hain, Umesh 1 ya Umesh 2, kisme banana hai?".
-- If data is missing to complete the request safely, return ASK_QUESTION.
-- If it's a task: { "name": "Task Name", "partyId": 123, "description": "...", "status": "Pending" }
-- If it's a transaction/expense: { "type": "expense", "category": "Vehicle", "amount": 500, "notes": "..." }
+1. "partyId", "itemId" MUST match EXACT integer ID from Context Data.
+2. Transaction data MUST map carefully. If user says "vehicle exp dal do petrol 100rs ka in activa":
+   - "type": "expense"
+   - "category": Match exact from Context categories (e.g. "Vehicle Expenses")
+   - "partyId": Match exact from Context parties (e.g. "Vehicle Exp")
+   - "items": [{ "itemId": ExactItem, "qty": 1, "price": 100, "buyPrice": 100, "description": "in activa", "isBundle": false, "subItems": [] }]
+   - "amount": 100
+3. If context data is missing or ambiguous, ASK_QUESTION.
 ${historyText}
 User Command: "${text}"
 `;
 
             const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-            if (!apiKey) {
-                throw new Error("Gemini API key is missing. Please add it to Vercel environment variables.");
-            }
+            if (!apiKey) throw new Error("Gemini API key is missing.");
 
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
                 method: 'POST',
@@ -154,10 +163,7 @@ User Command: "${text}"
             });
 
             const result = await response.json();
-            
-            if (result.error) {
-                throw new Error(result.error.message);
-            }
+            if (result.error) throw new Error(result.error.message);
 
             const rawContent = result.candidates[0].content.parts[0].text;
             let parsedAction = null;
@@ -165,7 +171,6 @@ User Command: "${text}"
                 let cleanedContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
                 parsedAction = JSON.parse(cleanedContent);
             } catch (e) {
-                console.error("Failed to parse JSON from AI:", rawContent);
                 throw new Error("AI returned malformed data.");
             }
 
@@ -174,7 +179,6 @@ User Command: "${text}"
                 setTranscript('');
                 setStatusText(parsedAction.data.question);
                 speakText(parsedAction.data.question, () => {
-                    // Trigger listening again
                     setIsListening(true);
                     recognitionRef.current?.start();
                 });
@@ -182,13 +186,12 @@ User Command: "${text}"
                 return;
             }
 
-            // Success resets history
             setChatHistory([]);
 
             if (parsedAction.action === "CREATE_TASK") {
                 const newTask = {
                     name: parsedAction.data.name || 'New Task',
-                    partyId: parsedAction.data.partyId || parsedAction.data.party_id || '',
+                    partyId: parsedAction.data.partyId || '',
                     status: parsedAction.data.status || 'Pending',
                     description: parsedAction.data.description || text,
                     createdAt: new Date().toISOString(),
@@ -207,21 +210,21 @@ User Command: "${text}"
                 const isPayment = parsedAction.data.type === 'payment';
                 const newTx = {
                     type: parsedAction.data.type || 'expense',
-                    partyId: parsedAction.data.partyId || parsedAction.data.party_id || '',
+                    partyId: parsedAction.data.partyId || '',
                     category: parsedAction.data.category || '',
                     notes: parsedAction.data.notes || text,
                     amount: parsedAction.data.amount || 0,
                     finalTotal: parsedAction.data.amount || 0,
                     grossTotal: parsedAction.data.amount || 0,
-                    paymentMode: 'Cash', // Default
-                    items: [], // Blank items array for expense
+                    paymentMode: 'Cash',
+                    items: parsedAction.data.items || [],
                     date: new Date().toISOString().split('T')[0],
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString()
                 };
                 
                 if (isPayment) {
-                    newTx.subType = 'out'; // Assume payment out by default unless specified
+                    newTx.subType = 'out';
                 } else if (newTx.type === 'expense' || newTx.type === 'purchase') {
                     newTx.paid = newTx.amount;
                 } else if (newTx.type === 'sales') {
@@ -241,20 +244,15 @@ User Command: "${text}"
                 setStatusText(msg);
                 speakText(msg);
                 setIsProcessing(false);
-                return;
             }
-
-            setStatusText('');
         } catch (error) {
             console.error("AI Assistant Error:", error);
             const msg = error.message.includes('missing') ? error.message : 'Error: ' + error.message;
-            setChatHistory([]); // Reset on error to prevent being stuck
+            setChatHistory([]);
             setTranscript('');
             setStatusText(msg);
-            speakText('Mujhe error aa raha hai. ' + (error.message.includes('missing') ? 'API key missing hai.' : 'Connection check kijiye.'));
-        } finally {
+            speakText('Mujhe error aa raha hai. Connection check kijiye.');
             setIsProcessing(false);
-            // Auto close handled in the success blocks or manual close on error
         }
     };
 
@@ -273,7 +271,6 @@ User Command: "${text}"
     return (
         <div className="fixed inset-0 z-[500] bg-slate-950/60 backdrop-blur-sm flex items-end justify-center p-4 animate-in fade-in">
             <div className="w-full max-w-md bg-white rounded-[40px] shadow-2xl p-6 relative animate-in slide-in-from-bottom-8 overflow-hidden">
-                {/* Background Decoration */}
                 <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full blur-3xl"></div>
                 <div className="absolute bottom-0 left-0 w-32 h-32 bg-indigo-600/10 rounded-full blur-3xl"></div>
 
@@ -292,7 +289,7 @@ User Command: "${text}"
                     </button>
                 </div>
 
-                <div className="min-h-[120px] flex flex-col items-center justify-center relative z-10 mb-8">
+                <div className="min-h-[120px] flex flex-col items-center justify-center relative z-10 mb-6">
                     {successMessage ? (
                         <div className="flex flex-col items-center gap-3 animate-in zoom-in">
                             <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center">
@@ -315,20 +312,30 @@ User Command: "${text}"
                 </div>
 
                 {!successMessage && !isProcessing && (
-                    <div className="flex flex-col items-center relative z-10">
+                    <div className="flex flex-col items-center relative z-10 gap-4">
                         <button 
                             onClick={toggleListening}
-                            className={`w-20 h-20 rounded-full flex items-center justify-center shadow-2xl transition-all ${
+                            className={`w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-all ${
                                 isListening 
                                     ? 'bg-rose-500 text-white shadow-rose-500/50 scale-110 animate-pulse' 
                                     : 'bg-slate-900 text-white shadow-slate-900/30 hover:scale-105 active:scale-95'
                             }`}
                         >
-                            <Mic size={32} />
+                            <Mic size={28} />
                         </button>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-6">
-                            Tap to speak
-                        </p>
+                        
+                        <form onSubmit={handleSendText} className="w-full flex items-center gap-2 mt-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
+                            <input 
+                                type="text"
+                                className="flex-1 bg-transparent px-3 py-2 text-sm font-bold outline-none text-slate-700 placeholder:text-slate-400"
+                                placeholder="Type your command..."
+                                value={inputText}
+                                onChange={e => setInputText(e.target.value)}
+                            />
+                            <button type="submit" disabled={!inputText.trim()} className="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30 disabled:opacity-50 active:scale-95 transition-all">
+                                <Send size={16}/>
+                            </button>
+                        </form>
                     </div>
                 )}
             </div>
