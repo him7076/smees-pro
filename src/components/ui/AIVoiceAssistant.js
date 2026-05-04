@@ -71,10 +71,16 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isListening]);
 
+    // Reset all states (called on popup open and mic start)
+    const resetState = () => {
+        setTranscript(''); setSuccessMessage(''); setLastCreatedRecord(null); 
+        setError(''); setStatusText('JARVIS Online.'); setIsProcessing(false);
+    };
+
     const toggleListening = () => {
         if (!recognitionRef.current) return;
         if (isListening) { recognitionRef.current.stop(); return; }
-        setTranscript(''); setSuccessMessage(''); setLastCreatedRecord(null); setError('');
+        resetState();
         setStatusText('Listening...');
         try { recognitionRef.current.start(); setIsListening(true); }
         catch (e) { setError('Mic failed: ' + e.message); }
@@ -103,15 +109,28 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                        || t.match(/(?:price|rate|amount|total)\s*(\d+)/i);
         const amount = amtMatch ? parseFloat(amtMatch[1]) : null;
 
-        // STEP 4: Extract Qty
-        const qtyMatch = t.match(/(\d+)\s*(?:qty|quantity|piece|pcs|nug)/i);
+        // STEP 4: Extract Qty — "qty 2", "2 piece", "2 qty"
+        const qtyMatch = t.match(/(\d+)\s*(?:qty|quantity|piece|pcs|nug)/i) || t.match(/(?:qty|quantity)\s*(\d+)/i);
         const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
 
-        // STEP 5: Match items, parties from master data
+        // STEP 5: Match items, parties from master data (FUZZY: word-by-word)
         let foundItem = null, foundParty = null, foundBrand = null;
+        const words = t.split(/\s+/);
+        
         for (const item of (data.items || [])) {
             const n = (item.name || '').toLowerCase();
+            // Exact substring match
             if (n && n.length > 1 && t.includes(n)) { foundItem = item; break; }
+            // Fuzzy: any word from item name found in command
+            if (n && n.length > 2) {
+                const itemWords = n.split(/\s+/);
+                for (const iw of itemWords) {
+                    if (iw.length > 2 && words.some(w => w.includes(iw) || iw.includes(w))) {
+                        foundItem = item; break;
+                    }
+                }
+            }
+            // Brand match
             for (const b of (item.brands || [])) {
                 const bn = (b.name || '').toLowerCase();
                 if (bn && bn.length > 1 && t.includes(bn)) { foundItem = item; foundBrand = b; break; }
@@ -123,12 +142,17 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             if (pn && pn.length > 1 && t.includes(pn)) { foundParty = p; break; }
         }
 
-        // ── RULE 1: Task with number = Task reference (NOT expense) ──
+        // ── RULE 1: Task with number ──
         if (isTask && taskId) {
             if (foundItem) {
+                // Item found → modify task
                 return { action: 'MODIFY_TASK', data: { taskId, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
             }
-            // "task 778 open karo" or "task 778 dekhao"
+            if (isModify) {
+                // User wants to add something but item not found locally → let Gemini figure it out
+                return null;
+            }
+            // Just viewing: "task 778" or "task 778 dikhao"
             return { action: 'VIEW_TASK', data: { taskId } };
         }
 
@@ -322,7 +346,7 @@ USER COMMAND: "${text}"` }] }],
 
     // ─── UI ───
     if (!isOpen) return (
-        <button onClick={() => setIsOpen(true)} className="fixed bottom-24 right-6 z-[200] w-14 h-14 bg-slate-900 text-blue-400 rounded-full shadow-2xl shadow-blue-500/20 flex items-center justify-center border-2 border-blue-500/30 active:scale-95 transition-all">
+        <button onClick={() => { resetState(); setIsOpen(true); }} className="fixed bottom-24 right-6 z-[200] w-14 h-14 bg-slate-900 text-blue-400 rounded-full shadow-2xl shadow-blue-500/20 flex items-center justify-center border-2 border-blue-500/30 active:scale-95 transition-all">
             <Bot size={24} />
         </button>
     );
@@ -342,7 +366,7 @@ USER COMMAND: "${text}"` }] }],
                             </p>
                         </div>
                     </div>
-                    <button onClick={() => { setIsOpen(false); if(isListening) { recognitionRef.current?.stop(); setIsListening(false); } }} className="p-2.5 bg-white/5 rounded-full text-slate-400"><X size={18} /></button>
+                    <button onClick={() => { setIsOpen(false); resetState(); if(isListening) { recognitionRef.current?.stop(); setIsListening(false); } }} className="p-2.5 bg-white/5 rounded-full text-slate-400"><X size={18} /></button>
                 </div>
 
                 <div className="min-h-[150px] flex flex-col items-center justify-center mb-6 relative z-10">
