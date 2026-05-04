@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, X, Bot, CheckCircle2, Loader2, Send, Eye, AlertCircle, Check, XCircle } from 'lucide-react';
+import { Mic, X, Bot, CheckCircle2, Loader2, Send, Eye, AlertCircle, Check, XCircle, Pencil } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
 
 let lastGeminiCall = 0;
@@ -54,7 +54,6 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     // Auto-process OR auto-confirm via voice
     useEffect(() => {
         if (!isListening && transcript && !isProcessing && !successMessage) {
-            // If we have a pending confirmation, check for yes/no
             if (pendingAction) {
                 const t = transcript.toLowerCase().trim();
                 if (/^(haan|han|yes|ha|ok|confirm|kar do|karo|theek|thik|done|sahi)/.test(t)) {
@@ -62,9 +61,8 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                 } else if (/^(nahi|nhi|no|cancel|mat|ruk|band|naa|chhodo|rehne|rehne do)/.test(t)) {
                     cancelAction();
                 } else {
-                    // Not yes/no → treat as new command
-                    setPendingAction(null);
-                    processCommand(transcript);
+                    // Treat as CORRECTION → update pending action
+                    applyCorrection(transcript);
                 }
             } else {
                 processCommand(transcript);
@@ -93,25 +91,82 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     const getPreview = (parsed) => {
         if (!parsed?.action) return 'Unknown action';
         const d = parsed.data || {};
-        
         if (parsed.action === 'VIEW_TASK') return `📋 Task ${d.taskId} dekhna hai`;
-        
         if (parsed.action === 'MODIFY_TASK') {
             const taskLabel = d.taskId || 'latest active task';
             return `✏️ ${taskLabel} mein add: ${d.itemName || 'item'} × ${d.qty || 1}${d.price ? ` @ ₹${d.price}` : ''}`;
         }
-        
         if (parsed.action === 'CREATE_TASK') return `📝 Naya Task: "${d.name || 'New Task'}"`;
-        
         if (parsed.action === 'CREATE_TRANSACTION') {
-            const itemNames = (d.items || []).map(i => {
-                const item = (data?.items || []).find(x => x.id === i.itemId);
-                return item?.name || 'item';
-            }).join(', ');
+            const itemNames = (d.items || []).map(i => { const item = (data?.items || []).find(x => x.id === i.itemId); return item?.name || 'item'; }).join(', ');
             return `💰 ${(d.type || 'expense').toUpperCase()}: ₹${d.amount || 0}${itemNames ? ` (${itemNames})` : ''}`;
         }
-        
         return `❓ ${parsed.action}`;
+    };
+
+    // ─── Apply correction to pending action ───
+    const applyCorrection = (correctionText) => {
+        if (!pendingAction) return;
+        const t = correctionText.toLowerCase().trim();
+        const updated = JSON.parse(JSON.stringify(pendingAction.parsed)); // deep clone
+
+        // Try to find a new item in the correction
+        let newItem = null, newBrand = null;
+        const words = t.split(/\s+/);
+        for (const item of (data?.items || [])) {
+            const n = (item.name || '').toLowerCase();
+            if (n && n.length > 1 && t.includes(n)) { newItem = item; break; }
+            if (n && n.length > 2) {
+                const iw = n.split(/\s+/);
+                for (const w of iw) { if (w.length > 2 && words.some(x => x.includes(w) || w.includes(x))) { newItem = item; break; } }
+            }
+            for (const b of (item.brands || [])) { const bn = (b.name || '').toLowerCase(); if (bn && bn.length > 1 && t.includes(bn)) { newItem = item; newBrand = b; break; } }
+            if (newItem) break;
+        }
+
+        // Try to extract new qty
+        const qtyMatch = t.match(/(\d+)\s*(?:qty|quantity|piece|pcs)/i) || t.match(/(?:qty|quantity)\s*(\d+)/i);
+        const newQty = qtyMatch ? parseFloat(qtyMatch[1]) : null;
+
+        // Try to extract new amount
+        const amtMatch = t.match(/(\d+)\s*(?:rs|rupay|rupees|₹)/i) || t.match(/(?:₹|rs\.?)\s*(\d+)/i);
+        const newAmount = amtMatch ? parseFloat(amtMatch[1]) : null;
+
+        // Try to find new party
+        let newParty = null;
+        for (const p of (data?.parties || [])) { const pn = (p.name || '').toLowerCase(); if (pn && pn.length > 1 && t.includes(pn)) { newParty = p; break; } }
+
+        // Apply corrections to the action data
+        if (updated.action === 'MODIFY_TASK' || updated.action === 'CREATE_TRANSACTION') {
+            if (newItem) {
+                updated.data.itemName = newItem.name;
+                updated.data.itemId = newItem.id;
+                if (!newAmount) updated.data.price = newBrand?.sellPrice || newItem.sellPrice || updated.data.price;
+                updated.data.brand = newBrand?.name || '';
+                // For transactions, update items array
+                if (updated.data.items && updated.data.items.length > 0) {
+                    updated.data.items[0].itemId = newItem.id;
+                    updated.data.items[0].brand = newBrand?.name || '';
+                }
+            }
+            if (newQty !== null) {
+                updated.data.qty = newQty;
+                if (updated.data.items && updated.data.items.length > 0) updated.data.items[0].qty = newQty;
+            }
+            if (newAmount !== null) {
+                updated.data.price = newAmount;
+                updated.data.amount = newAmount;
+                if (updated.data.items && updated.data.items.length > 0) updated.data.items[0].price = newAmount;
+            }
+        }
+        if (updated.action === 'CREATE_TASK' && newItem) updated.data.name = newItem.name;
+        if (newParty) updated.data.partyId = newParty.id;
+
+        // Update the pending action with new preview
+        const newPreview = getPreview(updated);
+        setPendingAction({ parsed: updated, originalText: pendingAction.originalText, preview: newPreview });
+        setTranscript('');
+        speakJarvis('Update kiya. Confirm karo.');
     };
 
     // ─── SMART Local Parser ───
@@ -323,15 +378,18 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                             <div className="w-full bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4">
                                 <p className="text-white font-bold text-base leading-relaxed">{pendingAction.preview}</p>
                             </div>
-                            <div className="flex gap-3 w-full">
-                                <button onClick={confirmAction} className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg shadow-emerald-500/20">
-                                    <Check size={18} /> Haan
+                            <div className="flex gap-2 w-full">
+                                <button onClick={confirmAction} className="flex-1 py-3 bg-emerald-600 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-lg shadow-emerald-500/20">
+                                    <Check size={16} /> Haan
                                 </button>
-                                <button onClick={cancelAction} className="flex-1 py-3 bg-rose-600/80 hover:bg-rose-500 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg shadow-rose-500/20">
-                                    <XCircle size={18} /> Cancel
+                                <button onClick={() => { setTranscript(''); setStatusText('Correction bolo...'); toggleListening(); }} className="flex-1 py-3 bg-amber-600 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-lg shadow-amber-500/20">
+                                    <Pencil size={16} /> Edit
+                                </button>
+                                <button onClick={cancelAction} className="flex-1 py-3 bg-rose-600/80 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-lg shadow-rose-500/20">
+                                    <XCircle size={16} /> Cancel
                                 </button>
                             </div>
-                            <p className="text-[10px] text-white/30 font-bold">Mic se bhi bol sakte ho: "Haan" ya "Cancel"</p>
+                            <p className="text-[10px] text-white/30 font-bold">🎤 Haan / Cancel / ya correction bolo</p>
                         </div>
 
                     ) : successMessage ? (
