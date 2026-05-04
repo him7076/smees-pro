@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, X, Bot, CheckCircle2, Loader2, Send, Eye, AlertCircle } from 'lucide-react';
+import { Mic, X, Bot, CheckCircle2, Loader2, Send, Eye, AlertCircle, Check, XCircle } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
 
-// Rate limiter: min 4 sec between Gemini calls
 let lastGeminiCall = 0;
 
 const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
@@ -15,37 +14,26 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
     const [lastCreatedRecord, setLastCreatedRecord] = useState(null);
+    // ─── CONFIRMATION STATE ───
+    const [pendingAction, setPendingAction] = useState(null); // {parsed, originalText, preview}
     
     const recognitionRef = useRef(null);
     const { saveRecord } = useDatabase(data, setData);
 
-    // ─── Speech Recognition ───
     useEffect(() => {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SR) {
             const r = new SR();
-            r.continuous = false;
-            r.interimResults = true;
-            r.lang = 'en-IN';
-            r.onresult = (e) => {
-                let t = '';
-                for (let i = e.resultIndex; i < e.results.length; ++i) t += e.results[i][0].transcript;
-                setTranscript(t);
-            };
+            r.continuous = false; r.interimResults = true; r.lang = 'en-IN';
+            r.onresult = (e) => { let t = ''; for (let i = e.resultIndex; i < e.results.length; ++i) t += e.results[i][0].transcript; setTranscript(t); };
             r.onend = () => setIsListening(false);
             r.onerror = (e) => { setIsListening(false); setError('Mic: ' + e.error); };
             recognitionRef.current = r;
         }
     }, []);
 
-    // ─── Voice Loading ───
-    useEffect(() => {
-        const load = () => window.speechSynthesis?.getVoices();
-        load();
-        if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = load;
-    }, []);
+    useEffect(() => { const l = () => window.speechSynthesis?.getVoices(); l(); if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = l; }, []);
 
-    // ─── Jarvis Voice ───
     const speakJarvis = (text, cb = null) => {
         if (!('speechSynthesis' in window)) { cb?.(); return; }
         window.speechSynthesis.cancel();
@@ -63,27 +51,67 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         window.speechSynthesis.speak(u);
     };
 
-    // ─── Auto-process when speech ends ───
+    // Auto-process OR auto-confirm via voice
     useEffect(() => {
         if (!isListening && transcript && !isProcessing && !successMessage) {
-            processCommand(transcript);
+            // If we have a pending confirmation, check for yes/no
+            if (pendingAction) {
+                const t = transcript.toLowerCase().trim();
+                if (/^(haan|han|yes|ha|ok|confirm|kar do|karo|theek|thik|done|sahi)/.test(t)) {
+                    confirmAction();
+                } else if (/^(nahi|nhi|no|cancel|mat|ruk|band|naa|chhodo|rehne|rehne do)/.test(t)) {
+                    cancelAction();
+                } else {
+                    // Not yes/no → treat as new command
+                    setPendingAction(null);
+                    processCommand(transcript);
+                }
+            } else {
+                processCommand(transcript);
+            }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isListening]);
 
-    // Reset all states (called on popup open and mic start)
     const resetState = () => {
-        setTranscript(''); setSuccessMessage(''); setLastCreatedRecord(null); 
+        setTranscript(''); setSuccessMessage(''); setLastCreatedRecord(null);
         setError(''); setStatusText('JARVIS Online.'); setIsProcessing(false);
+        setPendingAction(null);
     };
 
     const toggleListening = () => {
         if (!recognitionRef.current) return;
         if (isListening) { recognitionRef.current.stop(); return; }
-        resetState();
-        setStatusText('Listening...');
+        if (!pendingAction) resetState();
+        setTranscript('');
+        setStatusText(pendingAction ? 'Confirm: Haan ya Nahi?' : 'Listening...');
         try { recognitionRef.current.start(); setIsListening(true); }
-        catch (e) { setError('Mic failed: ' + e.message); }
+        catch (e) { setError('Mic: ' + e.message); }
+    };
+
+    // ─── Generate human-readable preview of action ───
+    const getPreview = (parsed) => {
+        if (!parsed?.action) return 'Unknown action';
+        const d = parsed.data || {};
+        
+        if (parsed.action === 'VIEW_TASK') return `📋 Task ${d.taskId} dekhna hai`;
+        
+        if (parsed.action === 'MODIFY_TASK') {
+            const taskLabel = d.taskId || 'latest active task';
+            return `✏️ ${taskLabel} mein add: ${d.itemName || 'item'} × ${d.qty || 1}${d.price ? ` @ ₹${d.price}` : ''}`;
+        }
+        
+        if (parsed.action === 'CREATE_TASK') return `📝 Naya Task: "${d.name || 'New Task'}"`;
+        
+        if (parsed.action === 'CREATE_TRANSACTION') {
+            const itemNames = (d.items || []).map(i => {
+                const item = (data?.items || []).find(x => x.id === i.itemId);
+                return item?.name || 'item';
+            }).join(', ');
+            return `💰 ${(d.type || 'expense').toUpperCase()}: ₹${d.amount || 0}${itemNames ? ` (${itemNames})` : ''}`;
+        }
+        
+        return `❓ ${parsed.action}`;
     };
 
     // ─── SMART Local Parser ───
@@ -91,7 +119,6 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         if (!text || !data) return null;
         const t = text.toLowerCase().trim();
 
-        // STEP 1: Detect intent FIRST (before extracting numbers)
         const isTask = /task|kaam|service|remind/i.test(t);
         const isModify = /add|jod|jodo|update|modify|badal|daal|dal do|me dal|item dal|add kar/i.test(t);
         const isExpense = /expense|kharcha|kharche|kharch|bill|payment|pay/i.test(t);
@@ -99,140 +126,71 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         const isPurchase = /purchase|kharid|buy|liya/i.test(t);
         const isCreate = /create|bana|banao|kar do|kardo|likho|likh|dal do|dalo/i.test(t);
 
-        // STEP 2: Extract Task ID — ONLY numbers near "task/T-" context
         const taskIdMatch = t.match(/(?:task\s*(?:number|no|num|#)?\s*(\d+))|(?:t[-\s]?(\d{2,}))/i);
         const taskId = taskIdMatch ? `T-${taskIdMatch[1] || taskIdMatch[2]}` : null;
 
-        // STEP 3: Extract Amount — ONLY when explicitly marked with rs/rupay/₹
-        const amtMatch = t.match(/(\d+)\s*(?:rs|rupay|rupees|₹|rupes|rupiya)/i) 
-                       || t.match(/(?:₹|rs\.?)\s*(\d+)/i)
-                       || t.match(/(?:price|rate|amount|total)\s*(\d+)/i);
+        const amtMatch = t.match(/(\d+)\s*(?:rs|rupay|rupees|₹|rupes|rupiya)/i)
+            || t.match(/(?:₹|rs\.?)\s*(\d+)/i)
+            || t.match(/(?:price|rate|amount|total)\s*(\d+)/i);
         const amount = amtMatch ? parseFloat(amtMatch[1]) : null;
 
-        // STEP 4: Extract Qty — "qty 2", "2 piece", "2 qty"
         const qtyMatch = t.match(/(\d+)\s*(?:qty|quantity|piece|pcs|nug)/i) || t.match(/(?:qty|quantity)\s*(\d+)/i);
         const qty = qtyMatch ? parseFloat(qtyMatch[1]) : 1;
 
-        // STEP 5: Match items, parties from master data (FUZZY: word-by-word)
         let foundItem = null, foundParty = null, foundBrand = null;
         const words = t.split(/\s+/);
-        
         for (const item of (data.items || [])) {
             const n = (item.name || '').toLowerCase();
-            // Exact substring match
             if (n && n.length > 1 && t.includes(n)) { foundItem = item; break; }
-            // Fuzzy: any word from item name found in command
             if (n && n.length > 2) {
-                const itemWords = n.split(/\s+/);
-                for (const iw of itemWords) {
-                    if (iw.length > 2 && words.some(w => w.includes(iw) || iw.includes(w))) {
-                        foundItem = item; break;
-                    }
-                }
+                const iw = n.split(/\s+/);
+                for (const w of iw) { if (w.length > 2 && words.some(x => x.includes(w) || w.includes(x))) { foundItem = item; break; } }
             }
-            // Brand match
-            for (const b of (item.brands || [])) {
-                const bn = (b.name || '').toLowerCase();
-                if (bn && bn.length > 1 && t.includes(bn)) { foundItem = item; foundBrand = b; break; }
-            }
+            for (const b of (item.brands || [])) { const bn = (b.name || '').toLowerCase(); if (bn && bn.length > 1 && t.includes(bn)) { foundItem = item; foundBrand = b; break; } }
             if (foundItem) break;
         }
-        for (const p of (data.parties || [])) {
-            const pn = (p.name || '').toLowerCase();
-            if (pn && pn.length > 1 && t.includes(pn)) { foundParty = p; break; }
-        }
+        for (const p of (data.parties || [])) { const pn = (p.name || '').toLowerCase(); if (pn && pn.length > 1 && t.includes(pn)) { foundParty = p; break; } }
 
-        // ── RULE 1: Task with number ──
         if (isTask && taskId) {
-            if (foundItem) {
-                // Item found → modify task
-                return { action: 'MODIFY_TASK', data: { taskId, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
-            }
-            if (isModify) {
-                // User wants to add something but item not found locally → let Gemini figure it out
-                return null;
-            }
-            // Just viewing: "task 778" or "task 778 dikhao"
+            if (foundItem) return { action: 'MODIFY_TASK', data: { taskId, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
+            if (isModify) return null; // Let Gemini handle
             return { action: 'VIEW_TASK', data: { taskId } };
         }
-
-        // ── RULE 2: Modify task (add item) ──
-        if (isModify && foundItem) {
-            return { action: 'MODIFY_TASK', data: { taskId: null, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
-        }
-
-        // ── RULE 3: Create task ──
-        if (isTask && !taskId) {
-            const taskName = foundItem?.name || foundParty?.name || text.replace(/task|create|banao|bana|karo|kar do|kaam/gi, '').trim() || 'New Task';
-            return { action: 'CREATE_TASK', data: { name: taskName, partyId: foundParty?.id || '' } };
-        }
-
-        // ── RULE 4: Expense/Sale/Purchase with explicit amount ──
-        if (amount !== null) {
-            let type = 'expense';
-            if (isSale) type = 'sales';
-            else if (isPurchase) type = 'purchase';
-            return { action: 'CREATE_TRANSACTION', data: { type, partyId: foundParty?.id || '', category: foundItem?.category || '', amount, items: foundItem ? [{ itemId: foundItem.id, qty, price: amount / qty, brand: foundBrand?.name || '' }] : [] } };
-        }
-
-        // ── RULE 5: Expense with item but no amount ──
-        if ((isExpense || isCreate) && (foundItem || foundParty)) {
-            return { action: 'CREATE_TRANSACTION', data: { type: 'expense', partyId: foundParty?.id || '', category: foundItem?.category || '', amount: 0, items: foundItem ? [{ itemId: foundItem.id, qty: 1, price: foundItem.sellPrice || 0, brand: '' }] : [] } };
-        }
-
-        return null; // Can't parse locally → will go to Gemini
+        if (isModify && foundItem) return { action: 'MODIFY_TASK', data: { taskId: null, itemName: foundItem.name, itemId: foundItem.id, qty, price: amount || foundBrand?.sellPrice || foundItem.sellPrice || 0, brand: foundBrand?.name || '' } };
+        if (isTask && !taskId) { const n = foundItem?.name || foundParty?.name || text.replace(/task|create|banao|bana|karo|kar do|kaam/gi, '').trim() || 'New Task'; return { action: 'CREATE_TASK', data: { name: n, partyId: foundParty?.id || '' } }; }
+        if (amount !== null) { let tp = 'expense'; if (isSale) tp = 'sales'; else if (isPurchase) tp = 'purchase'; return { action: 'CREATE_TRANSACTION', data: { type: tp, partyId: foundParty?.id || '', category: foundItem?.category || '', amount, items: foundItem ? [{ itemId: foundItem.id, qty, price: amount / qty, brand: foundBrand?.name || '' }] : [] } }; }
+        if ((isExpense || isCreate) && (foundItem || foundParty)) return { action: 'CREATE_TRANSACTION', data: { type: 'expense', partyId: foundParty?.id || '', category: foundItem?.category || '', amount: 0, items: foundItem ? [{ itemId: foundItem.id, qty: 1, price: foundItem.sellPrice || 0, brand: '' }] : [] } };
+        return null;
     };
 
-    // ─── Execute Action ───
+    // ─── Execute Action (runs AFTER confirmation) ───
     const executeAction = async (parsed, originalText) => {
         if (!parsed?.action) throw new Error('Command samajh nahi aaya.');
 
         if (parsed.action === 'VIEW_TASK') {
-            const tasks = data?.tasks || [];
-            const task = tasks.find(t => t.id === parsed.data.taskId);
-            if (task) {
-                setTranscript(''); setSuccessMessage(`Task: ${task.name} (${task.status})`);
-                setLastCreatedRecord({ id: task.id, type: 'task', data: task });
-                speakJarvis(`Task mila. ${task.name}. Status ${task.status}.`);
-            } else {
-                throw new Error(`Task ${parsed.data.taskId} nahi mila.`);
-            }
-            setIsProcessing(false);
-            return;
+            const task = (data?.tasks || []).find(t => t.id === parsed.data.taskId);
+            if (task) { setSuccessMessage(`Task: ${task.name} (${task.status})`); setLastCreatedRecord({ id: task.id, type: 'task', data: task }); speakJarvis(`Task mila. ${task.name}.`); }
+            else throw new Error(`Task ${parsed.data.taskId} nahi mila.`);
+            setIsProcessing(false); return;
         }
 
         if (parsed.action === 'MODIFY_TASK') {
             const tasks = data?.tasks || [];
-            let targetTask;
-            if (parsed.data.taskId) targetTask = tasks.find(t => t.id === parsed.data.taskId);
-            if (!targetTask) targetTask = tasks.find(t => t.status !== 'Done' && t.status !== 'Converted');
-            if (!targetTask) throw new Error('Koi active task nahi mila.');
-
-            const existingItems = targetTask.itemsUsed || [];
-            const idx = existingItems.findIndex(i => i.itemId === parsed.data.itemId);
-            let updatedItems, msg;
-            if (idx >= 0) {
-                updatedItems = [...existingItems];
-                updatedItems[idx] = { ...updatedItems[idx], qty: parseFloat(updatedItems[idx].qty || 0) + parsed.data.qty };
-                msg = `${parsed.data.itemName} pehle se tha. Qty: ${updatedItems[idx].qty}`;
-            } else {
-                updatedItems = [...existingItems, { itemId: parsed.data.itemId, qty: parsed.data.qty, price: parsed.data.price, brand: parsed.data.brand }];
-                msg = `${parsed.data.itemName} add kiya: ${targetTask.name}`;
-            }
-            await saveRecord('tasks', { ...targetTask, itemsUsed: updatedItems, updatedAt: new Date().toISOString() }, 'task');
-            setTranscript(''); setSuccessMessage(msg);
-            setLastCreatedRecord({ id: targetTask.id, type: 'task', data: { ...targetTask, itemsUsed: updatedItems } });
-            speakJarvis(msg); setIsProcessing(false);
-            return;
+            let t; if (parsed.data.taskId) t = tasks.find(x => x.id === parsed.data.taskId);
+            if (!t) t = tasks.find(x => x.status !== 'Done' && x.status !== 'Converted');
+            if (!t) throw new Error('Koi active task nahi mila.');
+            const items = t.itemsUsed || []; const idx = items.findIndex(i => i.itemId === parsed.data.itemId);
+            let updated, msg;
+            if (idx >= 0) { updated = [...items]; updated[idx] = { ...updated[idx], qty: parseFloat(updated[idx].qty || 0) + parsed.data.qty }; msg = `${parsed.data.itemName} pehle se tha. Qty: ${updated[idx].qty}`; }
+            else { updated = [...items, { itemId: parsed.data.itemId, qty: parsed.data.qty, price: parsed.data.price, brand: parsed.data.brand }]; msg = `${parsed.data.itemName} add kiya: ${t.name}`; }
+            await saveRecord('tasks', { ...t, itemsUsed: updated, updatedAt: new Date().toISOString() }, 'task');
+            setSuccessMessage(msg); setLastCreatedRecord({ id: t.id, type: 'task', data: { ...t, itemsUsed: updated } }); speakJarvis(msg); setIsProcessing(false); return;
         }
 
         if (parsed.action === 'CREATE_TASK') {
             const task = { name: parsed.data?.name || 'New Task', partyId: parsed.data?.partyId || '', status: 'To Do', description: originalText, createdAt: new Date().toISOString() };
             const id = await saveRecord('tasks', task, 'task');
-            setTranscript(''); setSuccessMessage(`Task: ${task.name}`);
-            setLastCreatedRecord({ id, type: 'task', data: { ...task, id } });
-            speakJarvis(`Task ban gaya, ${task.name}`); setIsProcessing(false);
-            return;
+            setSuccessMessage(`Task: ${task.name}`); setLastCreatedRecord({ id, type: 'task', data: { ...task, id } }); speakJarvis(`Task ban gaya, ${task.name}`); setIsProcessing(false); return;
         }
 
         if (parsed.action === 'CREATE_TRANSACTION') {
@@ -240,106 +198,85 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             const items = (parsed.data?.items || []).map(i => ({ ...i, qty: parseFloat(i.qty || 1), price: parseFloat(i.price || 0), isBundle: false, subItems: [] }));
             const total = items.reduce((s, i) => s + (i.qty * i.price), 0) || parseFloat(parsed.data?.amount || 0);
             const tx = { type, partyId: parsed.data?.partyId || '', category: parsed.data?.category || '', notes: originalText, amount: total, finalTotal: total, grossTotal: total, paymentMode: 'Cash', items, date: new Date().toISOString().split('T')[0] };
-            if (type === 'expense' || type === 'purchase') tx.paid = total;
-            else if (type === 'sales') tx.received = total;
+            if (type === 'expense' || type === 'purchase') tx.paid = total; else if (type === 'sales') tx.received = total;
             const id = await saveRecord('transactions', tx, type);
-            setTranscript(''); setSuccessMessage(`${type.toUpperCase()}: ₹${total}`);
-            setLastCreatedRecord({ id, type: 'transaction', data: { ...tx, id } });
-            speakJarvis(`${type} entry, ${total} rupaye.`); setIsProcessing(false);
-            return;
+            setSuccessMessage(`${type.toUpperCase()}: ₹${total}`); setLastCreatedRecord({ id, type: 'transaction', data: { ...tx, id } }); speakJarvis(`${type} entry, ${total} rupaye.`); setIsProcessing(false); return;
         }
 
         throw new Error('Command samajh nahi aaya.');
     };
 
-    // ─── Gemini AI Call (with rate limiter) ───
+    // ─── Gemini AI Call ───
     const callGemini = async (text) => {
-        const now = Date.now();
-        const gap = now - lastGeminiCall;
-        if (gap < 4000) {
-            // Wait for remaining cooldown
-            await new Promise(r => setTimeout(r, 4000 - gap));
-        }
+        const gap = Date.now() - lastGeminiCall;
+        if (gap < 4000) await new Promise(r => setTimeout(r, 4000 - gap));
         lastGeminiCall = Date.now();
-
-        const ctx = {
-            parties: (data?.parties || []).map(p => ({ id: p.id, name: p.name })),
-            items: (data?.items || []).map(i => ({ id: i.id, name: i.name, category: i.category })),
-            recentTasks: (data?.tasks || []).filter(t => t.status !== 'Done').slice(0, 10).map(t => ({ id: t.id, name: t.name, status: t.status }))
-        };
-
+        const ctx = { parties: (data?.parties || []).map(p => ({ id: p.id, name: p.name })), items: (data?.items || []).map(i => ({ id: i.id, name: i.name, category: i.category })), recentTasks: (data?.tasks || []).filter(t => t.status !== 'Done').slice(0, 10).map(t => ({ id: t.id, name: t.name, status: t.status })) };
         const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
         if (!apiKey) throw new Error('API Key not set.');
-
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 12000);
-
+        const ctrl = new AbortController(); const tm = setTimeout(() => ctrl.abort(), 12000);
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: `You are JARVIS, an ERP assistant. Parse this Hinglish/Hindi command into JSON action.
-
-RULES:
-- Return ONLY valid JSON, nothing else
-- Actions: CREATE_TASK, CREATE_TRANSACTION, MODIFY_TASK, VIEW_TASK, ASK_QUESTION
-- For CREATE_TRANSACTION: {"action":"CREATE_TRANSACTION","data":{"type":"expense|sales|purchase","partyId":"","category":"","amount":0,"items":[{"itemId":"","qty":1,"price":0,"brand":""}]}}
-- For CREATE_TASK: {"action":"CREATE_TASK","data":{"name":"","partyId":""}}
-- For MODIFY_TASK: {"action":"MODIFY_TASK","data":{"taskId":"T-xxx","itemName":"","itemId":"","qty":1,"price":0,"brand":""}}
-- For VIEW_TASK: {"action":"VIEW_TASK","data":{"taskId":"T-xxx"}}
-- For ASK_QUESTION: {"action":"ASK_QUESTION","data":{"question":"your question in Hinglish"}}
-- "task 778" or "task number 778" means taskId "T-778", NOT amount 778
-- If qty missing, default 1. If price missing, use 0.
-- Match party/item names from context. Use IDs from context.
-
-CONTEXT:
-${JSON.stringify(ctx)}
-
-USER COMMAND: "${text}"` }] }],
-                generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
-            })
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
+            body: JSON.stringify({ contents: [{ parts: [{ text: `Parse ERP command to JSON. Actions: CREATE_TASK,CREATE_TRANSACTION,MODIFY_TASK,VIEW_TASK. "task 778"=taskId "T-778" NOT amount. Default qty=1. Context: ${JSON.stringify(ctx)}. Command: "${text}"` }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.1 } })
         });
-        clearTimeout(timer);
-
+        clearTimeout(tm);
         const json = await res.json();
-        if (json.error) {
-            if (json.error.code === 429) throw new Error('AI busy hai. 1 min baad try karo.');
-            throw new Error(json.error.message || 'AI error');
-        }
+        if (json.error) { if (json.error.code === 429) throw new Error('AI busy. 1 min wait.'); throw new Error(json.error.message || 'AI error'); }
         const raw = json.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!raw) throw new Error('AI ne jawab nahi diya.');
         return JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim());
     };
 
-    // ─── Main Pipeline: Local first → Gemini fallback ───
+    // ─── CONFIRM / CANCEL ───
+    const confirmAction = async () => {
+        if (!pendingAction) return;
+        const { parsed, originalText } = pendingAction;
+        setPendingAction(null);
+        setIsProcessing(true); setStatusText('Executing...');
+        try {
+            await executeAction(parsed, originalText);
+        } catch (e) {
+            setError(e.message); speakJarvis(e.message); setIsProcessing(false);
+        }
+    };
+
+    const cancelAction = () => {
+        setPendingAction(null);
+        setTranscript(''); setStatusText('Cancelled. Naya command do.');
+        speakJarvis('Cancel kar diya.');
+    };
+
+    // ─── Main Pipeline → Parse → Show Preview → Wait for Confirm ───
     const processCommand = async (text) => {
         if (!text) return;
         setIsProcessing(true); setStatusText('Processing...'); setSuccessMessage(''); setError('');
-
-        const safetyTimer = setTimeout(() => {
-            setIsProcessing(false); setTranscript('');
-            setError('Timeout. Try again.');
-        }, 15000);
+        const safety = setTimeout(() => { setIsProcessing(false); setTranscript(''); setError('Timeout.'); }, 15000);
 
         try {
-            // Try local parsing first (instant)
-            const local = parseLocally(text);
-            if (local) {
-                await executeAction(local, text);
-                clearTimeout(safetyTimer);
+            let parsed = parseLocally(text);
+            if (!parsed) {
+                setStatusText('AI soch raha hai...');
+                parsed = await callGemini(text);
+            }
+            clearTimeout(safety);
+
+            // VIEW_TASK executes instantly (no confirmation needed)
+            if (parsed.action === 'VIEW_TASK') {
+                await executeAction(parsed, text);
                 return;
             }
 
-            // Fallback: Ask Gemini AI (with rate limiter)
-            setStatusText('AI soch raha hai...');
-            const aiResult = await callGemini(text);
-            await executeAction(aiResult, text);
-            clearTimeout(safetyTimer);
+            // For all other actions: SHOW PREVIEW → WAIT FOR CONFIRMATION
+            const preview = getPreview(parsed);
+            setPendingAction({ parsed, originalText: text, preview });
+            setIsProcessing(false);
+            setTranscript('');
+            speakJarvis('Ye karna hai? Confirm karo ya Cancel.');
 
         } catch (e) {
-            clearTimeout(safetyTimer);
+            clearTimeout(safety);
             setTranscript(''); setError(e.message || 'Error');
-            speakJarvis(e.message || 'Error aa gaya');
+            speakJarvis(e.message || 'Error');
             setIsProcessing(false);
         }
     };
@@ -356,26 +293,47 @@ USER COMMAND: "${text}"` }] }],
             <div className="w-full max-w-md bg-slate-900 border border-blue-500/20 rounded-[40px] shadow-2xl shadow-blue-500/10 p-6 relative overflow-hidden" style={{animation: 'jarvisSlide 0.3s ease-out'}}>
                 <div className="absolute top-0 right-0 w-40 h-40 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
 
+                {/* Header */}
                 <div className="flex justify-between items-center mb-6 relative z-10">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-blue-600/20 border border-blue-500/40 text-blue-400 rounded-2xl flex items-center justify-center"><Bot size={20} /></div>
                         <div>
                             <h3 className="font-black text-white leading-none mb-1 tracking-tight text-lg">J.A.R.V.I.S</h3>
-                            <p className="text-[9px] font-black uppercase tracking-[0.25em]" style={{color: !data ? '#ef4444' : isProcessing ? '#f59e0b' : isListening ? '#22d3ee' : '#3b82f6'}}>
-                                {!data ? '● OFFLINE' : isProcessing ? '● PROCESSING' : isListening ? '● LISTENING' : '● ONLINE'}
+                            <p className="text-[9px] font-black uppercase tracking-[0.25em]" style={{color: pendingAction ? '#f59e0b' : !data ? '#ef4444' : isProcessing ? '#f59e0b' : isListening ? '#22d3ee' : '#3b82f6'}}>
+                                {pendingAction ? '● CONFIRM?' : !data ? '● OFFLINE' : isProcessing ? '● PROCESSING' : isListening ? '● LISTENING' : '● ONLINE'}
                             </p>
                         </div>
                     </div>
                     <button onClick={() => { setIsOpen(false); resetState(); if(isListening) { recognitionRef.current?.stop(); setIsListening(false); } }} className="p-2.5 bg-white/5 rounded-full text-slate-400"><X size={18} /></button>
                 </div>
 
+                {/* Content */}
                 <div className="min-h-[150px] flex flex-col items-center justify-center mb-6 relative z-10">
                     {error ? (
                         <div className="flex flex-col items-center gap-4 text-center px-4">
                             <div className="p-4 bg-rose-500/10 rounded-3xl border border-rose-500/20"><AlertCircle className="text-rose-400" size={28} /></div>
                             <p className="font-bold text-rose-400 text-sm">{error}</p>
-                            <button onClick={() => { setError(''); setStatusText('JARVIS Online.'); }} className="text-[10px] font-black text-blue-400 uppercase tracking-widest">↻ Clear</button>
+                            <button onClick={resetState} className="text-[10px] font-black text-blue-400 uppercase tracking-widest">↻ Naya Command</button>
                         </div>
+
+                    ) : pendingAction ? (
+                        /* ── CONFIRMATION SCREEN ── */
+                        <div className="flex flex-col items-center gap-5 text-center w-full px-2">
+                            <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Confirm Action</p>
+                            <div className="w-full bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4">
+                                <p className="text-white font-bold text-base leading-relaxed">{pendingAction.preview}</p>
+                            </div>
+                            <div className="flex gap-3 w-full">
+                                <button onClick={confirmAction} className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg shadow-emerald-500/20">
+                                    <Check size={18} /> Haan
+                                </button>
+                                <button onClick={cancelAction} className="flex-1 py-3 bg-rose-600/80 hover:bg-rose-500 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg shadow-rose-500/20">
+                                    <XCircle size={18} /> Cancel
+                                </button>
+                            </div>
+                            <p className="text-[10px] text-white/30 font-bold">Mic se bhi bol sakte ho: "Haan" ya "Cancel"</p>
+                        </div>
+
                     ) : successMessage ? (
                         <div className="flex flex-col items-center gap-4 text-center">
                             <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/30 rounded-full flex items-center justify-center"><CheckCircle2 className="text-emerald-400" size={32} /></div>
@@ -398,6 +356,7 @@ USER COMMAND: "${text}"` }] }],
                     )}
                 </div>
 
+                {/* Controls — show when idle OR when confirming (for mic) */}
                 {!successMessage && !isProcessing && !error && (
                     <div className="flex flex-col items-center gap-5 relative z-10">
                         <div className="relative">
@@ -406,10 +365,12 @@ USER COMMAND: "${text}"` }] }],
                                 <Mic size={32} />
                             </button>
                         </div>
-                        <form onSubmit={(e) => { e.preventDefault(); const v = inputText.trim(); if (v && !isProcessing) { setTranscript(v); processCommand(v); setInputText(''); } }} className="w-full flex items-center gap-2 bg-white/5 p-2 rounded-2xl border border-white/10">
-                            <input type="text" className="flex-1 bg-transparent px-3 py-2.5 text-sm font-bold outline-none text-white placeholder:text-white/20" placeholder="Type command..." value={inputText} onChange={e => setInputText(e.target.value)} />
-                            <button type="submit" disabled={!inputText.trim()} className="w-10 h-10 bg-blue-600 disabled:bg-blue-600/30 text-white rounded-xl flex items-center justify-center active:scale-95"><Send size={16} /></button>
-                        </form>
+                        {!pendingAction && (
+                            <form onSubmit={(e) => { e.preventDefault(); const v = inputText.trim(); if (v && !isProcessing) { setTranscript(v); processCommand(v); setInputText(''); } }} className="w-full flex items-center gap-2 bg-white/5 p-2 rounded-2xl border border-white/10">
+                                <input type="text" className="flex-1 bg-transparent px-3 py-2.5 text-sm font-bold outline-none text-white placeholder:text-white/20" placeholder="Type command..." value={inputText} onChange={e => setInputText(e.target.value)} />
+                                <button type="submit" disabled={!inputText.trim()} className="w-10 h-10 bg-blue-600 disabled:bg-blue-600/30 text-white rounded-xl flex items-center justify-center active:scale-95"><Send size={16} /></button>
+                            </form>
+                        )}
                     </div>
                 )}
             </div>
