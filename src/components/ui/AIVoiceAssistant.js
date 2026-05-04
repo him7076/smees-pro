@@ -168,7 +168,7 @@ ${historyText}
             const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
             if (!apiKey) throw new Error("Gemini API key is missing.");
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -181,7 +181,12 @@ ${historyText}
             });
 
             const result = await response.json();
-            if (result.error) throw new Error(result.error.message);
+            if (result.error) {
+                if (result.error.code === 429) {
+                    throw new Error("AI Quota Exceeded. Please try after 60 seconds or use a different API key.");
+                }
+                throw new Error(result.error.message);
+            }
 
             const rawContent = result.candidates[0].content.parts[0].text;
             let parsedAction = null;
