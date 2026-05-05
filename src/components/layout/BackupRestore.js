@@ -75,12 +75,21 @@ const BackupRestore = ({ data, setData, onClose }) => {
                     throw new Error("Invalid backup file — missing core data collections");
                 }
 
-                // 0. Pre-check Auth for Cloud Restore
-                const currentUser = auth.currentUser;
+                // 0. Pro-active Auth check/retry for Cloud Restore
+                let currentUser = auth.currentUser;
                 if (!currentUser) {
-                    setProgress('⚠️ Connection Error: Cloud auth not ready.');
-                    alert("FIREBASE AUTH ERROR: Please ensure 'Anonymous Authentication' is enabled in your Firebase Console. Without this, cloud restore will hang.");
-                    return;
+                    setProgress('Connecting to Cloud...');
+                    try {
+                        const { signInAnonymously } = await import('firebase/auth');
+                        await signInAnonymously(auth);
+                        currentUser = auth.currentUser;
+                        console.log("Auto-Auth Success during Restore");
+                    } catch (authErr) {
+                        console.error("Auto-Auth Failed:", authErr);
+                        setProgress('⚠️ Connection Error: Auth failed.');
+                        alert("FIREBASE AUTH ERROR: " + authErr.message + "\n\nPlease ensure 'Anonymous Authentication' is enabled in your Firebase Console (smees-pro-new project).");
+                        return;
+                    }
                 }
 
                 if (!window.confirm("CRITICAL: This will overwrite ALL your current data with the backup file. Proceed?")) return;
