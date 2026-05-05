@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, X, Bot, CheckCircle2, Loader2, Send, Eye, AlertCircle, Check, XCircle, Pencil } from 'lucide-react';
+import { Mic, X, Bot, CheckCircle2, Loader2, Send, Eye, AlertCircle, Check, XCircle, Pencil, ChevronRight } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
 
 // Rate limiter
