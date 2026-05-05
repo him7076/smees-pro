@@ -2,11 +2,15 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { collection, onSnapshot, doc, query, orderBy, limit, where, getDocs } from "firebase/firestore";
 import { db, personalDb } from '../services/firebase';
 import { INITIAL_DATA } from '../utils/constants';
+import { localDB } from '../utils/localDB';
 
 export const useFirebaseSync = () => {
+    // 1. Initial State from localStorage (Instant startup)
     const [data, setData] = useState(() => {
-        const cached = localStorage.getItem('smees_data');
-        return cached ? JSON.parse(cached) : INITIAL_DATA;
+        try {
+            const cached = localStorage.getItem('smees_data');
+            return cached ? JSON.parse(cached) : INITIAL_DATA;
+        } catch(e) { return INITIAL_DATA; }
     });
 
     const [syncing, setSyncing] = useState(false);
@@ -17,19 +21,37 @@ export const useFirebaseSync = () => {
     const unsubscribersRef = useRef([]);
     dataRef.current = data;
 
+    // 2. High Capacity Local Persistence (IndexedDB + localStorage fallback)
     const debouncedSave = useCallback((newData) => {
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(() => {
+            // Save to IndexedDB (Primary)
+            localDB.set('smees_data', newData).catch(err => console.error("IDB Save Error:", err));
+            
+            // Save to localStorage (Secondary/Fallback) - try-catch for quota errors
             try {
                 localStorage.setItem('smees_data', JSON.stringify(newData));
             } catch (e) {
-                console.warn('localStorage save failed:', e);
+                // If localStorage is full, we don't worry because IndexedDB has it
             }
-        }, 1000); // Increased debounce to 1s to reduce serialization overhead
+        }, 1000); 
+    }, []);
+
+    // 3. Initial Load from IndexedDB (Override localStorage if found)
+    useEffect(() => {
+        const loadIDB = async () => {
+            try {
+                const idbData = await localDB.get('smees_data');
+                if (idbData) {
+                    setData(idbData);
+                }
+            } catch (e) { console.error("IDB Load Error:", e); }
+        };
+        loadIDB();
     }, []);
 
     useEffect(() => {
-        // Check if sync is disabled - if so, just use local data
+        // Check if sync is disabled
         const uiConfig = JSON.parse(localStorage.getItem('smees_ui_config') || '{}');
         if (uiConfig.syncEnabled === false) {
             setLoading(false);

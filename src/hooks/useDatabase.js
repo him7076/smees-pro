@@ -1,6 +1,7 @@
 import { doc, setDoc, deleteDoc } from "firebase/firestore";
 import { db, personalDb } from "../services/firebase";
 import { getNextId } from "../utils/helpers";
+import { localDB } from "../utils/localDB";
 
 // Check if sync is enabled
 const isSyncEnabled = () => {
@@ -35,7 +36,7 @@ export const useDatabase = (data, setData) => {
 
             const { targetDb, targetCol, isPersonal } = getTarget(collectionName);
 
-            // 1. ID Generation (always local)
+            // 1. ID Generation
             if (isNew) {
                 const { id, nextCounters: updatedCounters, isNewFY } = getNextId(data, type, record.date);
                 finalRecord.id = id;
@@ -45,21 +46,26 @@ export const useDatabase = (data, setData) => {
             }
             finalRecord.updatedAt = new Date().toISOString();
 
-            // 2. Update Local State (ALWAYS runs, instant)
+            // 2. Update Local State & IndexedDB
+            const counterKey = finalRecord.isNewFY ? 'counters_26_27' : 'counters';
+            
             setData(prevData => {
                 if (!prevData) return prevData;
                 const updatedList = isNew 
                     ? [finalRecord, ...(prevData[collectionName] || [])] 
                     : (prevData[collectionName] || []).map(r => r.id === finalRecord.id ? finalRecord : r);
                 
-                const counterKey = finalRecord.isNewFY ? 'counters_26_27' : 'counters';
                 const newData = { 
                     ...prevData, 
                     [collectionName]: updatedList,
                     ...(isNew ? { [counterKey]: nextCounters } : {})
                 };
                 
-                localStorage.setItem('smees_data', JSON.stringify(newData));
+                // Async save to IndexedDB (Fire and forget local persistence)
+                localDB.set('smees_data', newData).catch(err => console.error("IDB Save Error:", err));
+                // Backup to localStorage for safety (small chunks only usually, but good for now)
+                try { localStorage.setItem('smees_data', JSON.stringify(newData)); } catch(e) {}
+                
                 return newData;
             });
 

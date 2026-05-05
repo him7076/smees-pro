@@ -8,13 +8,12 @@ const Dashboard = ({ data, setModal, setViewDetail }) => {
     const isRescue = JSON.parse(localStorage.getItem('smees_user') || '{}').isOffline;
 
     const downloadLocalBackup = () => {
-        const fullData = localStorage.getItem('smees_data');
-        if (!fullData) return alert("No local data found!");
-        const blob = new Blob([fullData], { type: 'application/json' });
+        if (!data) return alert("No data to backup!");
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `smees_rescue_backup_${new Date().toISOString().split('T')[0]}.json`;
+        a.download = `smees_full_backup_${new Date().toISOString().split('T')[0]}.json`;
         a.click();
         URL.revokeObjectURL(url);
     };
