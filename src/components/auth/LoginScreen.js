@@ -8,7 +8,18 @@ const LoginScreen = ({ setUser }) => {
   const [pass, setPass] = useState('');
   const [err, setErr] = useState('');
 
-  const handleLogin = async () => {
+  const handleLogin = async (isRescue = false) => {
+      if (isRescue) {
+          // Disable sync to avoid firebase errors
+          const cfg = JSON.parse(localStorage.getItem('smees_ui_config') || '{}');
+          localStorage.setItem('smees_ui_config', JSON.stringify({ ...cfg, syncEnabled: false }));
+          
+          const adminUser = { name: 'Rescue Admin', role: 'admin', loginId: 'rescue', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true }, isOffline: true };
+          setUser(adminUser);
+          localStorage.setItem('smees_user', JSON.stringify(adminUser));
+          return;
+      }
+
       if(id === 'him23' && pass === 'Himanshu#3499sp') {
         try {
             await signInAnonymously(auth); 
@@ -16,8 +27,8 @@ const LoginScreen = ({ setUser }) => {
             setUser(adminUser);
             localStorage.setItem('smees_user', JSON.stringify(adminUser));
         } catch (e) {
-            alert("Login Failed: Check Internet or Firebase Console");
             console.error(e);
+            setErr("Login Failed: Project Suspended. Please use 'Rescue Offline Mode'.");
         }
     } else {
           try {
@@ -39,7 +50,7 @@ const LoginScreen = ({ setUser }) => {
               }
           } catch (e) {
               console.error(e);
-              setErr("Connection Error or Invalid Credentials");
+              setErr("Project Suspended or Network Error. Use 'Rescue Offline Mode'.");
           }
       }
   };
@@ -78,14 +89,18 @@ const LoginScreen = ({ setUser }) => {
               {err && <p className="text-red-500 text-sm mt-4 text-center font-bold animate-pulse">{err}</p>}
               
               <button 
-                onClick={handleLogin} 
-                className="w-full mt-8 p-4 bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-2xl font-bold text-lg shadow-lg hover:shadow-blue-500/25 active:scale-95 transition-all"
+                onClick={() => handleLogin(true)} 
+                className="w-full mt-4 p-4 bg-orange-100 text-orange-700 rounded-2xl font-black text-sm uppercase tracking-widest border-2 border-orange-200 hover:bg-orange-200 active:scale-95 transition-all flex items-center justify-center gap-2"
               >
-                Sign In
+                🚨 Rescue Offline Mode
               </button>
               
-              <p className="mt-8 text-center text-xs text-gray-400 font-medium">
-                © 2024 SMEES Enterprise Solutions
+              <p className="mt-8 text-center text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                Cloud Service: <span className="text-red-500">Suspended / Error</span>
+              </p>
+              
+              <p className="mt-4 text-center text-xs text-gray-300 font-medium italic px-4">
+                "Rescue Mode uses your last locally saved data. Any changes won't sync to cloud until project is restored."
               </p>
           </div>
       </div>

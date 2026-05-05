@@ -75,6 +75,8 @@ export const useFirebaseSync = () => {
                 checkLoaded();
             }, (error) => {
                 console.error(`Sync Error [${colName}]:`, error);
+                // IF project is suspended or network is down, immediately stop loading so user can use local data
+                setLoading(false);
                 checkLoaded(); 
             });
             unsubscribers.push(unsub);
@@ -93,7 +95,10 @@ export const useFirebaseSync = () => {
                     debouncedSave(newData);
                     return newData;
                 });
-            } catch (e) { console.error('Attendance fetch error:', e); }
+            } catch (e) { 
+                console.error('Attendance fetch error:', e); 
+                setLoading(false); // Stop loading on error
+            }
             checkLoaded();
         };
         fetchAttendance();

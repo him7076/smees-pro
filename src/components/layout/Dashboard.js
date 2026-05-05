@@ -5,6 +5,20 @@ import { Plus, TrendingUp, FileText, ChevronRight, Banknote, Landmark } from 'lu
 
 const Dashboard = ({ data, setModal, setViewDetail }) => {
     const navigate = useNavigate();
+    const isRescue = JSON.parse(localStorage.getItem('smees_user') || '{}').isOffline;
+
+    const downloadLocalBackup = () => {
+        const fullData = localStorage.getItem('smees_data');
+        if (!fullData) return alert("No local data found!");
+        const blob = new Blob([fullData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `smees_rescue_backup_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     const [fType, setFType] = useState('Monthly');
     const [customRange, setCustomRange] = useState({ 
         start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0], 
@@ -12,6 +26,7 @@ const Dashboard = ({ data, setModal, setViewDetail }) => {
     });
 
     const stats = useMemo(() => {
+        // ... (existing logic)
         const now = new Date();
         let start = new Date();
         let end = new Date();
@@ -26,18 +41,18 @@ const Dashboard = ({ data, setModal, setViewDetail }) => {
         }
         start.setHours(0,0,0,0);
 
-        const filtered = data.transactions.filter(t => {
+        const filtered = (data.transactions || []).filter(t => {
             const d = new Date(t.date);
             return d >= start && d <= end && t.status !== 'Cancelled';
         });
         
-        const sales = filtered.filter(t => t.type === 'sales').reduce((s, t) => s + getTransactionTotals(t).final, 0);
-        const expenses = filtered.filter(t => t.type === 'expense').reduce((s, t) => s + getTransactionTotals(t).amount, 0);
+        const sales = filtered.filter(t => t.type === 'sales').reduce((s, t) => s + (getTransactionTotals(t)?.final || 0), 0);
+        const expenses = filtered.filter(t => t.type === 'expense').reduce((s, t) => s + (getTransactionTotals(t)?.amount || 0), 0);
         
         let grossProfit = 0;
         filtered.filter(t => t.type === 'sales').forEach(s => {
             (s.items || []).forEach(i => { 
-                const master = data.items.find(mi => mi.id === i.itemId);
+                const master = (data.items || []).find(mi => mi.id === i.itemId);
                 const buy = parseFloat(i.buyPrice || i.purchasePrice || master?.buyPrice || 0);
                 const sell = parseFloat(i.price || 0);
                 const qty = parseFloat(i.qty || 1);
@@ -52,7 +67,7 @@ const Dashboard = ({ data, setModal, setViewDetail }) => {
         });
 
 
-        const cashBal = data.transactions.reduce((acc, t) => {
+        const cashBal = (data.transactions || []).reduce((acc, t) => {
             if (t.status === 'Cancelled' || t.status === 'cancelled') return acc;
             const isCash = (t.paymentMode || 'Cash') === 'Cash';
             if (!isCash) return acc;
@@ -61,7 +76,7 @@ const Dashboard = ({ data, setModal, setViewDetail }) => {
             return acc + (isIn ? amt : -amt);
         }, 0);
 
-        const bankBal = data.transactions.reduce((acc, t) => {
+        const bankBal = (data.transactions || []).reduce((acc, t) => {
             if (t.status === 'Cancelled' || t.status === 'cancelled') return acc;
             const isBank = t.paymentMode === 'Bank' || t.paymentMode === 'UPI';
             if (!isBank) return acc;
@@ -70,14 +85,30 @@ const Dashboard = ({ data, setModal, setViewDetail }) => {
             return acc + (isIn ? amt : -amt);
         }, 0);
 
-        const activeTasks = data.tasks.filter(t => t.status !== 'Done' && t.status !== 'Converted').length;
+        const activeTasks = (data.tasks || []).filter(t => t.status !== 'Done' && t.status !== 'Converted').length;
 
         return { sales, expenses, activeTasks, grossProfit, filteredTxs: filtered, cashBal, bankBal };
     }, [data, fType, customRange]);
 
     return (
         <div className="space-y-6 animate-in fade-in duration-700 pb-20">
-            {/* Execution Suite (TOP) - Compact High Density */}
+            {isRescue && (
+                <div className="bg-orange-50 border-2 border-orange-200 p-6 rounded-[40px] flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg shadow-orange-500/10">
+                    <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-orange-200 rounded-2xl flex items-center justify-center text-orange-700 animate-pulse">🚨</div>
+                        <div>
+                            <h3 className="text-sm font-black text-orange-900 uppercase tracking-widest leading-none mb-1">Rescue Offline Mode Active</h3>
+                            <p className="text-[10px] font-bold text-orange-700/60 uppercase">Cloud service is suspended. Working on Local Data.</p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={downloadLocalBackup}
+                        className="px-8 py-3 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-orange-600/30 active:scale-95 transition-all hover:bg-orange-700"
+                    >
+                        Download Full Backup Now
+                    </button>
+                </div>
+            )}
             <div className="bg-slate-900 p-5 rounded-[40px] shadow-2xl space-y-6 text-white overflow-hidden relative border border-white/5">
                 <div className="absolute top-0 right-0 w-48 h-48 bg-blue-600/10 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/2"></div>
                 <div className="relative z-10">
