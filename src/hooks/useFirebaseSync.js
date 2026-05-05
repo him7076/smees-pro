@@ -54,7 +54,7 @@ export const useFirebaseSync = () => {
     const fetchUpdates = useCallback(async () => {
         setSyncing(true);
         try {
-            const bizCollections = ['parties', 'items', 'staff', 'tasks', 'transactions', 'attendance'];
+            const bizCollections = ['parties', 'items', 'staff', 'tasks', 'transactions', 'attendance', 'assets', 'workLogs'];
             const personalCols = [
                 { key: 'personalTasks', col: 'tasks' },
                 { key: 'personalTransactions', col: 'transactions' },

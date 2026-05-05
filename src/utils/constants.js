@@ -6,6 +6,8 @@ export const INITIAL_DATA = {
   attendance: [],
   transactions: [],
   tasks: [],
+  assets: [],
+  workLogs: [],
   personalTasks: [],
   personalTransactions: [],
   personalAccounts: [],
@@ -18,7 +20,8 @@ export const INITIAL_DATA = {
     expense: ["Rent", "Electricity", "Marketing", "Salary"],
     item: ["Electronics", "Grocery", "General", "Furniture", "Pharmacy"],
     taskStatus: ["To Do", "In Progress", "Done"],
-    amc: ["General", "Premium", "Comprehensive"]
+    amc: ["General", "Premium", "Comprehensive"],
+    sub: {}
   },
   counters: { 
       sales: 921, 

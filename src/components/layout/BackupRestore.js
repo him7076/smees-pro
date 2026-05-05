@@ -85,7 +85,9 @@ const BackupRestore = ({ data, setData, onClose }) => {
                     staff: importedData.staff || [],
                     tasks: importedData.tasks || [],
                     transactions: importedData.transactions || [],
-                    attendance: importedData.attendance || []
+                    attendance: importedData.attendance || [],
+                    assets: importedData.assets || [],
+                    workLogs: importedData.workLogs || []
                 };
 
                 const personalCollections = {
