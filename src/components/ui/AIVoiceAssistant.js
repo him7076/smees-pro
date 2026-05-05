@@ -124,7 +124,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     const callGemini = async (text) => {
         return requestQueue = requestQueue.then(async () => {
             const now = Date.now();
-            const wait = Math.max(0, 5000 - (now - lastGeminiCall));
+            const wait = Math.max(0, 1000 - (now - lastGeminiCall));
             if (wait > 0) await new Promise(r => setTimeout(r, wait));
             lastGeminiCall = Date.now();
 
@@ -138,7 +138,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             };
 
             const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-            if (!apiKey) throw new Error('API Key not set. Add REACT_APP_GEMINI_API_KEY to .env');
+            if (!apiKey) throw new Error('Gemini API Key nahi mili. Please settings mein key check karein ya .env file check karein.');
 
             const prompt = `STRICT RULES:
 1. Return ONLY valid JSON. No explanation.
@@ -168,7 +168,7 @@ COMMAND: "${text}"`;
             for (const model of models) {
                 try {
                     const ctrl = new AbortController();
-                    const tm = setTimeout(() => ctrl.abort(), 15000);
+                    const tm = setTimeout(() => ctrl.abort(), 30000);
 
                     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
                         method: 'POST',
