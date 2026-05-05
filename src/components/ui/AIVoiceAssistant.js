@@ -123,7 +123,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     const callGemini = async (text) => {
         return requestQueue = requestQueue.then(async () => {
             const now = Date.now();
-            const wait = Math.max(0, 4000 - (now - lastGeminiCall));
+            const wait = Math.max(0, 5000 - (now - lastGeminiCall));
             if (wait > 0) await new Promise(r => setTimeout(r, wait));
             lastGeminiCall = Date.now();
 
@@ -138,9 +138,6 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
 
             const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
             if (!apiKey) throw new Error('API Key not set. Add REACT_APP_GEMINI_API_KEY to .env');
-
-            const ctrl = new AbortController();
-            const tm = setTimeout(() => ctrl.abort(), 15000);
 
             const prompt = `You are JARVIS, an ERP voice assistant. Parse this Hinglish/Hindi command into a JSON action.
 
@@ -165,28 +162,48 @@ ${JSON.stringify(ctx)}
 
 COMMAND: "${text}"`;
 
-            const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                signal: ctrl.signal,
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
-                })
-            });
-            clearTimeout(tm);
+            // Try primary model, fallback to lite if rate limited
+            const models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+            let lastError = null;
 
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                if (res.status === 404) throw new Error('Model not found. Check API.');
-                if (res.status === 429) throw new Error('AI busy hai. 30 sec mein try karo.');
-                throw new Error(err.error?.message || 'API Error: ' + res.status);
+            for (const model of models) {
+                try {
+                    const ctrl = new AbortController();
+                    const tm = setTimeout(() => ctrl.abort(), 15000);
+
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        signal: ctrl.signal,
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }],
+                            generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
+                        })
+                    });
+                    clearTimeout(tm);
+
+                    if (res.status === 429) {
+                        lastError = new Error('Rate limited on ' + model);
+                        await new Promise(r => setTimeout(r, 2000));
+                        continue; // Try next model
+                    }
+
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        throw new Error(err.error?.message || 'API Error: ' + res.status);
+                    }
+
+                    const json = await res.json();
+                    const raw = json.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (!raw) throw new Error('AI ne jawab nahi diya.');
+                    return JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim());
+                } catch (e) {
+                    if (e.name === 'AbortError') throw new Error('Timeout. Dobara try karo.');
+                    lastError = e;
+                    if (!e.message.includes('Rate limited')) throw e;
+                }
             }
-
-            const json = await res.json();
-            const raw = json.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!raw) throw new Error('AI ne jawab nahi diya.');
-            return JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim());
+            throw lastError || new Error('AI busy hai. 30 sec mein try karo.');
         });
     };
 
