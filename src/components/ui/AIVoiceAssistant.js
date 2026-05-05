@@ -102,7 +102,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         if (parsed.action === 'CREATE_TRANSACTION') {
             const itemNames = (d.items || []).map(i => {
                 const it = (data?.items || []).find(x => x.id === i.itemId);
-                return it?.name || 'item';
+                return it?.name || i.itemName || i.name || 'item';
             }).join(', ');
             return `💰 ${(d.type || 'expense').toUpperCase()}: ₹${d.amount || 0}${itemNames ? ` (${itemNames})` : ''}`;
         }
