@@ -187,6 +187,86 @@ const BackupRestore = ({ data, setData, onClose }) => {
         reader.readAsText(file);
     };
 
+    const handlePushToCloud = async () => {
+        if (!window.confirm("This will PUSH all your current local data to Firebase. Proceed?")) return;
+        
+        try {
+            let currentUser = auth.currentUser;
+            if (!currentUser) {
+                setRestoring(true);
+                setProgress('Connecting to Cloud...');
+                const { signInAnonymously } = await import('firebase/auth');
+                await signInAnonymously(auth);
+            }
+
+            setRestoring(true);
+            setProgress('Starting Cloud Push...');
+
+            const bizCollections = {
+                parties: data.parties || [],
+                items: data.items || [],
+                staff: data.staff || [],
+                tasks: data.tasks || [],
+                transactions: data.transactions || [],
+                attendance: data.attendance || [],
+                assets: data.assets || [],
+                workLogs: data.workLogs || []
+            };
+
+            const personalCollections = {
+                personalTasks: data.personalTasks || [],
+                personalTransactions: data.personalTransactions || [],
+                personalAccounts: data.personalAccounts || []
+            };
+
+            let totalRecords = 0;
+            Object.values(bizCollections).forEach(arr => totalRecords += arr.length);
+            Object.values(personalCollections).forEach(arr => totalRecords += arr.length);
+            
+            if (totalRecords === 0) throw new Error("No local data found to push.");
+
+            let processedCount = 0;
+            const updateOverallProgress = (count, colName) => {
+                processedCount += count;
+                const pct = Math.round((processedCount / totalRecords) * 100);
+                setProgress(`Pushing: ${pct}% [${processedCount}/${totalRecords}] — ${colName}...`);
+            };
+
+            for (const [colName, records] of Object.entries(bizCollections)) {
+                if (records.length > 0) {
+                    await batchWrite(db, colName, records, (count) => updateOverallProgress(count, colName));
+                }
+            }
+
+            for (const [colName, records] of Object.entries(personalCollections)) {
+                const actualCol = colName.startsWith('personal') ? colName.replace('personal', '').toLowerCase() : colName;
+                if (records.length > 0) {
+                    await batchWrite(personalDb, actualCol, records, (count) => updateOverallProgress(count, colName));
+                }
+            }
+
+            setProgress('99% — Finalizing Settings...');
+            if (data.counters) await setDoc(doc(db, "settings", "counters"), data.counters, { merge: true });
+            if (data.counters_26_27) await setDoc(doc(db, "settings", "counters_26_27"), data.counters_26_27, { merge: true });
+            if (data.categories) await setDoc(doc(db, "settings", "categories"), data.categories, { merge: true });
+            if (data.company) await setDoc(doc(db, "settings", "company"), data.company, { merge: true });
+            if (data.personalCategories) await setDoc(doc(personalDb, "settings", "categories"), data.personalCategories, { merge: true });
+
+            setProgress('100% — Complete!');
+            setTimeout(() => {
+                alert("All local data has been pushed to Cloud successfully!");
+                setRestoring(false);
+                setProgress('');
+            }, 500);
+
+        } catch (err) {
+            console.error("Push Error:", err);
+            alert("Push Failed: " + err.message);
+            setRestoring(false);
+            setProgress('');
+        }
+    };
+
     return (
         <div className="p-8 space-y-10 animate-in fade-in zoom-in duration-500">
             <div className="flex flex-col items-center text-center space-y-3">
@@ -198,12 +278,42 @@ const BackupRestore = ({ data, setData, onClose }) => {
             </div>
 
             {restoring && (
-                <div className="bg-blue-50 border border-blue-100 p-6 rounded-[32px] flex items-center gap-4 animate-in fade-in">
-                    <Loader2 size={24} className="text-blue-600 animate-spin"/>
-                    <div>
-                        <p className="text-xs font-black text-blue-800 uppercase tracking-tight">Restoring Data...</p>
-                        <p className="text-[9px] font-bold text-blue-500 uppercase tracking-widest mt-1">{progress}</p>
+                <div className="bg-indigo-50 border border-indigo-100 p-8 rounded-[40px] flex flex-col items-center justify-center gap-4 animate-in fade-in zoom-in duration-500 shadow-inner">
+                    <div className="relative">
+                        <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <Upload size={20} className="text-indigo-600 animate-pulse"/>
+                        </div>
                     </div>
+                    <div className="text-center">
+                        <p className="text-xs font-black text-indigo-900 uppercase tracking-widest leading-none mb-2">Synchronizing with Cloud</p>
+                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-[0.2em]">{progress}</p>
+                    </div>
+                </div>
+            )}
+
+            {!restoring && (
+                <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-[40px] p-8 text-white relative overflow-hidden group shadow-2xl shadow-indigo-200">
+                    <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-white/20 rounded-2xl backdrop-blur-md">
+                                    <Upload size={20}/>
+                                </div>
+                                <h3 className="text-lg font-black tracking-tight">Force Cloud Sync</h3>
+                            </div>
+                            <p className="text-[10px] text-indigo-100/70 font-bold uppercase tracking-widest leading-relaxed max-w-md">
+                                Push your current local database directly to the new Firebase project. Safe & fast migration.
+                            </p>
+                        </div>
+                        <button 
+                            onClick={handlePushToCloud}
+                            className="px-8 py-4 bg-white text-indigo-600 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] hover:scale-105 active:scale-95 transition-all shadow-xl shadow-black/20"
+                        >
+                            Sync Local → Cloud Now
+                        </button>
+                    </div>
+                    <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-white/5 rounded-full blur-3xl group-hover:scale-110 transition-transform duration-1000"></div>
                 </div>
             )}
 
