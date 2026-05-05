@@ -92,6 +92,10 @@ export const useFirebaseSync = () => {
                 if (!snap.empty) updates[settingsDocs[i]] = snap.docs[0].data();
             });
 
+            // One-time fetch for personal settings
+            const pCatSnap = await getDocs(query(collection(personalDb, "settings"), where('__name__', '==', 'categories')));
+            if (!pCatSnap.empty) updates.personalCategories = pCatSnap.docs[0].data();
+
             setData(prev => {
                 const newData = { ...prev, ...updates };
                 debouncedSave(newData);
