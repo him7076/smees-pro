@@ -75,9 +75,18 @@ const BackupRestore = ({ data, setData, onClose }) => {
                     throw new Error("Invalid backup file — missing core data collections");
                 }
 
+                // 0. Pre-check Auth for Cloud Restore
+                const currentUser = auth.currentUser;
+                if (!currentUser) {
+                    setProgress('⚠️ Connection Error: Cloud auth not ready.');
+                    alert("FIREBASE AUTH ERROR: Please ensure 'Anonymous Authentication' is enabled in your Firebase Console. Without this, cloud restore will hang.");
+                    return;
+                }
+
                 if (!window.confirm("CRITICAL: This will overwrite ALL your current data with the backup file. Proceed?")) return;
 
                 setRestoring(true);
+                setProgress('Initializing Restore...');
 
                 const bizCollections = {
                     parties: importedData.parties || [],
@@ -105,34 +114,50 @@ const BackupRestore = ({ data, setData, onClose }) => {
                 const updateOverallProgress = (count, colName) => {
                     processedCount += count;
                     const pct = Math.round((processedCount / totalRecords) * 100);
-                    setProgress(`${pct}% [${processedCount}/${totalRecords}] — Restoring ${colName}...`);
+                    setProgress(`Syncing: ${pct}% [${processedCount}/${totalRecords}] — ${colName}...`);
                 };
 
                 // --- 1. RESTORE BUSINESS DATA ---
                 for (const [colName, records] of Object.entries(bizCollections)) {
                     if (records.length > 0) {
-                        await batchWrite(db, colName, records, (count) => updateOverallProgress(count, colName));
+                        try {
+                            await batchWrite(db, colName, records, (count) => updateOverallProgress(count, colName));
+                        } catch (batchErr) {
+                            console.error(`Error in ${colName}:`, batchErr);
+                            throw new Error(`Failed to write collection ${colName}: ${batchErr.message}`);
+                        }
                     }
                 }
 
                 // --- 2. RESTORE PERSONAL DATA ---
                 for (const [colName, records] of Object.entries(personalCollections)) {
-                    // Map key to collection name if needed, but here keys match or are handled
                     const actualCol = colName.startsWith('personal') ? colName.replace('personal', '').toLowerCase() : colName;
                     if (records.length > 0) {
-                        await batchWrite(personalDb, actualCol, records, (count) => updateOverallProgress(count, colName));
+                        try {
+                            await batchWrite(personalDb, actualCol, records, (count) => updateOverallProgress(count, colName));
+                        } catch (batchErr) {
+                            console.error(`Error in ${colName}:`, batchErr);
+                            throw new Error(`Failed to write personal collection ${colName}: ${batchErr.message}`);
+                        }
                     }
                 }
 
                 // --- 3. RESTORE SETTINGS ---
                 setProgress('99% — Finalizing Settings...');
-                if (importedData.counters) {
-                    await setDoc(doc(db, "settings", "counters"), importedData.counters, { merge: true });
-                    await setDoc(doc(personalDb, "settings", "counters"), importedData.counters, { merge: true });
+                try {
+                    if (importedData.counters) {
+                        await setDoc(doc(db, "settings", "counters"), importedData.counters, { merge: true });
+                        await setDoc(doc(personalDb, "settings", "counters"), importedData.counters, { merge: true });
+                    }
+                    if (importedData.counters_26_27) {
+                        await setDoc(doc(db, "settings", "counters_26_27"), importedData.counters_26_27, { merge: true });
+                    }
+                    if (importedData.categories) await setDoc(doc(db, "settings", "categories"), importedData.categories, { merge: true });
+                    if (importedData.company) await setDoc(doc(db, "settings", "company"), importedData.company, { merge: true });
+                    if (importedData.personalCategories) await setDoc(doc(personalDb, "settings", "categories"), importedData.personalCategories, { merge: true });
+                } catch (setErr) {
+                    throw new Error("Settings sync failed: " + setErr.message);
                 }
-                if (importedData.categories) await setDoc(doc(db, "settings", "categories"), importedData.categories, { merge: true });
-                if (importedData.company) await setDoc(doc(db, "settings", "company"), importedData.company, { merge: true });
-                if (importedData.personalCategories) await setDoc(doc(personalDb, "settings", "categories"), importedData.personalCategories, { merge: true });
 
                 setData(importedData);
                 localStorage.setItem('smees_data', JSON.stringify(importedData));
@@ -145,9 +170,9 @@ const BackupRestore = ({ data, setData, onClose }) => {
 
             } catch (err) {
                 console.error("Restore Error:", err);
-                alert("Restore Failed: " + err.message);
+                alert("Restore Failed: " + err.message + "\n\nTip: Check if Anonymous Auth is enabled in Firebase Console.");
                 setRestoring(false);
-                setProgress('');
+                setProgress('Error: ' + err.message);
             }
         };
         reader.readAsText(file);
