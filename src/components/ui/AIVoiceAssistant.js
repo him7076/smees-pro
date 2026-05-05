@@ -73,6 +73,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         setTranscript(''); setSuccessMessage(''); setLastCreatedRecord(null);
         setError(''); setStatusText('JARVIS Online.'); setIsProcessing(false);
         setPendingAction(null); setIsEditingText(false); setEditText('');
+        setAmbiguousData(null);
     };
 
     const toggleListening = () => {
@@ -139,16 +140,13 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
             if (!apiKey) throw new Error('API Key not set. Add REACT_APP_GEMINI_API_KEY to .env');
 
-            const prompt = `You are JARVIS, an ERP voice assistant. Parse this Hinglish/Hindi command into a JSON action.
-
-STRICT RULES:
+            const prompt = `STRICT RULES:
 1. Return ONLY valid JSON. No explanation.
-2. Match party/item/task names from CONTEXT using IDs. Use fuzzy matching (e.g. "Sona Did" = "Sona Didi").
-3. "task 778" or "task number 778" means taskId "T-778", NOT amount 778.
-4. For MODIFY_TASK: Find the EXACT task by matching party name AND task keywords from the command.
-   Example: "Sona Didi ke AC Repair task me gas add karo" → find Sona Didi's party → find her task with "AC Repair" in name.
-5. If item not in context, still create the action with itemName as spoken, itemId empty.
-6. Default qty=1 if not mentioned. Default price=0 if not mentioned.
+2. Match party/item/task names from CONTEXT using IDs. Use fuzzy matching.
+3. IMPORTANT: If a name matches MULTIPLE parties (e.g. "Amit" matches "Amit Lalwani" and "Amit Commission"), return AMBIGUOUS_PARTY action.
+4. "task 778" means taskId "T-778".
+5. For MODIFY_TASK: Find EXACT task by matching party AND keywords.
+6. Default qty=1, price=0.
 
 ACTIONS:
 - VIEW_TASK: {"action":"VIEW_TASK","data":{"taskId":"T-xxx"}}
@@ -156,6 +154,7 @@ ACTIONS:
 - CREATE_TASK: {"action":"CREATE_TASK","data":{"name":"","partyId":""}}
 - CREATE_TRANSACTION: {"action":"CREATE_TRANSACTION","data":{"type":"expense|sales|purchase","partyId":"","category":"","amount":0,"items":[{"itemId":"","itemName":"","qty":1,"price":0,"brand":""}]}}
 - ASK_QUESTION: {"action":"ASK_QUESTION","data":{"question":"original question","answer":"your helpful answer in Hinglish"}}
+- AMBIGUOUS_PARTY: {"action":"AMBIGUOUS_PARTY","data":{"matches":[{"id":"","name":""}], "originalCommand": ""}}
 
 CONTEXT:
 ${JSON.stringify(ctx)}
@@ -208,8 +207,17 @@ COMMAND: "${text}"`;
     };
 
     // ─── Execute Action (AFTER confirmation) ───
+    const [ambiguousData, setAmbiguousData] = useState(null);
+
     const executeAction = async (parsed, originalText) => {
         if (!parsed?.action) throw new Error('Command samajh nahi aaya.');
+
+        if (parsed.action === 'AMBIGUOUS_PARTY') {
+            setAmbiguousData(parsed.data);
+            setIsProcessing(false);
+            speakJarvis(`${parsed.data.matches.length} accounts mile. Sahi wala select karo.`);
+            return;
+        }
 
         if (parsed.action === 'VIEW_TASK') {
             const task = (data?.tasks || []).find(t => t.id === parsed.data.taskId);
@@ -353,6 +361,30 @@ COMMAND: "${text}"`;
                             <button onClick={resetState} className="text-[10px] font-black text-blue-400 uppercase tracking-widest">↻ Naya Command</button>
                         </div>
 
+                    ) : ambiguousData ? (
+                        <div className="flex flex-col items-center gap-4 text-center w-full px-2">
+                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Select Party</p>
+                            <div className="grid grid-cols-1 gap-2 w-full max-h-[200px] overflow-y-auto pr-1">
+                                {ambiguousData.matches.map(m => (
+                                    <button 
+                                        key={m.id}
+                                        onClick={() => {
+                                            const cmd = `Party ID ${m.id} use karke: ${ambiguousData.originalCommand || transcript}`;
+                                            setAmbiguousData(null);
+                                            processCommand(cmd);
+                                        }}
+                                        className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl flex justify-between items-center hover:bg-white/10 transition-all text-left"
+                                    >
+                                        <div>
+                                            <p className="text-white font-bold text-sm leading-none mb-1">{m.name}</p>
+                                            <p className="text-[9px] text-white/40 font-black uppercase tracking-widest">ID: {m.id}</p>
+                                        </div>
+                                        <ChevronRight size={16} className="text-white/20"/>
+                                    </button>
+                                ))}
+                            </div>
+                            <button onClick={resetState} className="text-[10px] font-black text-blue-400/60 uppercase tracking-widest">↻ Cancel</button>
+                        </div>
                     ) : pendingAction ? (
                         <div className="flex flex-col items-center gap-4 text-center w-full px-2">
                             <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Confirm Action</p>
