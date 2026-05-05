@@ -163,7 +163,7 @@ ${JSON.stringify(ctx)}
 COMMAND: "${text}"`;
 
             // Try primary model, fallback to lite if rate limited
-            const models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+            const models = ['gemini-1.5-flash', 'gemini-1.5-flash-8b'];
             let lastError = null;
 
             for (const model of models) {
