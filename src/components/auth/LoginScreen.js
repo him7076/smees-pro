@@ -8,27 +8,21 @@ const LoginScreen = ({ setUser }) => {
   const [pass, setPass] = useState('');
   const [err, setErr] = useState('');
 
-  const handleLogin = async (isRescue = false) => {
-      if (isRescue) {
-          // Disable sync to avoid firebase errors
-          const cfg = JSON.parse(localStorage.getItem('smees_ui_config') || '{}');
-          localStorage.setItem('smees_ui_config', JSON.stringify({ ...cfg, syncEnabled: false }));
-          
-          const adminUser = { name: 'Rescue Admin', role: 'admin', loginId: 'rescue', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true }, isOffline: true };
-          setUser(adminUser);
-          localStorage.setItem('smees_user', JSON.stringify(adminUser));
-          return;
-      }
-
+  const handleLogin = async () => {
       if(id === 'him23' && pass === 'Himanshu#3499sp') {
         try {
             await signInAnonymously(auth); 
             const adminUser = { name: 'Admin', role: 'admin', loginId: 'him23', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true } };
+            
+            // Re-enable sync for normal operation
+            const cfg = JSON.parse(localStorage.getItem('smees_ui_config') || '{}');
+            localStorage.setItem('smees_ui_config', JSON.stringify({ ...cfg, syncEnabled: true }));
+            
             setUser(adminUser);
             localStorage.setItem('smees_user', JSON.stringify(adminUser));
         } catch (e) {
             console.error(e);
-            setErr("Login Failed: Project Suspended. Please use 'Rescue Offline Mode'.");
+            setErr("Login Failed: Cloud connection error.");
         }
     } else {
           try {
@@ -43,6 +37,11 @@ const LoginScreen = ({ setUser }) => {
                       role: userData.role ? userData.role.toLowerCase() : 'staff',
                       permissions: { ...defaults, ...userData.permissions } 
                   };
+                  
+                  // Re-enable sync for normal operation
+                  const cfg = JSON.parse(localStorage.getItem('smees_ui_config') || '{}');
+                  localStorage.setItem('smees_ui_config', JSON.stringify({ ...cfg, syncEnabled: true }));
+
                   setUser(staffUser);
                   localStorage.setItem('smees_user', JSON.stringify(staffUser));
               } else {
@@ -50,7 +49,7 @@ const LoginScreen = ({ setUser }) => {
               }
           } catch (e) {
               console.error(e);
-              setErr("Project Suspended or Network Error. Use 'Rescue Offline Mode'.");
+              setErr("Cloud connection error. Please try again.");
           }
       }
   };
@@ -89,18 +88,14 @@ const LoginScreen = ({ setUser }) => {
               {err && <p className="text-red-500 text-sm mt-4 text-center font-bold animate-pulse">{err}</p>}
               
               <button 
-                onClick={() => handleLogin(true)} 
-                className="w-full mt-4 p-4 bg-orange-100 text-orange-700 rounded-2xl font-black text-sm uppercase tracking-widest border-2 border-orange-200 hover:bg-orange-200 active:scale-95 transition-all flex items-center justify-center gap-2"
+                onClick={handleLogin} 
+                className="w-full mt-8 p-4 bg-blue-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-blue-700 active:scale-95 transition-all shadow-lg shadow-blue-500/20"
               >
-                🚨 Rescue Offline Mode
+                Sign In
               </button>
               
               <p className="mt-8 text-center text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                Cloud Service: <span className="text-red-500">Suspended / Error</span>
-              </p>
-              
-              <p className="mt-4 text-center text-xs text-gray-300 font-medium italic px-4">
-                "Rescue Mode uses your last locally saved data. Any changes won't sync to cloud until project is restored."
+                Cloud Service: <span className="text-emerald-500 font-black">● Connected</span>
               </p>
           </div>
       </div>

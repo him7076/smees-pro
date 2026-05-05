@@ -52,7 +52,7 @@ const App = () => {
     const navigate = useNavigate();
     const [user, setUser] = useState(null);
     const [authLoading, setAuthLoading] = useState(true);
-    const { data, setData, syncing, syncData, loading: dataLoading } = useFirebaseSync();
+    const { data, setData, syncing, fetchUpdates, loading: dataLoading } = useFirebaseSync();
 
     // Initialize Push Notifications
     usePushNotifications(user);
@@ -579,7 +579,7 @@ const App = () => {
                 <Routes>
                     <Route path="/login" element={!user ? <LoginScreen setUser={setUser} /> : <Navigate to="/" />} />
                     <Route path="/" element={user ? (
-                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={handleToggleMode} syncing={syncing} onSync={syncData} setModal={setModal}>
+                        <AppLayout user={user} uiConfig={uiConfig} onToggleCompact={() => setUiConfig(p=>({...p, isCompact: !p.isCompact}))} mode={mode} onToggleMode={handleToggleMode} syncing={syncing} onSync={fetchUpdates} setModal={setModal}>
                             {mode === 'business' ? <Dashboard data={data} setModal={setModal} setViewDetail={setViewDetail} /> : <PersonalDashboard data={data} setData={setData} setViewDetail={setViewDetail} setModal={setModal} />}
                         </AppLayout>
                     ) : <Navigate to="/login" />} />

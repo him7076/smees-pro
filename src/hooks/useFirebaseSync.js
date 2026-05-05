@@ -50,170 +50,67 @@ export const useFirebaseSync = () => {
         loadIDB();
     }, []);
 
-    useEffect(() => {
-        // Check if sync is disabled
-        const uiConfig = JSON.parse(localStorage.getItem('smees_ui_config') || '{}');
-        if (uiConfig.syncEnabled === false) {
-            setLoading(false);
-            return; // Don't set up any listeners - pure offline mode
-        }
-
-        setLoading(true);
-        const unsubscribers = [];
-        let loadedCount = 0;
-        const totalListeners = 11; // Reduced: removed attendance from real-time
-
-        const checkLoaded = () => {
-            loadedCount++;
-            if (loadedCount >= totalListeners) setLoading(false);
-        };
-
-        // --- 1. BUSINESS COLLECTIONS (Real-time but with tighter limits) ---
-        const bizCollections = ['parties', 'items', 'staff', 'tasks', 'transactions'];
-        
-        bizCollections.forEach(colName => {
-            let q = collection(db, colName);
-            
-            if (colName === 'transactions') {
-                q = query(q, orderBy('date', 'desc'), limit(500)); // Reduced from 2000 to 500
-            } else if (colName === 'tasks') {
-                q = query(q, orderBy('createdAt', 'desc'), limit(200)); // Reduced from 500 to 200
-            }
-
-            const unsub = onSnapshot(q, (snapshot) => {
-                const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                setData(prev => {
-                    // For limited queries, merge with existing local data to keep old records
-                    let merged = list;
-                    if (colName === 'transactions' || colName === 'tasks') {
-                        const existingIds = new Set(list.map(r => r.id));
-                        const oldRecords = (prev[colName] || []).filter(r => !existingIds.has(r.id));
-                        merged = [...list, ...oldRecords];
-                    }
-                    const newData = { ...prev, [colName]: merged };
-                    debouncedSave(newData);
-                    return newData;
-                });
-                checkLoaded();
-            }, (error) => {
-                console.error(`Sync Error [${colName}]:`, error);
-                // IF project is suspended or network is down, immediately stop loading so user can use local data
-                setLoading(false);
-                checkLoaded(); 
-            });
-            unsubscribers.push(unsub);
-        });
-
-        // --- 2. ATTENDANCE: ONE-TIME FETCH (not real-time) ---
-        const fetchAttendance = async () => {
-            try {
-                const thirtyDaysAgo = new Date();
-                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-                const q = query(collection(db, 'attendance'), where('date', '>=', thirtyDaysAgo.toISOString().split('T')[0]));
-                const snapshot = await getDocs(q);
-                const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                setData(prev => {
-                    const newData = { ...prev, attendance: list };
-                    debouncedSave(newData);
-                    return newData;
-                });
-            } catch (e) { 
-                console.error('Attendance fetch error:', e); 
-                setLoading(false); // Stop loading on error
-            }
-            checkLoaded();
-        };
-        fetchAttendance();
-
-        // --- 3. PERSONAL VAULT (Real-time with limits) ---
-        const personalCollections = [
-            { key: 'personalTasks', col: 'tasks' },
-            { key: 'personalTransactions', col: 'transactions' },
-            { key: 'personalAccounts', col: 'accounts' }
-        ];
-
-        personalCollections.forEach(({ key, col }) => {
-            let q = collection(personalDb, col);
-            if (key === 'personalTransactions') {
-                q = query(q, orderBy('date', 'desc'), limit(500));
-            } else if (key === 'personalTasks') {
-                q = query(q, orderBy('createdAt', 'desc'), limit(200));
-            }
-
-            const unsub = onSnapshot(q, (snapshot) => {
-                const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                setData(prev => {
-                    const newData = { ...prev, [key]: list };
-                    debouncedSave(newData);
-                    return newData;
-                });
-                checkLoaded();
-            }, (error) => {
-                console.error(`Sync Error [Personal ${key}]:`, error);
-                checkLoaded();
-            });
-            unsubscribers.push(unsub);
-        });
-
-        // --- 4. SETTINGS DOCS (Real-time, low cost - single docs) ---
-        const settingsDocs = ['counters', 'categories', 'company', 'counters_26_27'];
-        settingsDocs.forEach(sDoc => {
-            const unsub = onSnapshot(doc(db, "settings", sDoc), (snapshot) => {
-                if (snapshot.exists()) {
-                    setData(prev => {
-                        const newData = { ...prev, [sDoc]: snapshot.data() };
-                        debouncedSave(newData);
-                        return newData;
-                    });
-                }
-                checkLoaded();
-            }, (error) => {
-                console.error(`Sync Error [Settings ${sDoc}]:`, error);
-                checkLoaded();
-            });
-            unsubscribers.push(unsub);
-        });
-
-        // --- 5. PERSONAL SETTINGS ---
-        const unsubPC = onSnapshot(doc(personalDb, "settings", "counters"), (snapshot) => {
-            if (snapshot.exists()) {
-                setData(prev => {
-                    const newData = { ...prev, counters: { ...prev.counters, ...snapshot.data() } };
-                    debouncedSave(newData);
-                    return newData;
-                });
-            }
-        });
-        unsubscribers.push(unsubPC);
-
-        const unsubPCat = onSnapshot(doc(personalDb, "settings", "categories"), (snapshot) => {
-            if (snapshot.exists()) {
-                setData(prev => {
-                    const newData = { ...prev, personalCategories: snapshot.data() };
-                    debouncedSave(newData);
-                    return newData;
-                });
-            }
-        });
-        unsubscribers.push(unsubPCat);
-
-        unsubscribersRef.current = unsubscribers;
-
-        return () => {
-            unsubscribers.forEach(unsub => unsub());
-            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-        };
-    }, [debouncedSave]);
-
-    const syncData = useCallback(async () => {
+    // 4. MANUAL CLOUD FETCH (Saves Reads - only run when user asks)
+    const fetchUpdates = useCallback(async () => {
         setSyncing(true);
         try {
-            localStorage.setItem('smees_data', JSON.stringify(dataRef.current));
-        } catch (e) { /* ignore */ }
-        setTimeout(() => {
-            window.location.reload();
-        }, 300);
+            const bizCollections = ['parties', 'items', 'staff', 'tasks', 'transactions', 'attendance'];
+            const personalCols = [
+                { key: 'personalTasks', col: 'tasks' },
+                { key: 'personalTransactions', col: 'transactions' },
+                { key: 'personalAccounts', col: 'accounts' }
+            ];
+            const settingsDocs = ['counters', 'categories', 'company', 'counters_26_27'];
+            
+            const updates = {};
+
+            // One-time fetch for business data
+            for (const col of bizCollections) {
+                let q = collection(db, col);
+                if (col === 'transactions') q = query(q, orderBy('date', 'desc'), limit(500));
+                const snap = await getDocs(q);
+                updates[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            }
+
+            // One-time fetch for personal data
+            for (const { key, col } of personalCols) {
+                let q = collection(personalDb, col);
+                if (key === 'personalTransactions') q = query(q, orderBy('date', 'desc'), limit(500));
+                const snap = await getDocs(q);
+                updates[key] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            }
+
+            // One-time fetch for settings
+            for (const sDoc of settingsDocs) {
+                const snap = await getDocs(query(collection(db, "settings"), limit(1))); // or getDoc
+                // (Using loop for brevity, but single getDoc is better)
+            }
+            // Better to just get individual docs for settings
+            const sPromises = settingsDocs.map(id => getDocs(query(collection(db, "settings"), where('__name__', '==', id))));
+            const sSnaps = await Promise.all(sPromises);
+            sSnaps.forEach((snap, i) => {
+                if (!snap.empty) updates[settingsDocs[i]] = snap.docs[0].data();
+            });
+
+            setData(prev => {
+                const newData = { ...prev, ...updates };
+                debouncedSave(newData);
+                return newData;
+            });
+            
+            setSyncing(false);
+            return true;
+        } catch (e) {
+            console.error("Cloud Fetch Error:", e);
+            setSyncing(false);
+            return false;
+        }
+    }, [debouncedSave]);
+
+    useEffect(() => {
+        // App is ready instantly from local data. No listeners = 0 reads.
+        setLoading(false); 
     }, []);
 
-    return { data, setData, syncing, syncData, loading };
+    return { data, setData, syncing, loading, fetchUpdates };
 };

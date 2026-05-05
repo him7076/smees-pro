@@ -91,23 +91,7 @@ const Dashboard = ({ data, setModal, setViewDetail }) => {
 
     return (
         <div className="space-y-6 animate-in fade-in duration-700 pb-20">
-            {isRescue && (
-                <div className="bg-orange-50 border-2 border-orange-200 p-6 rounded-[40px] flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg shadow-orange-500/10">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-orange-200 rounded-2xl flex items-center justify-center text-orange-700 animate-pulse">🚨</div>
-                        <div>
-                            <h3 className="text-sm font-black text-orange-900 uppercase tracking-widest leading-none mb-1">Rescue Offline Mode Active</h3>
-                            <p className="text-[10px] font-bold text-orange-700/60 uppercase">Cloud service is suspended. Working on Local Data.</p>
-                        </div>
-                    </div>
-                    <button 
-                        onClick={downloadLocalBackup}
-                        className="px-8 py-3 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-orange-600/30 active:scale-95 transition-all hover:bg-orange-700"
-                    >
-                        Download Full Backup Now
-                    </button>
-                </div>
-            )}
+            {/* Cloud Sync Active - Normal Mode */}
             <div className="bg-slate-900 p-5 rounded-[40px] shadow-2xl space-y-6 text-white overflow-hidden relative border border-white/5">
                 <div className="absolute top-0 right-0 w-48 h-48 bg-blue-600/10 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/2"></div>
                 <div className="relative z-10">
