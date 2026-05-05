@@ -47,7 +47,7 @@ const BackupRestore = ({ data, setData, onClose }) => {
     };
 
     // Helper: write documents in batches of 450 (Firestore limit is 500)
-    const batchWrite = async (firestore, collectionName, records) => {
+    const batchWrite = async (firestore, collectionName, records, onBatchComplete) => {
         const BATCH_SIZE = 450;
         for (let i = 0; i < records.length; i += BATCH_SIZE) {
             const batch = writeBatch(firestore);
@@ -58,6 +58,7 @@ const BackupRestore = ({ data, setData, onClose }) => {
                 }
             });
             await batch.commit();
+            if (onBatchComplete) onBatchComplete(chunk.length);
         }
     };
 
@@ -70,16 +71,14 @@ const BackupRestore = ({ data, setData, onClose }) => {
             try {
                 const importedData = JSON.parse(e.target.result);
                 
-                // Validate the backup file has expected structure
                 if (!importedData.transactions && !importedData.parties && !importedData.tasks) {
                     throw new Error("Invalid backup file — missing core data collections");
                 }
 
-                if (!window.confirm("CRITICAL: This will overwrite ALL your current data with the backup file. This cannot be undone. Proceed?")) return;
+                if (!window.confirm("CRITICAL: This will overwrite ALL your current data with the backup file. Proceed?")) return;
 
                 setRestoring(true);
 
-                // --- 1. RESTORE BUSINESS DATA (to business Firestore) ---
                 const bizCollections = {
                     parties: importedData.parties || [],
                     items: importedData.items || [],
@@ -89,51 +88,56 @@ const BackupRestore = ({ data, setData, onClose }) => {
                     attendance: importedData.attendance || []
                 };
 
+                const personalCollections = {
+                    personalTasks: importedData.personalTasks || [],
+                    personalTransactions: importedData.personalTransactions || [],
+                    personalAccounts: importedData.personalAccounts || []
+                };
+
+                // Calculate total records for progress bar
+                let totalRecords = 0;
+                Object.values(bizCollections).forEach(arr => totalRecords += arr.length);
+                Object.values(personalCollections).forEach(arr => totalRecords += arr.length);
+                
+                let processedCount = 0;
+                const updateOverallProgress = (count, colName) => {
+                    processedCount += count;
+                    const pct = Math.round((processedCount / totalRecords) * 100);
+                    setProgress(`${pct}% [${processedCount}/${totalRecords}] — Restoring ${colName}...`);
+                };
+
+                // --- 1. RESTORE BUSINESS DATA ---
                 for (const [colName, records] of Object.entries(bizCollections)) {
                     if (records.length > 0) {
-                        setProgress(`Restoring ${colName} (${records.length} records)...`);
-                        await batchWrite(db, colName, records);
+                        await batchWrite(db, colName, records, (count) => updateOverallProgress(count, colName));
                     }
                 }
 
-                // --- 2. RESTORE PERSONAL DATA (to personal Firestore) ---
-                const personalCollections = {
-                    transactions: importedData.personalTransactions || [],
-                    tasks: importedData.personalTasks || [],
-                    accounts: importedData.personalAccounts || []
-                };
-
+                // --- 2. RESTORE PERSONAL DATA ---
                 for (const [colName, records] of Object.entries(personalCollections)) {
+                    // Map key to collection name if needed, but here keys match or are handled
+                    const actualCol = colName.startsWith('personal') ? colName.replace('personal', '').toLowerCase() : colName;
                     if (records.length > 0) {
-                        setProgress(`Restoring personal ${colName} (${records.length} records)...`);
-                        await batchWrite(personalDb, colName, records);
+                        await batchWrite(personalDb, actualCol, records, (count) => updateOverallProgress(count, colName));
                     }
                 }
 
                 // --- 3. RESTORE SETTINGS ---
-                setProgress('Restoring settings...');
-                
+                setProgress('99% — Finalizing Settings...');
                 if (importedData.counters) {
                     await setDoc(doc(db, "settings", "counters"), importedData.counters, { merge: true });
                     await setDoc(doc(personalDb, "settings", "counters"), importedData.counters, { merge: true });
                 }
-                if (importedData.categories) {
-                    await setDoc(doc(db, "settings", "categories"), importedData.categories, { merge: true });
-                }
-                if (importedData.company) {
-                    await setDoc(doc(db, "settings", "company"), importedData.company, { merge: true });
-                }
-                if (importedData.personalCategories) {
-                    await setDoc(doc(personalDb, "settings", "categories"), importedData.personalCategories, { merge: true });
-                }
+                if (importedData.categories) await setDoc(doc(db, "settings", "categories"), importedData.categories, { merge: true });
+                if (importedData.company) await setDoc(doc(db, "settings", "company"), importedData.company, { merge: true });
+                if (importedData.personalCategories) await setDoc(doc(personalDb, "settings", "categories"), importedData.personalCategories, { merge: true });
 
-                // --- 4. UPDATE LOCAL STATE ---
                 setData(importedData);
                 localStorage.setItem('smees_data', JSON.stringify(importedData));
 
-                setProgress('Complete!');
+                setProgress('100% — Complete!');
                 setTimeout(() => {
-                    alert("Data Restored Successfully! The page will now refresh.");
+                    alert("Data Restored Successfully! App will now refresh.");
                     window.location.reload();
                 }, 500);
 
