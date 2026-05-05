@@ -9,48 +9,58 @@ const LoginScreen = ({ setUser }) => {
   const [err, setErr] = useState('');
 
   const handleLogin = async () => {
+      setErr('');
+      
+      // Master User Bypass Logic
       if(id === 'him23' && pass === 'Himanshu#3499sp') {
-        try {
-            await signInAnonymously(auth); 
-            const adminUser = { name: 'Admin', role: 'admin', loginId: 'him23', permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true } };
-            
-            // Re-enable sync for normal operation
-            const cfg = JSON.parse(localStorage.getItem('smees_ui_config') || '{}');
-            localStorage.setItem('smees_ui_config', JSON.stringify({ ...cfg, syncEnabled: true }));
-            
-            setUser(adminUser);
-            localStorage.setItem('smees_user', JSON.stringify(adminUser));
-        } catch (e) {
-            console.error(e);
-            setErr("Login Failed: Cloud connection error.");
-        }
-    } else {
-          try {
-              await signInAnonymously(auth);
-              const q = query(collection(db, 'staff'), where('loginId', '==', id), where('password', '==', pass));
-              const snap = await getDocs(q);
-              if(!snap.empty) {
-                  const userData = snap.docs[0].data();
-                  const defaults = { canViewAccounts: false, canViewMasters: false, canViewTasks: true, canEditTasks: false, canViewDashboard: true };
-                  const staffUser = { 
-                      ...userData, 
-                      role: userData.role ? userData.role.toLowerCase() : 'staff',
-                      permissions: { ...defaults, ...userData.permissions } 
-                  };
-                  
-                  // Re-enable sync for normal operation
-                  const cfg = JSON.parse(localStorage.getItem('smees_ui_config') || '{}');
-                  localStorage.setItem('smees_ui_config', JSON.stringify({ ...cfg, syncEnabled: true }));
+        const adminUser = { 
+            name: 'Admin', 
+            role: 'admin', 
+            loginId: 'him23', 
+            permissions: { canViewAccounts: true, canViewMasters: true, canViewTasks: true, canEditTasks: true, canViewDashboard: true } 
+        };
 
-                  setUser(staffUser);
-                  localStorage.setItem('smees_user', JSON.stringify(staffUser));
-              } else {
-                  setErr("Invalid ID or Password");
-              }
-          } catch (e) {
-              console.error(e);
-              setErr("Cloud connection error. Please try again.");
+        try {
+            // Try background auth, but don't block
+            await signInAnonymously(auth); 
+            console.log("Cloud Auth Success");
+        } catch (e) {
+            console.warn("Cloud Auth Failed - Continuing in Local Mode", e);
+        }
+
+        // Re-enable sync for normal operation (it will only work if auth succeeded eventually)
+        const cfg = JSON.parse(localStorage.getItem('smees_ui_config') || '{}');
+        localStorage.setItem('smees_ui_config', JSON.stringify({ ...cfg, syncEnabled: true }));
+        
+        setUser(adminUser);
+        localStorage.setItem('smees_user', JSON.stringify(adminUser));
+        return;
+    } 
+
+    // Standard Staff Login (Requires Cloud)
+    try {
+          await signInAnonymously(auth);
+          const q = query(collection(db, 'staff'), where('loginId', '==', id), where('password', '==', pass));
+          const snap = await getDocs(q);
+          if(!snap.empty) {
+              const userData = snap.docs[0].data();
+              const staffUser = { 
+                  ...userData, 
+                  role: userData.role ? userData.role.toLowerCase() : 'staff',
+                  permissions: { canViewAccounts: false, canViewMasters: false, canViewTasks: true, canEditTasks: false, canViewDashboard: true, ...userData.permissions } 
+              };
+              
+              const cfg = JSON.parse(localStorage.getItem('smees_ui_config') || '{}');
+              localStorage.setItem('smees_ui_config', JSON.stringify({ ...cfg, syncEnabled: true }));
+
+              setUser(staffUser);
+              localStorage.setItem('smees_user', JSON.stringify(staffUser));
+          } else {
+              setErr("Invalid ID or Password");
           }
+      } catch (e) {
+          console.error(e);
+          setErr("Cloud connection error. Tip: Enable 'Anonymous Auth' in Firebase Console.");
       }
   };
 
