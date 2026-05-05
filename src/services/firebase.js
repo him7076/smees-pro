@@ -11,13 +11,13 @@ import { getStorage } from "firebase/storage";
 
 // --- FIREBASE CONFIGURATION (reads from .env, falls back to defaults) ---
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyAQgIJYRf-QOWADeIKiTyc-lGL8PzOgWvI",
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "smeestest.firebaseapp.com",
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "smeestest",
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "smeestest.firebasestorage.app",
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "1086297510582",
-  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:1086297510582:web:7ae94f1d7ce38d1fef8c17",
-  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-BQ6NW6D84Z"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyBBbKSZw-bHdTuii3n0R4mFGvnOAUm70rI",
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "smees-pro-new.firebaseapp.com",
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "smees-pro-new",
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "smees-pro-new.firebasestorage.app",
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "631967329315",
+  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:631967329315:web:e383a9fc3464432116d596",
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-2QXNKEQJD5"
 };
 
 const personalConfig = {
