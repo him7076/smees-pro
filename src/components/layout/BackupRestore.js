@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Download, Upload, FileText, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
 import { db, personalDb, auth } from '../../services/firebase';
+import { localDB } from '../../utils/localDB';
 import { doc, setDoc, writeBatch } from 'firebase/firestore';
 
 const BackupRestore = ({ data, setData, onClose }) => {
