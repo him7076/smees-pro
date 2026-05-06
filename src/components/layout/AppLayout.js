@@ -19,6 +19,27 @@ import { auth } from '../../services/firebase';
 
 const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCompact, mode = 'business', onToggleMode, syncing, onSync, setModal }) => {
     const navigate = useNavigate();
+    const [companies, setCompanies] = React.useState(() => {
+        const saved = localStorage.getItem('smees_companies');
+        return saved ? JSON.parse(saved) : [{ id: 'default', name: 'Main Company' }];
+    });
+    const activeCompId = localStorage.getItem('smees_active_comp') || 'default';
+    const activeComp = companies.find(c => c.id === activeCompId) || companies[0];
+
+    const handleAddCompany = () => {
+        const name = prompt("Enter New Company Name:");
+        if (!name) return;
+        const newId = `comp_${Date.now()}`;
+        const newCompanies = [...companies, { id: newId, name }];
+        setCompanies(newCompanies);
+        localStorage.setItem('smees_companies', JSON.stringify(newCompanies));
+        handleSwitchCompany(newId);
+    };
+
+    const handleSwitchCompany = (id) => {
+        localStorage.setItem('smees_active_comp', id);
+        window.location.reload();
+    };
 
     const handleLogout = async () => {
         try {
@@ -44,11 +65,32 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
         <div className={`min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-900 ${uiConfig.isCompact ? 'ui-compact' : ''}`}>
             {/* Sidebar for Desktop */}
             <aside className="hidden md:flex flex-col w-64 bg-white border-r border-slate-200 h-screen sticky top-0 p-8 shadow-sm">
-                <div className="flex items-center gap-3 mb-10">
-                    <div className={`w-8 h-8 ${mode === 'business' ? 'bg-blue-600' : 'bg-slate-900'} rounded-xl flex items-center justify-center shadow-lg ${mode === 'business' ? 'shadow-blue-500/20' : 'shadow-slate-500/20'}`}>
-                        {mode === 'business' ? <Package className="text-white" size={16}/> : <Lock className="text-white" size={16}/>}
+                <div className="flex items-center justify-between gap-3 mb-8">
+                    <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 ${mode === 'business' ? 'bg-blue-600' : 'bg-slate-900'} rounded-xl flex items-center justify-center shadow-lg ${mode === 'business' ? 'shadow-blue-500/20' : 'shadow-slate-500/20'}`}>
+                            {mode === 'business' ? <Package className="text-white" size={16}/> : <Lock className="text-white" size={16}/>}
+                        </div>
+                        <h1 className="text-sm font-black tracking-tight text-slate-900 leading-none">SMEES<span className="text-blue-600">PRO</span></h1>
                     </div>
-                    <h1 className="text-sm font-black tracking-tight text-slate-900 leading-none">SMEES<span className="text-blue-600">PRO</span></h1>
+                </div>
+
+                {/* Company Selector */}
+                <div className="mb-6 p-4 bg-slate-50 rounded-[24px] border border-slate-100 group">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Active Business</span>
+                        <button onClick={handleAddCompany} className="p-1.5 bg-blue-600 text-white rounded-lg hover:scale-110 transition-all shadow-md shadow-blue-200">
+                             <ChevronRight size={10} className="rotate-90"/>
+                        </button>
+                    </div>
+                    <select 
+                        value={activeCompId} 
+                        onChange={(e) => handleSwitchCompany(e.target.value)}
+                        className="w-full bg-transparent border-none text-[11px] font-black text-slate-900 focus:ring-0 cursor-pointer appearance-none outline-none"
+                    >
+                        {companies.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                    </select>
                 </div>
 
                 <nav className="flex-1 space-y-1">

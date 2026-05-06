@@ -8,7 +8,9 @@ export const useFirebaseSync = () => {
     // 1. Initial State from localStorage (Instant startup)
     const [data, setData] = useState(() => {
         try {
-            const cached = localStorage.getItem('smees_data');
+            const activeComp = localStorage.getItem('smees_active_comp') || 'default';
+            const storageKey = `smees_data_${activeComp}`;
+            const cached = localStorage.getItem(storageKey);
             return cached ? JSON.parse(cached) : INITIAL_DATA;
         } catch(e) { return INITIAL_DATA; }
     });
@@ -29,11 +31,13 @@ export const useFirebaseSync = () => {
             if (localStorage.getItem('smees_offline_mode') === 'true') return;
 
             // Save to IndexedDB (Primary)
-            localDB.set('smees_data', newData).catch(err => console.error("IDB Save Error:", err));
+            const activeComp = localStorage.getItem('smees_active_comp') || 'default';
+            const storageKey = `smees_data_${activeComp}`;
+            localDB.set(storageKey, newData).catch(err => console.error("IDB Save Error:", err));
             
             // Save to localStorage (Secondary/Fallback) - try-catch for quota errors
             try {
-                localStorage.setItem('smees_data', JSON.stringify(newData));
+                localStorage.setItem(storageKey, JSON.stringify(newData));
             } catch (e) {
                 // If localStorage is full, we don't worry because IndexedDB has it
             }
@@ -44,7 +48,9 @@ export const useFirebaseSync = () => {
     useEffect(() => {
         const loadIDB = async () => {
             try {
-                const idbData = await localDB.get('smees_data');
+                const activeComp = localStorage.getItem('smees_active_comp') || 'default';
+                const storageKey = `smees_data_${activeComp}`;
+                const idbData = await localDB.get(storageKey);
                 if (idbData) {
                     setData(idbData);
                 }
