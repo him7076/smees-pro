@@ -314,6 +314,58 @@ const BackupRestore = ({ data, setData, onClose }) => {
         }
     };
 
+    const handleMergeData = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const importedData = JSON.parse(e.target.result);
+                setRestoring(true);
+                setProgress('Merging Collections...');
+
+                const collections = ['parties', 'items', 'staff', 'tasks', 'transactions', 'attendance', 'assets', 'workLogs', 'personalTasks', 'personalTransactions', 'personalAccounts'];
+                const merged = { ...data };
+
+                collections.forEach(col => {
+                    const existingArr = data[col] || [];
+                    const importedArr = importedData[col] || [];
+                    
+                    // Use Map to deduplicate by ID
+                    const map = new Map();
+                    existingArr.forEach(item => map.set(item.id, item));
+                    importedArr.forEach(item => map.set(item.id, item)); // Overwrite/Add
+                    
+                    merged[col] = Array.from(map.values());
+                });
+
+                // Merge settings
+                merged.counters = { ...(data.counters || {}), ...(importedData.counters || {}) };
+                merged.categories = { ...(data.categories || {}), ...(importedData.categories || {}) };
+                if (importedData.personalCategories) {
+                    merged.personalCategories = { ...(data.personalCategories || {}), ...(importedData.personalCategories || {}) };
+                }
+
+                setData(merged);
+                await localDB.set('smees_data', merged);
+                localStorage.setItem('smees_data', JSON.stringify(merged));
+
+                setProgress('100% — Merge Complete');
+                setTimeout(() => {
+                    setRestoring(false);
+                    alert("Merge Successful! All records from both files are now combined.");
+                    window.location.reload();
+                }, 1000);
+
+            } catch (err) {
+                alert("Merge Failed: " + err.message);
+                setRestoring(false);
+            }
+        };
+        reader.readAsText(file);
+    };
+
     const handleRestoreOffline = (event, isNewProfile = false) => {
         const file = event.target.files[0];
         if (!file) return;
@@ -381,7 +433,21 @@ const BackupRestore = ({ data, setData, onClose }) => {
                 </div>
             )}
 
-            {/* --- PROFILE SWITCHER --- */}
+                    <div className="flex flex-col gap-3">
+                        <button 
+                            onClick={() => document.getElementById('merge-upload').click()}
+                            className="w-full py-5 bg-emerald-600 text-white rounded-[32px] flex flex-col items-center justify-center gap-2 font-black shadow-xl shadow-emerald-200 hover:scale-[1.02] transition-all"
+                        >
+                            <div className="flex items-center gap-3">
+                                <ShieldCheck size={20}/>
+                                <span className="text-[11px] uppercase tracking-[0.2em]">Smart Data Merge</span>
+                            </div>
+                            <span className="text-[8px] opacity-60 uppercase tracking-widest font-bold">Combine Two Backup Files</span>
+                            <input id="merge-upload" type="file" accept=".json" className="hidden" onChange={handleMergeData} />
+                        </button>
+                    </div>
+
+                    {/* --- PROFILE SWITCHER --- */}
             <div className="p-6 bg-indigo-50/50 rounded-[32px] border border-indigo-100 space-y-4">
                 <div className="flex items-center gap-3 text-indigo-900">
                     <ShieldCheck size={20} className="text-indigo-600"/>
