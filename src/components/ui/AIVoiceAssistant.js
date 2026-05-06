@@ -80,7 +80,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                         { type: 'module' }
                     );
 
-                    const newEngine = await CreateWebWorkerMLCEngine(worker, "Llama-3.2-1B-Instruct-q4f16_1-MLC", {
+                    const newEngine = await CreateWebWorkerMLCEngine(worker, "gemma-2b-it-q4f16_1-MLC", {
                         initProgressCallback: (report) => {
                             const prog = Math.round(report.progress * 100);
                             globalDownloadProgress = prog;
@@ -89,11 +89,11 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                         appConfig: {
                             model_list: [
                                 {
-                                    model: "https://huggingface.co/mlc-ai/Llama-3.2-1B-Instruct-q4f16_1-MLC",
-                                    model_id: "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+                                    model: "https://huggingface.co/mlc-ai/gemma-2b-it-q4f16_1-MLC",
+                                    model_id: "gemma-2b-it-q4f16_1-MLC",
                                     overrides: {
                                         context_window_size: 1024,
-                                        prefill_chunk_size: 64 // Ultra-stable for mobile
+                                        prefill_chunk_size: 64 
                                     }
                                 }
                             ]
