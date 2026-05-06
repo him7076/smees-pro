@@ -67,7 +67,7 @@ export const useFirebaseSync = () => {
             // One-time fetch for business data
             for (const col of bizCollections) {
                 let q = collection(db, col);
-                if (col === 'transactions') q = query(q, orderBy('date', 'desc'), limit(500));
+                if (col === 'transactions') q = query(q, orderBy('date', 'desc'));
                 const snap = await getDocs(q);
                 updates[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             }
@@ -75,7 +75,7 @@ export const useFirebaseSync = () => {
             // One-time fetch for personal data
             for (const { key, col } of personalCols) {
                 let q = collection(personalDb, col);
-                if (key === 'personalTransactions') q = query(q, orderBy('date', 'desc'), limit(500));
+                if (key === 'personalTransactions') q = query(q, orderBy('date', 'desc'));
                 const snap = await getDocs(q);
                 updates[key] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             }
