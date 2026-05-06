@@ -72,37 +72,25 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                 globalIsDownloading = true;
                 setIsDownloading(true);
                 try {
-                    const { CreateWebWorkerMLCEngine } = await import('@mlc-ai/web-llm');
+                    const webLLM = await import('@mlc-ai/web-llm');
+                    const newEngine = new webLLM.MLCEngine();
                     
-                    // Create Worker via Blob to avoid path issues on Vercel
-                    const workerCode = `
-                        import { WebWorkerMLCEngineHandler } from "https://esm.run/@mlc-ai/web-llm";
-                        const handler = new WebWorkerMLCEngineHandler();
-                        self.onmessage = (msg) => handler.onmessage(msg);
-                    `;
-                    const blob = new Blob([workerCode], { type: 'application/javascript' });
-                    const worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
-
-                    const newEngine = await CreateWebWorkerMLCEngine(worker, "gemma-2b-it-q4f16_1-MLC", {
-                        initProgressCallback: (report) => {
-                            const prog = Math.round(report.progress * 100);
-                            globalDownloadProgress = prog;
-                            setDownloadProgress(prog);
-                        },
-                        appConfig: {
-                            model_list: [
-                                {
-                                    model: "https://huggingface.co/mlc-ai/gemma-2b-it-q4f16_1-MLC",
-                                    model_id: "gemma-2b-it-q4f16_1-MLC",
-                                    overrides: {
-                                        context_window_size: 1024,
-                                        prefill_chunk_size: 64 
-                                    }
-                                }
-                            ]
-                        }
+                    newEngine.setInitProgressCallback((report) => {
+                        const prog = Math.round(report.progress * 100);
+                        globalDownloadProgress = prog;
+                        setDownloadProgress(prog);
                     });
 
+                    // Direct Mobile Optimization (1024 Context)
+                    const chatConfig = {
+                        context_window_size: 1024,
+                        prefill_chunk_size: 64,
+                        temperature: 0.1,
+                        top_p: 0.95
+                    };
+
+                    await newEngine.reload("gemma-2b-it-q4f16_1-MLC", chatConfig);
+                    
                     globalEngine = newEngine;
                     setEngine(newEngine);
                 } catch (e) {
