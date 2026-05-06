@@ -196,7 +196,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
 
             // --- STRICT MODE SELECTION ---
             if (localMode) {
-                if (!engine) throw new Error("Local AI is still loading.");
+                if (!engine) throw new Error("Local AI is still loading. Ek minute rukein.");
                 
                 try {
                     const reply = await engine.chat.completions.create({
@@ -212,6 +212,13 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                     return { ...parsed, engineUsed: 'Gemma-4 (Local)' };
                 } catch (localErr) {
                     console.error("Local Engine Error:", localErr);
+                    
+                    // IF GPU ERROR, RESET ENGINE
+                    if (localErr.message.includes("Instance") || localErr.message.includes("GPU")) {
+                        setEngine(null); // This triggers useEffect to reload
+                        throw new Error("Phone ne AI connection tod diya. Maine reset kar diya hai, dobara bolein.");
+                    }
+                    
                     throw new Error("Local AI Error: " + localErr.message);
                 }
             }
