@@ -25,6 +25,9 @@ export const useFirebaseSync = () => {
     const debouncedSave = useCallback((newData) => {
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(() => {
+            // SAFETY KILL SWITCH: Block all cloud writes if offline mode is active
+            if (localStorage.getItem('smees_offline_mode') === 'true') return;
+
             // Save to IndexedDB (Primary)
             localDB.set('smees_data', newData).catch(err => console.error("IDB Save Error:", err));
             
@@ -52,6 +55,11 @@ export const useFirebaseSync = () => {
 
     // 4. MANUAL CLOUD FETCH (Saves Reads - only run when user asks)
     const fetchUpdates = useCallback(async () => {
+        // SAFETY KILL SWITCH: Prevent any cloud fetch if offline mode is active
+        if (localStorage.getItem('smees_offline_mode') === 'true') {
+            alert("Offline Mode is ACTIVE. Cloud sync is blocked for safety.");
+            return false;
+        }
         setSyncing(true);
         try {
             const bizCollections = ['parties', 'items', 'staff', 'tasks', 'transactions', 'attendance', 'assets', 'workLogs'];

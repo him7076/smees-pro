@@ -267,6 +267,54 @@ const BackupRestore = ({ data, setData, onClose }) => {
         }
     };
 
+    const toggleOfflineMode = () => {
+        const isOffline = localStorage.getItem('smees_offline_mode') === 'true';
+        localStorage.setItem('smees_offline_mode', !isOffline);
+        window.location.reload();
+    };
+
+    const handleRestoreOffline = (event, isNewProfile = false) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const importedData = JSON.parse(e.target.result);
+                let profileName = "Default";
+                
+                if (isNewProfile) {
+                    profileName = prompt("Enter Profile Name (e.g. History_2025):", "History_Data");
+                    if (!profileName) return;
+                }
+
+                setRestoring(true);
+                setProgress('Loading Local Data...');
+
+                if (isNewProfile) {
+                    const key = `smees_data_profile_${profileName}`;
+                    await localDB.set(key, importedData);
+                    alert(`✅ Data saved to NEW PROFILE: ${profileName}.`);
+                } else {
+                    setData(importedData);
+                    await localDB.set('smees_data', importedData);
+                    localStorage.setItem('smees_data', JSON.stringify(importedData));
+                }
+
+                setProgress('100% — Loaded Offline');
+                setTimeout(() => {
+                    setRestoring(false);
+                    alert("Local Restore Complete (OFFLINE). App will refresh.");
+                    window.location.reload();
+                }, 1000);
+            } catch (err) {
+                alert("Restore Failed: " + err.message);
+                setRestoring(false);
+            }
+        };
+        reader.readAsText(file);
+    };
+
     return (
         <div className="p-8 space-y-10 animate-in fade-in zoom-in duration-500">
             <div className="flex flex-col items-center text-center space-y-3">
@@ -291,6 +339,29 @@ const BackupRestore = ({ data, setData, onClose }) => {
                     </div>
                 </div>
             )}
+
+            {/* --- OFFLINE MODE KILL SWITCH --- */}
+            <div className={`p-6 rounded-[32px] border-2 transition-all flex items-center justify-between gap-4 ${localStorage.getItem('smees_offline_mode') === 'true' ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-100'}`}>
+                <div className="flex items-center gap-4">
+                    <div className={`p-3 rounded-2xl ${localStorage.getItem('smees_offline_mode') === 'true' ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}`}>
+                        {localStorage.getItem('smees_offline_mode') === 'true' ? <ShieldCheck size={24}/> : <Upload size={24}/>}
+                    </div>
+                    <div>
+                        <h4 className="text-xs font-black uppercase tracking-widest text-slate-900">
+                            Cloud Connectivity: {localStorage.getItem('smees_offline_mode') === 'true' ? 'BLOCKED (SAFE)' : 'ACTIVE (SYNC ON)'}
+                        </h4>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-1">
+                            {localStorage.getItem('smees_offline_mode') === 'true' ? 'App is running in Offline-Only mode. No cloud sync will happen.' : 'App is syncing with Firebase in real-time.'}
+                        </p>
+                    </div>
+                </div>
+                <button 
+                    onClick={toggleOfflineMode}
+                    className={`px-6 py-3 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all ${localStorage.getItem('smees_offline_mode') === 'true' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200' : 'bg-rose-600 text-white shadow-lg shadow-rose-200'}`}
+                >
+                    {localStorage.getItem('smees_offline_mode') === 'true' ? 'Enable Sync' : 'Go Offline'}
+                </button>
+            </div>
 
             {!restoring && (
                 <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-[40px] p-8 text-white relative overflow-hidden group shadow-2xl shadow-indigo-200">
