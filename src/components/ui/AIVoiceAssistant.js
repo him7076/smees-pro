@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, X, Bot, CheckCircle2, Loader2, Send, Eye, AlertCircle, Check, XCircle, Pencil, ChevronRight } from 'lucide-react';
+import { Mic, X, Bot, CheckCircle2, Loader2, Send, Eye, AlertCircle, Check, XCircle, Pencil, ChevronRight, Cpu, Cloud, DownloadCloud } from 'lucide-react';
 import { useDatabase } from '../../hooks/useDatabase';
 
 // Rate limiter
@@ -16,6 +16,10 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
     const [lastCreatedRecord, setLastCreatedRecord] = useState(null);
+    const [localMode, setLocalMode] = useState(localStorage.getItem('smees_ai_local') === 'true');
+    const [engine, setEngine] = useState(null);
+    const [downloadProgress, setDownloadProgress] = useState(0);
+    const [isDownloading, setIsDownloading] = useState(false);
     const [pendingAction, setPendingAction] = useState(null);
     const [isEditingText, setIsEditingText] = useState(false);
     const [editText, setEditText] = useState('');
@@ -52,6 +56,40 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         if (pick) u.voice = pick;
         u.lang = 'hi-IN'; u.pitch = 0.65; u.rate = 0.95; u.volume = 1.0;
         window.speechSynthesis.speak(u);
+    };
+
+    // --- Local AI Init ---
+    useEffect(() => {
+        if (localMode && !engine) {
+            const loadEngine = async () => {
+                setIsDownloading(true);
+                try {
+                    const { MLCEngine } = await import('https://esm.run/@mlc-ai/web-llm');
+                    const newEngine = new MLCEngine();
+                    newEngine.setInitProgressCallback((report) => {
+                        setDownloadProgress(Math.round(report.progress * 100));
+                    });
+                    // Using Gemma-2b for better mobile performance
+                    await newEngine.reload("gemma-2b-it-q4f16_1-MLC");
+                    setEngine(newEngine);
+                } catch (e) {
+                    console.error("Local AI Init Error:", e);
+                    alert("Local AI failed. Your device might not support WebGPU.");
+                    setLocalMode(false);
+                } finally {
+                    setIsDownloading(false);
+                }
+            };
+            loadEngine();
+        }
+    }, [localMode]);
+
+    const toggleLocalMode = () => {
+        const newVal = !localMode;
+        setLocalMode(newVal);
+        localStorage.setItem('smees_ai_local', newVal);
+        if (newVal) setStatusText('Initializing Gemma 4...');
+        else setStatusText('Switched to Gemini Cloud.');
     };
 
     // ─── Auto-process when speech ends ───
@@ -136,6 +174,22 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                     return { id: t.id, name: t.name, status: t.status, partyId: t.partyId, partyName: party?.name || '' };
                 })
             };
+
+            // --- LOCAL MODE CHECK ---
+            if (localMode && engine) {
+                try {
+                    const reply = await engine.chat.completions.create({
+                        messages: [
+                            { role: "system", content: "You are JARVIS, an ERP assistant. Always output JSON for actions. Strictly follow context." },
+                            { role: "user", content: `CONTEXT: ${JSON.stringify(ctx)}\n\nCOMMAND: "${text}"` }
+                        ]
+                    });
+                    const raw = reply.choices[0].message.content;
+                    return JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim());
+                } catch (localErr) {
+                    console.error("Local AI failed, falling back to Cloud:", localErr);
+                }
+            }
 
             const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
             if (!apiKey) throw new Error('Gemini API Key nahi mili. Please settings mein key check karein ya .env file check karein.');
@@ -350,7 +404,18 @@ COMMAND: "${text}"`;
                             </p>
                         </div>
                     </div>
-                    <button onClick={() => { setIsOpen(false); resetState(); if(isListening) { recognitionRef.current?.stop(); setIsListening(false); } }} className="p-2.5 bg-white/5 rounded-full text-slate-400"><X size={18} /></button>
+                    <div className="flex items-center gap-2">
+                        <button 
+                            onClick={toggleLocalMode} 
+                            disabled={isDownloading}
+                            className={`p-2.5 rounded-full transition-all flex items-center gap-2 ${localMode ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-white/5 text-slate-400 hover:bg-white/10'}`}
+                            title={localMode ? 'Switch to Cloud (Gemini)' : 'Switch to Local (Gemma 4)'}
+                        >
+                            {isDownloading ? <DownloadCloud size={18} className="animate-bounce" /> : localMode ? <Cpu size={18} /> : <Cloud size={18} />}
+                            {isDownloading && <span className="text-[9px] font-black tabular-nums">{downloadProgress}%</span>}
+                        </button>
+                        <button onClick={() => { setIsOpen(false); resetState(); if(isListening) { recognitionRef.current?.stop(); setIsListening(false); } }} className="p-2.5 bg-white/5 rounded-full text-slate-400 hover:bg-white/10 transition-colors"><X size={18} /></button>
+                    </div>
                 </div>
 
                 {/* Content Area */}
