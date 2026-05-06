@@ -1,7 +1,10 @@
 import React from 'react';
-import { RefreshCw, FileText, Settings, X, ChevronRight, ShieldCheck, Database, TrendingUp, Landmark } from 'lucide-react';
+import { RefreshCw, FileText, Settings, X, ChevronRight, ShieldCheck, Database, TrendingUp, Landmark, Plus, Building2 } from 'lucide-react';
+import { companyManager } from '../utils/companyManager';
 
 const SystemMenu = ({ setModal, onClose, uiConfig = { aiEnabled: true }, setUiConfig }) => {
+    const companies = companyManager.getCompanies();
+    const activeId = companyManager.getActiveId();
     const menuItems = [
         { 
             id: 'aiToggle', 
@@ -42,8 +45,48 @@ const SystemMenu = ({ setModal, onClose, uiConfig = { aiEnabled: true }, setUiCo
     ];
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex flex-col gap-2">
+        <div className="p-6 space-y-8">
+            {/* --- MULTI-COMPANY SELECTOR --- */}
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-1">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Business Profiles</h4>
+                        <p className="text-[8px] font-bold text-slate-300 uppercase tracking-widest leading-none">Manage Multiple Companies</p>
+                    </div>
+                    <button 
+                        onClick={() => {
+                            const name = prompt("Enter New Company Name:");
+                            if (name) companyManager.addCompany(name);
+                        }}
+                        className="p-2 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 active:scale-90 transition-all"
+                    >
+                        <Plus size={16}/>
+                    </button>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                    {companies.map(c => (
+                        <div 
+                            key={c.id} 
+                            onClick={() => companyManager.setActiveId(c.id)}
+                            className={`p-4 rounded-[28px] border-2 transition-all flex items-center justify-between group cursor-pointer ${c.id === activeId ? 'bg-blue-50 border-blue-600' : 'bg-slate-50 border-slate-100 hover:border-blue-200'}`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${c.id === activeId ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 border border-slate-100'}`}>
+                                    <Building2 size={18}/>
+                                </div>
+                                <div>
+                                    <h5 className={`text-[10px] font-black uppercase tracking-tight ${c.id === activeId ? 'text-blue-900' : 'text-slate-600'}`}>{c.name}</h5>
+                                    {c.id === activeId && <p className="text-[7px] font-black text-blue-400 uppercase tracking-widest mt-0.5">Active Now</p>}
+                                </div>
+                            </div>
+                            {c.id === activeId && <ShieldCheck size={16} className="text-blue-600"/>}
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-4 border-t border-slate-50">
                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">System Intelligence</h4>
                 <p className="text-[8px] font-bold text-slate-300 uppercase tracking-widest leading-none">Operations Control Center</p>
             </div>

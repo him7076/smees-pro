@@ -17,28 +17,20 @@ import {
 import { signOut } from "firebase/auth";
 import { auth } from '../../services/firebase';
 
+import { companyManager } from '../../utils/companyManager';
+
 const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCompact, mode = 'business', onToggleMode, syncing, onSync, setModal }) => {
     const navigate = useNavigate();
-    const [companies, setCompanies] = React.useState(() => {
-        const saved = localStorage.getItem('smees_companies');
-        return saved ? JSON.parse(saved) : [{ id: 'default', name: 'Main Company' }];
-    });
-    const activeCompId = localStorage.getItem('smees_active_comp') || 'default';
-    const activeComp = companies.find(c => c.id === activeCompId) || companies[0];
-
+    const companies = companyManager.getCompanies();
+    const activeCompId = companyManager.getActiveId();
+    
     const handleAddCompany = () => {
         const name = prompt("Enter New Company Name:");
-        if (!name) return;
-        const newId = `comp_${Date.now()}`;
-        const newCompanies = [...companies, { id: newId, name }];
-        setCompanies(newCompanies);
-        localStorage.setItem('smees_companies', JSON.stringify(newCompanies));
-        handleSwitchCompany(newId);
+        if (name) companyManager.addCompany(name);
     };
 
     const handleSwitchCompany = (id) => {
-        localStorage.setItem('smees_active_comp', id);
-        window.location.reload();
+        companyManager.setActiveId(id);
     };
 
     const handleLogout = async () => {
