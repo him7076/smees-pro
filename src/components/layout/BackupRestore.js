@@ -274,6 +274,46 @@ const BackupRestore = ({ data, setData, onClose }) => {
         window.location.reload();
     };
 
+    const [availableProfiles, setAvailableProfiles] = useState([]);
+
+    // Scan for profiles on load
+    React.useEffect(() => {
+        const scan = async () => {
+            const keys = await localDB.keys();
+            const profiles = keys.filter(k => k.startsWith('smees_data_profile_'))
+                                 .map(k => k.replace('smees_data_profile_', ''));
+            setAvailableProfiles(profiles);
+        };
+        scan();
+    }, []);
+
+    const handleSwitchProfile = async (profileName) => {
+        if (!window.confirm(`Switch to profile "${profileName}"? Current unsynced data might be lost.`)) return;
+        
+        try {
+            setRestoring(true);
+            setProgress(`Switching to ${profileName}...`);
+            
+            const key = profileName === 'Default' ? 'smees_data' : `smees_data_profile_${profileName}`;
+            const profileData = await localDB.get(key);
+            
+            if (profileData) {
+                setData(profileData);
+                await localDB.set('smees_data', profileData); // Set as primary
+                localStorage.setItem('smees_data', JSON.stringify(profileData));
+                localStorage.setItem('smees_active_profile', profileName);
+                
+                setProgress('100% — Profile Loaded');
+                setTimeout(() => window.location.reload(), 1000);
+            } else {
+                throw new Error("Profile data not found.");
+            }
+        } catch (err) {
+            alert("Switch Failed: " + err.message);
+            setRestoring(false);
+        }
+    };
+
     const handleRestoreOffline = (event, isNewProfile = false) => {
         const file = event.target.files[0];
         if (!file) return;
@@ -340,6 +380,31 @@ const BackupRestore = ({ data, setData, onClose }) => {
                     </div>
                 </div>
             )}
+
+            {/* --- PROFILE SWITCHER --- */}
+            <div className="p-6 bg-indigo-50/50 rounded-[32px] border border-indigo-100 space-y-4">
+                <div className="flex items-center gap-3 text-indigo-900">
+                    <ShieldCheck size={20} className="text-indigo-600"/>
+                    <h3 className="font-black text-sm uppercase tracking-wider">Local Profiles</h3>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    <button 
+                        onClick={() => handleSwitchProfile('Default')}
+                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${localStorage.getItem('smees_active_profile') === 'Default' || !localStorage.getItem('smees_active_profile') ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-400 border border-indigo-100'}`}
+                    >
+                        Default
+                    </button>
+                    {availableProfiles.map(p => (
+                        <button 
+                            key={p}
+                            onClick={() => handleSwitchProfile(p)}
+                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${localStorage.getItem('smees_active_profile') === p ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-400 border border-indigo-100'}`}
+                        >
+                            {p}
+                        </button>
+                    ))}
+                </div>
+            </div>
 
             {/* --- OFFLINE MODE KILL SWITCH --- */}
             <div className={`p-6 rounded-[32px] border-2 transition-all flex items-center justify-between gap-4 ${localStorage.getItem('smees_offline_mode') === 'true' ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-100'}`}>
