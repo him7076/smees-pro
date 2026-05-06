@@ -175,23 +175,51 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                 })
             };
 
+            // --- SMART CONTEXT FILTERING (For Local Mode) ---
+            let localCtx = null;
+            if (localMode) {
+                const keywords = text.toLowerCase().split(' ');
+                const filteredParties = (data?.parties || [])
+                    .filter(p => keywords.some(k => p.name.toLowerCase().includes(k)))
+                    .slice(0, 15)
+                    .map(p => ({ id: p.id, name: p.name }));
+                
+                const filteredItems = (data?.items || [])
+                    .filter(i => keywords.some(k => i.name.toLowerCase().includes(k)))
+                    .slice(0, 10)
+                    .map(i => ({ id: i.id, name: i.name, category: i.category }));
+
+                localCtx = { parties: filteredParties, items: filteredItems };
+            }
+
+            const ctx = localMode ? localCtx : {
+                parties: (data?.parties || []).slice(0, 400).map(p => ({ id: p.id, name: p.name })),
+                items: (data?.items || []).slice(0, 200).map(i => ({ id: i.id, name: i.name, sellPrice: i.sellPrice, category: i.category })),
+                openTasks: (data?.tasks || []).filter(t => t.status !== 'Done' && t.status !== 'Converted').slice(0, 50).map(t => {
+                    const party = (data?.parties || []).find(p => p.id === t.partyId);
+                    return { id: t.id, name: t.name, status: t.status, partyId: t.partyId, partyName: party?.name || '' };
+                })
+            };
+
             // --- STRICT MODE SELECTION ---
             if (localMode) {
-                if (!engine) throw new Error("Local AI (Gemma 4) is still loading. Please wait a moment.");
+                if (!engine) throw new Error("Local AI is still loading.");
                 
                 try {
                     const reply = await engine.chat.completions.create({
                         messages: [
-                            { role: "system", content: "You are JARVIS. Output ONLY JSON. No text before/after. Match names from context carefully." },
-                            { role: "user", content: `CONTEXT: ${JSON.stringify(ctx)}\n\nCOMMAND: "${text}"` }
-                        ]
+                            { role: "system", content: "You are JARVIS. Output JSON ONLY. Actions: CREATE_TASK, CREATE_TRANSACTION, VIEW_TASK, MODIFY_TASK." },
+                            { role: "user", content: `CTX: ${JSON.stringify(ctx)}\nCMD: "${text}"` }
+                        ],
+                        max_tokens: 1024,
+                        temperature: 0.1
                     });
                     const raw = reply.choices[0].message.content;
                     const parsed = JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim());
                     return { ...parsed, engineUsed: 'Gemma-4 (Local)' };
                 } catch (localErr) {
                     console.error("Local Engine Error:", localErr);
-                    throw new Error("Local AI Error: " + localErr.message + ". Try turning Local Mode OFF to use Cloud.");
+                    throw new Error("Local AI Error: " + localErr.message);
                 }
             }
 
