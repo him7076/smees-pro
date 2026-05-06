@@ -175,22 +175,27 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                 })
             };
 
-            // --- LOCAL MODE CHECK ---
-            if (localMode && engine) {
+            // --- STRICT MODE SELECTION ---
+            if (localMode) {
+                if (!engine) throw new Error("Local AI (Gemma 4) is still loading. Please wait a moment.");
+                
                 try {
                     const reply = await engine.chat.completions.create({
                         messages: [
-                            { role: "system", content: "You are JARVIS, an ERP assistant. Always output JSON for actions. Strictly follow context." },
+                            { role: "system", content: "You are JARVIS. Output ONLY JSON. No text before/after. Match names from context carefully." },
                             { role: "user", content: `CONTEXT: ${JSON.stringify(ctx)}\n\nCOMMAND: "${text}"` }
                         ]
                     });
                     const raw = reply.choices[0].message.content;
-                    return JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim());
+                    const parsed = JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim());
+                    return { ...parsed, engineUsed: 'Gemma-4 (Local)' };
                 } catch (localErr) {
-                    console.error("Local AI failed, falling back to Cloud:", localErr);
+                    console.error("Local Engine Error:", localErr);
+                    throw new Error("Local AI Error: " + localErr.message + ". Try turning Local Mode OFF to use Cloud.");
                 }
             }
 
+            // --- CLOUD ONLY (Gemini) ---
             const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
             if (!apiKey) throw new Error('Gemini API Key nahi mili. Please settings mein key check karein ya .env file check karein.');
 
@@ -400,7 +405,7 @@ COMMAND: "${text}"`;
                         <div>
                             <h3 className="font-black text-white leading-none mb-1 tracking-tight text-lg">J.A.R.V.I.S</h3>
                             <p className="text-[9px] font-black uppercase tracking-[0.25em]" style={{color: pendingAction ? '#f59e0b' : !data ? '#ef4444' : isProcessing ? '#f59e0b' : isListening ? '#22d3ee' : '#3b82f6'}}>
-                                {pendingAction ? '● CONFIRM?' : !data ? '● OFFLINE' : isProcessing ? '● THINKING' : isListening ? '● LISTENING' : '● ONLINE'}
+                                {pendingAction ? '● CONFIRM?' : !data ? '● OFFLINE' : isProcessing ? '● THINKING' : isListening ? '● LISTENING' : (localMode ? '● GEMMA 4 ACTIVE' : '● GEMINI ONLINE')}
                             </p>
                         </div>
                     </div>
