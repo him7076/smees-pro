@@ -1,6 +1,6 @@
 import React from 'react';
 import { RefreshCw, FileText, Settings, X, ChevronRight, ShieldCheck, Database, TrendingUp, Landmark, Plus, Building2 } from 'lucide-react';
-import { companyManager } from '../utils/companyManager';
+import { companyManager } from '../../utils/companyManager';
 
 const SystemMenu = ({ setModal, onClose, uiConfig = { aiEnabled: true }, setUiConfig }) => {
     const companies = companyManager.getCompanies();
