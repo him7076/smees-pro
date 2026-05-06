@@ -72,40 +72,39 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                 globalIsDownloading = true;
                 setIsDownloading(true);
                 try {
-                    const webLLM = await import('@mlc-ai/web-llm');
-                    const newEngine = new webLLM.MLCEngine();
-                    newEngine.setInitProgressCallback((report) => {
-                        const prog = Math.round(report.progress * 100);
-                        globalDownloadProgress = prog;
-                        setDownloadProgress(prog);
-                    });
-                    // Switching to Llama-3.2-1B: Ultra-lightweight and perfect for Nothing Phone (1)
-                    const chatConfig = {
-                        context_window_size: 1024,
-                        prefill_chunk_size: 128,
-                        temperature: 0.1,
-                        top_p: 0.95
-                    };
-
-                    await newEngine.reload("Llama-3.2-1B-Instruct-q4f16_1-MLC", chatConfig);
+                    const { CreateWebWorkerMLCEngine } = await import('@mlc-ai/web-llm');
                     
-                    // Device Lost Auto-Recovery Listener
-                    try {
-                        const gpuDevice = await newEngine.getDevice();
-                        gpuDevice.lost.then((info) => {
-                            if (info.reason !== 'destroyed') {
-                                console.warn("GPU Device Lost:", info.message);
-                                globalEngine = null;
-                                setEngine(null);
-                            }
-                        });
-                    } catch (dErr) { console.warn("Could not attach GPU monitor:", dErr); }
+                    // Create worker instance
+                    const worker = new Worker(
+                        new URL('../../services/aiWorker.js', import.meta.url),
+                        { type: 'module' }
+                    );
+
+                    const newEngine = await CreateWebWorkerMLCEngine(worker, "Llama-3.2-1B-Instruct-q4f16_1-MLC", {
+                        initProgressCallback: (report) => {
+                            const prog = Math.round(report.progress * 100);
+                            globalDownloadProgress = prog;
+                            setDownloadProgress(prog);
+                        },
+                        appConfig: {
+                            model_list: [
+                                {
+                                    model: "https://huggingface.co/mlc-ai/Llama-3.2-1B-Instruct-q4f16_1-MLC",
+                                    model_id: "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+                                    overrides: {
+                                        context_window_size: 1024,
+                                        prefill_chunk_size: 64 // Ultra-stable for mobile
+                                    }
+                                }
+                            ]
+                        }
+                    });
 
                     globalEngine = newEngine;
                     setEngine(newEngine);
                 } catch (e) {
                     console.error("Local AI Init Error:", e);
-                    alert("Local AI failed. Your device might not support WebGPU.");
+                    alert("Local AI failed. Device might not support WebGPU.");
                     setLocalMode(false);
                 } finally {
                     globalIsDownloading = false;
@@ -212,14 +211,14 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                 const filteredParties = (data?.parties || [])
                     .filter(p => keywords.some(k => p.name.toLowerCase().includes(k)))
                     .slice(0, 15)
-                    .map(p => ({ id: p.id, name: p.name }));
+                    .map(p => ({ i: p.id, n: p.name })); // Minified keys: i=id, n=name
                 
                 const filteredItems = (data?.items || [])
                     .filter(i => keywords.some(k => i.name.toLowerCase().includes(k)))
                     .slice(0, 10)
-                    .map(i => ({ id: i.id, name: i.name, category: i.category }));
+                    .map(i => ({ i: i.id, n: i.name, c: i.category })); // i=id, n=name, c=category
 
-                localCtx = { parties: filteredParties, items: filteredItems };
+                localCtx = { p: filteredParties, it: filteredItems }; // p=parties, it=items
             }
 
             const ctx = localMode ? localCtx : {
