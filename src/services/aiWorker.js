@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-globals */
 import { WebWorkerMLCEngineHandler } from "@mlc-ai/web-llm";
 
 /**
