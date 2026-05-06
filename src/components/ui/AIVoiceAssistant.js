@@ -79,8 +79,28 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                         globalDownloadProgress = prog;
                         setDownloadProgress(prog);
                     });
-                    // Using Gemma-2b for better mobile performance
-                    await newEngine.reload("gemma-2b-it-q4f16_1-MLC");
+                    // Apply Mobile Optimizations suggested by AI Expert
+                    const chatConfig = {
+                        context_window_size: 1024,
+                        prefill_chunk_size: 128,
+                        temperature: 0.1,
+                        top_p: 0.95
+                    };
+
+                    await newEngine.reload("gemma-2b-it-q4f16_1-MLC", chatConfig);
+                    
+                    // Device Lost Auto-Recovery Listener
+                    try {
+                        const gpuDevice = await newEngine.getDevice();
+                        gpuDevice.lost.then((info) => {
+                            if (info.reason !== 'destroyed') {
+                                console.warn("GPU Device Lost:", info.message);
+                                globalEngine = null;
+                                setEngine(null);
+                            }
+                        });
+                    } catch (dErr) { console.warn("Could not attach GPU monitor:", dErr); }
+
                     globalEngine = newEngine;
                     setEngine(newEngine);
                 } catch (e) {
