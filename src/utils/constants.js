@@ -8,6 +8,8 @@ export const INITIAL_DATA = {
   tasks: [],
   assets: [],
   workLogs: [],
+  bundles: [],
+  estimates: [],
   personalTasks: [],
   personalTransactions: [],
   personalAccounts: [],

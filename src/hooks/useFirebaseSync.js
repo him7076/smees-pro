@@ -68,7 +68,7 @@ export const useFirebaseSync = () => {
         }
         setSyncing(true);
         try {
-            const bizCollections = ['parties', 'items', 'staff', 'tasks', 'transactions', 'attendance', 'assets', 'workLogs'];
+            const bizCollections = ['parties', 'items', 'staff', 'tasks', 'transactions', 'attendance', 'assets', 'workLogs', 'bundles', 'estimates'];
             const personalCols = [
                 { key: 'personalTasks', col: 'tasks' },
                 { key: 'personalTransactions', col: 'transactions' },
