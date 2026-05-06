@@ -412,15 +412,25 @@ const BackupRestore = ({ data, setData, onClose }) => {
                         <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Restore 100% of data from a previously created JSON file</p>
                     </div>
                     
-                    <label className={`flex flex-col items-center justify-center w-full py-10 border-2 border-dashed border-slate-100 rounded-3xl cursor-pointer hover:bg-slate-50 transition-all active:scale-95 ${restoring ? 'pointer-events-none opacity-50' : ''}`}>
-                        <Upload size={32} className="text-slate-300 group-hover:text-blue-500 transition-colors mb-2"/>
-                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Click to Upload Backup</span>
-                        <input type="file" accept=".json" className="hidden" onChange={handleImportJSON} disabled={restoring} />
-                    </label>
+                    <div className="flex flex-col gap-3">
+                        <label className={`flex flex-col items-center justify-center w-full py-8 border-2 border-dashed border-slate-100 rounded-3xl cursor-pointer hover:bg-slate-50 transition-all active:scale-95 ${restoring ? 'pointer-events-none opacity-50' : ''}`}>
+                            <Upload size={32} className="text-slate-300 group-hover:text-rose-500 transition-colors mb-2"/>
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-center">Offline Restore (Safe Mode)</span>
+                            <input type="file" accept=".json" className="hidden" onChange={(e) => handleRestoreOffline(e, false)} disabled={restoring} />
+                        </label>
+
+                        <button 
+                            onClick={() => document.getElementById('new-profile-upload').click()}
+                            className="w-full py-4 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-[0.2em] hover:bg-indigo-100 transition-all"
+                        >
+                            <ShieldCheck size={18}/> Restore as New Profile
+                            <input id="new-profile-upload" type="file" accept=".json" className="hidden" onChange={(e) => handleRestoreOffline(e, true)} />
+                        </button>
+                    </div>
 
                     <div className="bg-rose-50 p-4 rounded-2xl flex items-start gap-4">
                         <AlertCircle className="text-rose-500 shrink-0" size={18}/>
-                        <p className="text-[8px] font-bold text-rose-600 uppercase tracking-wider leading-relaxed">Warning: Restoring will overwrite everything currently in your database. Ensure you have a current backup before proceeding.</p>
+                        <p className="text-[8px] font-bold text-rose-600 uppercase tracking-wider leading-relaxed">Safety Note: Offline restore will NOT sync to cloud. It stays 100% on this device until you manually sync.</p>
                     </div>
                 </div>
             </div>
