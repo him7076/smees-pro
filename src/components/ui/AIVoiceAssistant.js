@@ -166,14 +166,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             if (wait > 0) await new Promise(r => setTimeout(r, wait));
             lastGeminiCall = Date.now();
 
-            const ctx = {
-                parties: (data?.parties || []).slice(0, 400).map(p => ({ id: p.id, name: p.name })),
-                items: (data?.items || []).slice(0, 200).map(i => ({ id: i.id, name: i.name, sellPrice: i.sellPrice, category: i.category })),
-                openTasks: (data?.tasks || []).filter(t => t.status !== 'Done' && t.status !== 'Converted').slice(0, 50).map(t => {
-                    const party = (data?.parties || []).find(p => p.id === t.partyId);
-                    return { id: t.id, name: t.name, status: t.status, partyId: t.partyId, partyName: party?.name || '' };
-                })
-            };
+            // --- START AI REQUEST ---
 
             // --- SMART CONTEXT FILTERING (For Local Mode) ---
             let localCtx = null;
