@@ -121,7 +121,20 @@ const AppLayout = ({ children, user, uiConfig = { isCompact: false }, onToggleCo
                          <button onClick={() => setModal({ type: 'systemMenu' })} className="p-2 bg-slate-50 rounded-xl text-slate-400 active:scale-95 transition-all hover:bg-slate-100">
                              <Menu size={18}/>
                          </button>
-                         <h1 className="hidden sm:block text-[12px] font-black tracking-tight text-slate-900 leading-none">SMEES<span className="text-blue-600">PRO</span></h1>
+                         
+                         {/* Mobile Company Selector */}
+                         <div className="flex flex-col">
+                            <h1 className="text-[10px] font-black tracking-tight text-slate-900 leading-none mb-1">SMEES<span className="text-blue-600">PRO</span></h1>
+                            <select 
+                                value={activeCompId} 
+                                onChange={(e) => handleSwitchCompany(e.target.value)}
+                                className="bg-transparent border-none text-[9px] font-black text-blue-600 focus:ring-0 cursor-pointer appearance-none outline-none p-0"
+                            >
+                                {companies.map(c => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                            </select>
+                         </div>
                     </div>
 
 

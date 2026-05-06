@@ -389,9 +389,12 @@ const BackupRestore = ({ data, setData, onClose }) => {
                     await localDB.set(key, importedData);
                     alert(`✅ Data saved to NEW PROFILE: ${profileName}.`);
                 } else {
+                    const activeComp = localStorage.getItem('smees_active_comp') || 'default';
+                    const storageKey = `smees_data_${activeComp}`;
+                    
                     setData(importedData);
-                    await localDB.set('smees_data', importedData);
-                    localStorage.setItem('smees_data', JSON.stringify(importedData));
+                    await localDB.set(storageKey, importedData);
+                    localStorage.setItem(storageKey, JSON.stringify(importedData));
                 }
 
                 setProgress('100% — Loaded Offline');
