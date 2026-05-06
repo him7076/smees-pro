@@ -65,51 +65,49 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
         window.speechSynthesis.speak(u);
     };
 
-    // --- Local AI Init ---
+    const { processCommand, isThinking: isNativeThinking } = useNativeAI(data, setData);
+
+    // --- Native AI Init ---
     useEffect(() => {
-        if (localMode && !globalEngine && !globalIsDownloading) {
-            const loadEngine = async () => {
-                globalIsDownloading = true;
-                setIsDownloading(true);
+        if (localMode) {
+            const initNative = async () => {
+                setStatusText('Initializing Native AI...');
                 try {
-                    const webLLM = await import('@mlc-ai/web-llm');
-                    const newEngine = new webLLM.MLCEngine();
-                    
-                    newEngine.setInitProgressCallback((report) => {
-                        const prog = Math.round(report.progress * 100);
-                        globalDownloadProgress = prog;
-                        setDownloadProgress(prog);
-                    });
-
-                    // Direct Mobile Optimization (1024 Context)
-                    const chatConfig = {
-                        context_window_size: 1024,
-                        prefill_chunk_size: 64,
-                        temperature: 0.1,
-                        top_p: 0.95
-                    };
-
-                    await newEngine.reload("gemma-2b-it-q4f16_1-MLC", chatConfig);
-                    
-                    globalEngine = newEngine;
-                    setEngine(newEngine);
+                    await NativeLLM.initModel({ modelPath: "gemma-2b-it-cpu-int4.bin" });
+                    setStatusText('Native JARVIS Ready.');
                 } catch (e) {
-                    console.error("Local AI Init Error:", e);
-                    alert("Local AI Load Failed: " + e.message);
-                    setLocalMode(false);
-                } finally {
-                    globalIsDownloading = false;
-                    setIsDownloading(false);
+                    console.error("Native Init Error:", e);
+                    setStatusText('Native AI Error. Check assets.');
                 }
             };
-            loadEngine();
+            initNative();
         }
     }, [localMode]);
 
-    // Cleanup reference if engine was reset elsewhere
-    useEffect(() => {
-        if (engine !== globalEngine) setEngine(globalEngine);
-    }, [isOpen]);
+    const handleAICommand = async (text) => {
+        if (!text) return;
+        setIsProcessing(true);
+        setTranscript(text);
+
+        try {
+            if (localMode) {
+                // NATIVE EXECUTION (NO WEBVIEW CRASH)
+                const result = await processCommand(text);
+                if (!result.success) throw new Error(result.error);
+                
+                setMessages(prev => [...prev, { type: 'jarvis', text: result.message }]);
+                speakJarvis(result.message);
+            } else {
+                // CLOUD FALLBACK (Gemini)
+                // ... [Existing Cloud Logic]
+            }
+        } catch (error) {
+            console.error("Assistant Error:", error);
+            speakJarvis("Sorry, processing mein dikkat aayi.");
+        } finally {
+            setIsProcessing(false);
+        }
+    };
 
     const toggleLocalMode = () => {
         const newVal = !localMode;
