@@ -79,7 +79,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                         globalDownloadProgress = prog;
                         setDownloadProgress(prog);
                     });
-                    // Apply Mobile Optimizations suggested by AI Expert
+                    // Switching to Llama-3.2-1B: Ultra-lightweight and perfect for Nothing Phone (1)
                     const chatConfig = {
                         context_window_size: 1024,
                         prefill_chunk_size: 128,
@@ -87,7 +87,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                         top_p: 0.95
                     };
 
-                    await newEngine.reload("gemma-2b-it-q4f16_1-MLC", chatConfig);
+                    await newEngine.reload("Llama-3.2-1B-Instruct-q4f16_1-MLC", chatConfig);
                     
                     // Device Lost Auto-Recovery Listener
                     try {
