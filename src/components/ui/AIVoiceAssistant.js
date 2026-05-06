@@ -64,8 +64,8 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
             const loadEngine = async () => {
                 setIsDownloading(true);
                 try {
-                    const { MLCEngine } = await import('https://esm.run/@mlc-ai/web-llm');
-                    const newEngine = new MLCEngine();
+                    const webLLM = await import('@mlc-ai/web-llm');
+                    const newEngine = new webLLM.MLCEngine();
                     newEngine.setInitProgressCallback((report) => {
                         setDownloadProgress(Math.round(report.progress * 100));
                     });
