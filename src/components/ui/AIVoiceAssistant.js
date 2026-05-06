@@ -6,6 +6,11 @@ import { useDatabase } from '../../hooks/useDatabase';
 let lastGeminiCall = 0;
 let requestQueue = Promise.resolve();
 
+// Global Singleton for AI Engine to prevent reloading on every open
+let globalEngine = null;
+let globalDownloadProgress = 0;
+let globalIsDownloading = false;
+
 const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [isListening, setIsListening] = useState(false);
@@ -17,9 +22,11 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
     const [successMessage, setSuccessMessage] = useState('');
     const [lastCreatedRecord, setLastCreatedRecord] = useState(null);
     const [localMode, setLocalMode] = useState(localStorage.getItem('smees_ai_local') === 'true');
-    const [engine, setEngine] = useState(null);
-    const [downloadProgress, setDownloadProgress] = useState(0);
-    const [isDownloading, setIsDownloading] = useState(false);
+    
+    // Use local state but sync with global to trigger re-renders
+    const [engine, setEngine] = useState(globalEngine);
+    const [downloadProgress, setDownloadProgress] = useState(globalDownloadProgress);
+    const [isDownloading, setIsDownloading] = useState(globalIsDownloading);
     const [pendingAction, setPendingAction] = useState(null);
     const [isEditingText, setIsEditingText] = useState(false);
     const [editText, setEditText] = useState('');
@@ -60,29 +67,39 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
 
     // --- Local AI Init ---
     useEffect(() => {
-        if (localMode && !engine) {
+        if (localMode && !globalEngine && !globalIsDownloading) {
             const loadEngine = async () => {
+                globalIsDownloading = true;
                 setIsDownloading(true);
                 try {
                     const webLLM = await import('@mlc-ai/web-llm');
                     const newEngine = new webLLM.MLCEngine();
                     newEngine.setInitProgressCallback((report) => {
-                        setDownloadProgress(Math.round(report.progress * 100));
+                        const prog = Math.round(report.progress * 100);
+                        globalDownloadProgress = prog;
+                        setDownloadProgress(prog);
                     });
                     // Using Gemma-2b for better mobile performance
                     await newEngine.reload("gemma-2b-it-q4f16_1-MLC");
+                    globalEngine = newEngine;
                     setEngine(newEngine);
                 } catch (e) {
                     console.error("Local AI Init Error:", e);
                     alert("Local AI failed. Your device might not support WebGPU.");
                     setLocalMode(false);
                 } finally {
+                    globalIsDownloading = false;
                     setIsDownloading(false);
                 }
             };
             loadEngine();
         }
     }, [localMode]);
+
+    // Cleanup reference if engine was reset elsewhere
+    useEffect(() => {
+        if (engine !== globalEngine) setEngine(globalEngine);
+    }, [isOpen]);
 
     const toggleLocalMode = () => {
         const newVal = !localMode;
@@ -215,6 +232,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                     
                     // IF GPU ERROR, RESET ENGINE
                     if (localErr.message.includes("Instance") || localErr.message.includes("GPU")) {
+                        globalEngine = null;
                         setEngine(null); // This triggers useEffect to reload
                         throw new Error("Phone ne AI connection tod diya. Maine reset kar diya hai, dobara bolein.");
                     }
