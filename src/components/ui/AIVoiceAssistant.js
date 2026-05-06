@@ -162,8 +162,8 @@ ${JSON.stringify(ctx)}
 COMMAND: "${text}"`;
 
             // Try primary model, fallback to lite if rate limited
-            // Use only the most stable and widely available models to avoid "Not Available" errors
-            const models = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash-lite'];
+            // Using Latest Gen 3 Models available in May 2026
+            const models = ['gemini-3-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro'];
             let lastError = null;
 
             for (const model of models) {
