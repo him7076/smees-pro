@@ -74,11 +74,14 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                 try {
                     const { CreateWebWorkerMLCEngine } = await import('@mlc-ai/web-llm');
                     
-                    // Create worker instance
-                    const worker = new Worker(
-                        new URL('../../services/aiWorker.js', import.meta.url),
-                        { type: 'module' }
-                    );
+                    // Create Worker via Blob to avoid path issues on Vercel
+                    const workerCode = `
+                        import { WebWorkerMLCEngineHandler } from "https://esm.run/@mlc-ai/web-llm";
+                        const handler = new WebWorkerMLCEngineHandler();
+                        self.onmessage = (msg) => handler.onmessage(msg);
+                    `;
+                    const blob = new Blob([workerCode], { type: 'application/javascript' });
+                    const worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
 
                     const newEngine = await CreateWebWorkerMLCEngine(worker, "gemma-2b-it-q4f16_1-MLC", {
                         initProgressCallback: (report) => {
@@ -104,7 +107,7 @@ const AIVoiceAssistant = ({ data, setData, setViewDetail }) => {
                     setEngine(newEngine);
                 } catch (e) {
                     console.error("Local AI Init Error:", e);
-                    alert("Local AI failed. Device might not support WebGPU.");
+                    alert("Local AI Load Failed: " + e.message);
                     setLocalMode(false);
                 } finally {
                     globalIsDownloading = false;
